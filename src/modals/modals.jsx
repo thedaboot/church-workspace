@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { CheckSquare, X, Trash2, Check, Maximize2, Minimize2, PanelRight, PanelRightClose, Loader2 } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, isMobileViewport, taskEditDirty, taskChangedKeys, toggleTodoLine } from '../utils.js';
+import { formatDate, isMobileViewport, taskEditDirty, taskChangedKeys, toggleTodoLine, imeComposing } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectProjectsMap } from '../store/selectors.js';
 import { parseActionItems, stripActionSection, writeActionSection } from '../services/actionItems.js';
@@ -9,6 +9,8 @@ import { useCoedit, CoeditFaces, VersionPanel, VersionDiffView, useCoeditFaces, 
 import { RichText } from '../components/RichText.jsx';
 import { AttachmentSection, PendingAttachments, startUploads } from './attachments.jsx';
 import { CommentPanel, ActivityPanel, CommentInput } from './comments.jsx';
+import { peekTaskFocus, clearTaskFocus, noteTaskOpen, findFocusComment, wantsComments, scrollBoxTo } from './taskFocus.js';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { DependsViewRow, TaskProps, TitleField } from './taskFields.jsx';
 import { ActionItems, SubtaskList } from './taskLists.jsx';
 import { useTaskSummary, usePolish, BodyHead } from './taskSummary.jsx';
@@ -106,8 +108,12 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   const userId = session?.user?.id;
   const isNew = !task.id;
   const [formData, setFormData] = useState(task);   // 새 업무 폼만 쓴다
+  // 알림·검색이 '이 댓글을 보며 열어라'를 적어 두었으면(taskFocus.js) 그 댓글로 연다 — 아래 '댓글로 열기'
+  const [focus, setFocus] = useState(() => peekTaskFocus(task.id));
+  const [focusCard, setFocusCard] = useState(task.id);
+  if (focusCard !== task.id) { setFocusCard(task.id); setFocus(peekTaskFocus(task.id)); }
   const [activeTab, setActiveTab] = useState('comments'); // 데스크톱 우측 사이드바 탭
-  const [mobileTab, setMobileTab] = useState('detail');    // 모바일 세그먼트 탭
+  const [mobileTab, setMobileTab] = useState(() => (wantsComments(focus) ? 'comments' : 'detail'));    // 모바일 세그먼트 탭
   // 데스크톱 전체 화면 — 본문이 긴 업무를 창 크기(max-w-5xl · 85dvh)에 갇혀 읽는
   // 불편이 있었다. 모바일은 이미 풀스크린이라 버튼을 두지 않는다.
   const [expanded, setExpanded] = useState(false);
@@ -160,6 +166,45 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   }, [cmtShown, detailLoading, source.comments]);
   const onCmtScroll = (e) => { const el = e.currentTarget; cmtPin.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; };
   const addComment = (text) => { cmtPin.current = true; onAddComment(text); };
+
+  // ── 댓글로 열기 (UX 다듬기 α · 2026-10-15 · PITFALLS 54-d) ─────────────────────────────
+  // 멘션·답글·반응 알림과 댓글에 걸린 검색 결과는 그 댓글을 보며 연다 — 예전에는 늘 상세 탭으로 열려 댓글을 손으로 찾았다.
+  // 폰은 댓글 탭, 데스크톱은 댓글·활동 칸을 편다(접어 두었어도 · 접은 기억은 그대로). 그 댓글을 칸 가운데쯤으로 굴려(앱 곡선 ·
+  // 움직임 줄이기면 바로) 잠깐 밝힌다. 멘션은 본문 멘션일 수도 있어서 댓글을 찾았을 때만 댓글로 간다(못 찾으면 상세 그대로).
+  // 클라우드는 댓글이 창을 연 뒤에 오므로(§6-20) 찾을 때까지 기다린다. 굴리기는 위 '바닥에 붙이기'보다 **뒤에** 선언한다 —
+  // 같은 커밋에서 바닥으로 내린 뒤 이 자리로 온다(그리고 바닥 붙이기를 푼다).
+  useEffect(() => { if (focus) clearTaskFocus(task.id); }, [focus, task.id]);
+  const focusTarget = useMemo(() => (focus ? findFocusComment(source.comments, focus) : null), [focus, source.comments]);
+  const toComments = !!focus && !closed && (wantsComments(focus) || !!focusTarget);
+  useEffect(() => {
+    if (!toComments) return;
+    if (isMobile) setMobileTab('comments');
+    else { setActiveTab('comments'); setSideOpen(true); }
+  }, [toComments, isMobile]);
+  const [flashId, setFlashId] = useState(null);
+  const focusDone = useRef(null);
+  useLayoutEffect(() => {
+    const box = cmtBox.current;
+    if (!focusTarget || focusDone.current === focusTarget || !cmtShown || !box) return;
+    const el = [...box.querySelectorAll('[data-comment-id]')].find(n => n.getAttribute('data-comment-id') === focusTarget);
+    if (!el) return;
+    focusDone.current = focusTarget;
+    cmtPin.current = false;
+    const b = box.getBoundingClientRect(), r = el.getBoundingClientRect();
+    scrollBoxTo(box, box.scrollTop + (r.top - b.top) - Math.max(12, (box.clientHeight - r.height) / 2), { reduce: prefersReducedMotion() });
+    setFlashId(focusTarget);
+  }, [focusTarget, cmtShown, source.comments]);
+  useEffect(() => {
+    if (!flashId) return undefined;
+    const t = setTimeout(() => setFlashId(null), 1600);
+    return () => clearTimeout(t);
+  }, [flashId]);
+  // 지금 열린 업무를 알린다 — 알림 종이 이 업무의 안 읽은 알림을 읽음으로 하고, 이 업무에 오는 새 알림은 토스트 없이 둔다
+  useEffect(() => {
+    if (!task.id) return undefined;
+    noteTaskOpen(task.id);
+    return () => noteTaskOpen(null);
+  }, [task.id]);
 
   // 삭제 노출 조건: 저장된 카드 + (게스트=작성자 본인 / 클라우드=작성자 본인 또는 관리자)
   // isMyUid = 세션 uid와 남긴 계정 id를 **둘 다** 내 것으로 본다(0063 · §6-34-i) —
@@ -419,6 +464,21 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
     const saved = onSave(formData, null);
     if (cloudMode && saved?.id && pendingFiles.length) uploadPending(saved);
   };
+  // 새 업무 폼의 Ctrl/⌘+Enter = `만들기`(UX 다듬기 α · 2026-10-15) — 본문 편집기 안은 건드리지 않는다(편집기의 Mod-Enter는 편집기 것).
+  // 제목 칸의 Enter는 본문으로 넘어간다(TaskEditor).
+  const createNow = useRef(handleCreate);
+  createNow.current = handleCreate;
+  useEffect(() => {
+    if (!isNew) return undefined;
+    const onKey = (e) => {
+      if (imeComposing(e)) return;
+      if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.defaultPrevented || e.target?.isContentEditable) return;
+      e.preventDefault();
+      createNow.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isNew]);
   const commentCount = (source.comments || []).filter(c => !c.parentId).length;
   const metaLine = [
     source.author && `작성: ${source.author}`,
@@ -536,11 +596,13 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   // 잠금 판이 서 있으면 댓글·활동·버전 기록 자리는 비운다 — 사이드바는 접히고(데스크톱) 탭은 상세 하나(폰). 판은 본문 자리 하나뿐이다.
   const commentsPanel = listsReady && !closed
     /* members: 답글 입력창도 댓글 입력창과 같은 @멘션 자동완성을 쓴다 */
-    ? <CommentPanel comments={source.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} loading={detailLoading} members={members} />
+    // key: 업무마다 새로 선다 — 답글 초안·'이전 댓글 더 보기'가 다른 업무로 따라가지 않게(초안은 업무 열쇠로 남는다)
+    ? <CommentPanel key={task.id} cardId={task.id} comments={source.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} loading={detailLoading} members={members}
+        focusId={focusTarget} flashId={flashId} />
     : null;
   const activityPanel = listsReady && !closed ? <ActivityPanel logs={source.activityLog} loading={detailLoading} /> : null;
   const versionsPanel = showVersions && !closed ? <VersionPanel cardId={task.id} pickedId={diffPick?.version.id} onPick={pickVersion} refreshKey={versionsKey} load={cloudMode ? null : fake?.versions} /> : null;
-  const commentInputEl = closed ? null : <CommentInput onAdd={addComment} members={members} />;
+  const commentInputEl = closed ? null : <CommentInput key={task.id} cardId={task.id} onAdd={addComment} members={members} />;
   const sideShown = sideOpen && !closed;
 
   // ── 모바일: 풀스크린 + 세그먼트 탭 ──
@@ -674,10 +736,19 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
     context: () => formData,
   });
 
+  // 제목 칸의 Enter는 본문으로(UX 다듬기 α · 2026-10-15) — 예전에는 아무 일도 없었다. 편집기를 받는 중(뼈대)이면 그대로 둔다.
+  const formRef = useRef(null);
+  const toBody = (e) => {
+    if (imeComposing(e)) return;
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    formRef.current?.querySelector('[contenteditable="true"]')?.focus();
+  };
+
   return (
-    <form className="space-y-4" onSubmit={e => e.preventDefault()}>
+    <form ref={formRef} className="space-y-4" onSubmit={e => e.preventDefault()}>
       {/* 모바일은 autoFocus 금지 — 열자마자 키보드가 화면 절반을 덮는다 */}
-      <input ref={titleRef} type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" aria-label="업무 제목 입력" className="w-full text-xl md:text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus={!isMobileViewport()} />
+      <input ref={titleRef} type="text" name="title" value={formData.title || ''} onChange={handleChange} onKeyDown={toBody} placeholder="업무 제목 입력" aria-label="업무 제목 입력" className="w-full text-xl md:text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus={!isMobileViewport()} />
 
       <TaskProps data={formData} set={set} members={members} />
 

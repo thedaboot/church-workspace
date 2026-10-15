@@ -158,11 +158,59 @@ function ReactionPeopleModal({ kind, people, onClose }) {
   );
 }
 
+// ── 쓰던 댓글·답글 (UX 다듬기 α · 2026-10-15 · PITFALLS 54-c) ─────────────────────────────
+// 댓글 입력 칸은 댓글 탭에만 서서 탭을 옮기면 내려가고(폰 · 데스크톱 사이드바 탭), 답글 초안은 목록(CommentPanel)의
+// state였다 — 탭을 옮기거나 창을 닫았다 열면 쓰던 글이 말없이 사라졌다. 초안을 **모듈의 표**(업무 id 열쇠 · 이 탭의 수명)에
+// 둔다. 등록하면 지운다. 브라우저 저장소에는 두지 않는다(창을 닫고 며칠 뒤에 열린 글이 남아 있으면 그게 더 놀랍다).
+const drafts = new Map();   // 업무 id → { comment: '…', replies: { [원 댓글 id]: '…' } }
+const draftOf = (cardId) => drafts.get(cardId) || { comment: '', replies: {} };
+const keepDraft = (cardId, patch) => {
+  if (!cardId) return;
+  const next = { ...draftOf(cardId), ...patch };
+  const replies = Object.fromEntries(Object.entries(next.replies || {}).filter(([, v]) => v));
+  if (!next.comment && !Object.keys(replies).length) drafts.delete(cardId);
+  else drafts.set(cardId, { comment: next.comment || '', replies });
+};
+
+// ── 글에 맞춰 자라는 칸 (UX 다듬기 α · 2026-10-15) ─────────────────────────────
+// 댓글·답글·댓글 수정 칸이 늘 h-14(세 줄 남짓)라 긴 글은 칸 안에서 굴려 가며 써야 했다. 글줄을 따라 자라고
+// 여섯 줄을 넘으면 그때부터 칸 안에서 구른다. 최소 높이는 예전 그대로(min-h-14). 높이를 다시 잴 때 칸을 잠깐 'auto'로
+// 줄이는데, 그 순간 든 통(댓글 목록)이 짧아져 바닥에서 읽던 자리가 끌려 올라가지 않게 통의 scrollTop을 지켜 둔다.
+// 폰 키보드 위 커서 따라가기(App.jsx · selectionchange)는 칸이 자라도 그대로 돈다(PITFALLS 47-a).
+export const GROW_LINES = 6;
+export function useAutoGrow(value) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    const px = (v) => parseFloat(v) || 0;
+    const line = px(cs.lineHeight) || px(cs.fontSize) * 1.4 || 16;
+    const border = px(cs.borderTopWidth) + px(cs.borderBottomWidth);
+    const max = Math.round(line * GROW_LINES + px(cs.paddingTop) + px(cs.paddingBottom) + border);
+    const box = el.closest('.overflow-y-auto');
+    const keep = box ? box.scrollTop : 0;
+    el.style.height = 'auto';
+    const want = el.scrollHeight + border;
+    el.style.height = `${Math.min(want, max)}px`;
+    el.style.overflowY = want > max ? 'auto' : 'hidden';
+    if (box) box.scrollTop = keep;
+  }, [value]);
+  return ref;
+}
+
+// 알림·검색으로 연 댓글을 잠깐 밝힌다(modals.jsx가 flash로 고른다). 자리는 그대로 — 배경과 같은 색 그림자로 둘레를 넓혀
+// 줄 간격을 건드리지 않는다. 걷힐 때는 앱 곡선으로 천천히, 움직임 줄이기면 바로.
+const FLASH_ON = { backgroundColor: 'var(--color-accent-weak)', boxShadow: '0 0 0 6px var(--color-accent-weak)', borderRadius: '6px' };
+const flashStyle = (on) => (on ? FLASH_ON : prefersReducedMotion() ? null
+  : { transition: 'background-color .9s var(--ease-out-quint), box-shadow .9s var(--ease-out-quint)', borderRadius: '6px' });
+
 // 노션 스타일 플랫 댓글: 아바타 + 이름·시간 + 본문, 카드 대신 헤어라인 구분
 // 작성자 본인일 때만 수정(인라인 textarea)·삭제(인라인 확인) 노출
-const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions, myKey, onToggleReaction, onOpenReaction }) => {
+const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions, myKey, onToggleReaction, onOpenReaction, flash = false }) => {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(c.text);
+  const editRef = useAutoGrow(editing ? editText : null);
   const isOwner = c.author === currentUser?.name;
 
   const saveEdit = () => {
@@ -172,7 +220,7 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
   };
 
   return (
-    <div className="flex items-start gap-2.5 group/comment">
+    <div data-comment-id={c.id} data-flash={flash ? '' : undefined} style={flashStyle(flash) || undefined} className="flex items-start gap-2.5 group/comment">
       <Avatar name={c.author || ''} className="flex w-6 h-6 text-[10px] mt-0.5" />
       <div className="flex-1 min-w-0">
         {/* 시각과 '수정됨'은 **꺾이지 않는 한 덩어리**다(2026-09-28 사용자 지적 — 좁은 칸에서 '9월 25일 오후 / 07:39'로
@@ -197,9 +245,10 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
              연필을 누른 사람이 나올 길 없이 갇혔다. 취소가 왼쪽·저장이 오른쪽(§8). */
           <>
             <textarea
+              ref={editRef}
               autoFocus value={editText} onChange={e => setEditText(e.target.value)} aria-label="댓글 수정"
               onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && !e.shiftKey && !coarsePointer()) { e.preventDefault(); saveEdit(); } if (e.key === 'Escape') setEditing(false); }}
-              className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg resize-none h-14 focus:border-accent focus:shadow-soft outline-none transition-all"
+              className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg resize-none min-h-14 focus:border-accent focus:shadow-soft outline-none transition-[border-color,box-shadow]"
             />
             <div className="flex justify-end items-center gap-1.5 mt-1.5">
               <button type="button" onClick={() => setEditing(false)}
@@ -288,12 +337,14 @@ const revealReply = (el) => {
   el.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
 };
 
-export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onDelete, loading = false, members = [] }) => {
+// cardId — 초안 표의 열쇠(위 '쓰던 댓글·답글'). focusId·flashId — 알림·검색으로 연 댓글(modals.jsx): focusId가 접힌
+// '이전 댓글' 안이면 펴서 그리고, flashId인 댓글을 잠깐 밝힌다.
+export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser, onUpdate, onDelete, loading = false, members = [], focusId = null, flashId = null }) => {
   const [replyingTo, setReplyingTo] = useState(null);
   // 초안은 **원 댓글별로** 들고 있는다. 하나의 replyText 하나였을 때는 답글을 쓰다가
   // 다른 댓글의 '답글'을 누르면 쓰던 글이 말없이 사라졌다(§8 — 사람이 쓴 것을
-  // 잃게 하지 않는다). 창을 닫을 때까지만 남는 로컬 state다.
-  const [replyDrafts, setReplyDrafts] = useState({});   // { [parentId]: '작성 중인 글' }
+  // 잃게 하지 않는다). 탭을 옮기거나 창을 닫았다 열어도 남게 모듈 표(drafts)에도 적는다.
+  const [replyDrafts, setReplyDrafts] = useState(() => draftOf(cardId).replies);   // { [parentId]: '작성 중인 글' }
   const [showAll, setShowAll] = useState(false);
   const all = comments || [];
   // '이전 댓글 더 보기'는 위에 끼워 넣는다 — 바닥에서의 거리를 지켜 보던 댓글이 그 자리에 남게 한다
@@ -381,11 +432,19 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
   }, [all]);
   const getReplies = (id) => repliesByParent.get(id) || [];
 
-  // 최신 댓글이 아래쪽이므로 뒤에서 N개만 노출
-  const hiddenCount = showAll ? 0 : Math.max(0, allTopLevel.length - INITIAL_COMMENTS);
+  // 최신 댓글이 아래쪽이므로 뒤에서 N개만 노출 — 보여 줄 댓글(focusId)이 접힌 쪽에 있으면 다 편다
+  const focusTop = focusId ? (all.find(c => c.id === focusId)?.parentId || focusId) : null;
+  const focusFolded = !!focusTop && !allTopLevel.slice(-INITIAL_COMMENTS).some(c => c.id === focusTop);
+  const hiddenCount = showAll || focusFolded ? 0 : Math.max(0, allTopLevel.length - INITIAL_COMMENTS);
   const topLevel = hiddenCount > 0 ? allTopLevel.slice(-INITIAL_COMMENTS) : allTopLevel;
 
-  const setDraft = (parentId, text) => setReplyDrafts(prev => ({ ...prev, [parentId]: text }));
+  const setDraft = (parentId, text) => setReplyDrafts(prev => {
+    const next = { ...prev, [parentId]: text };
+    keepDraft(cardId, { replies: next });
+    return next;
+  });
+  // 열린 답글 칸 하나가 글을 따라 자란다(답글 칸은 한 번에 하나만 열린다)
+  const replyGrowRef = useAutoGrow(replyingTo ? `${replyingTo}\n${replyDrafts[replyingTo] || ''}` : null);
   const submitReply = (parentId) => {
     const text = (replyDrafts[parentId] || '').trim();
     if (!text) return;
@@ -418,7 +477,7 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
       {topLevel.map(c => (
         <div key={c.id} className="py-3 first:pt-0 animate-in fade-in duration-200">
           <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} hasReplies={getReplies(c.id).length > 0}
-            reactions={reactionsOf(c)} myKey={me.userId} onToggleReaction={toggleFor}
+            reactions={reactionsOf(c)} myKey={me.userId} onToggleReaction={toggleFor} flash={flashId === c.id}
             onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })} />
           {/* 답글 버튼은 **언제나 보인다.** 예전에는 데스크톱에서 hover해야 나타났는데,
               그러면 답글이라는 기능 자체가 마우스를 올려 본 사람에게만 있다(§8).
@@ -439,7 +498,7 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
               {getReplies(c.id).map(r => (
                 <div key={r.id} className="animate-in fade-in duration-200">
                   <CommentBody c={r} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete}
-                    reactions={reactionsOf(r)} myKey={me.userId} onToggleReaction={toggleFor}
+                    reactions={reactionsOf(r)} myKey={me.userId} onToggleReaction={toggleFor} flash={flashId === r.id}
                     onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })} />
                 </div>
               ))}
@@ -463,9 +522,9 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
                   </p>
                   <MentionInput
                     as="textarea" value={replyDrafts[c.id] || ''} onChange={(v) => setDraft(c.id, v)}
-                    members={members} autoFocus={!isMobileViewport()}
+                    members={members} autoFocus={!isMobileViewport()} elementRef={replyGrowRef}
                     placeholder="@이름 으로 멘션..."
-                    className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg placeholder:text-fg-faint resize-none h-14 focus:border-accent focus:shadow-soft outline-none transition-all"
+                    className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg placeholder:text-fg-faint resize-none min-h-14 focus:border-accent focus:shadow-soft outline-none transition-[border-color,box-shadow]"
                     onKeyDown={e => {
                       if (imeComposing(e)) return;
                       // 댓글 입력과 같다 — Enter는 등록, Shift+Enter는 줄바꿈(손가락 기기는 Enter가 줄바꿈 · 아래 CommentInput)
@@ -548,16 +607,19 @@ export const ActivityPanel = React.memo(({ logs, loading = false }) => {
   );
 });
 
-export const CommentInput = ({ onAdd, members = [] }) => {
-  const [val, setVal] = useState('');
-  const submit = () => { if (val.trim()) { onAdd(val); setVal(''); } };
+// cardId — 쓰던 글을 업무마다 남긴다(위 '쓰던 댓글·답글'). 부르는 쪽이 업무마다 key를 준다.
+export const CommentInput = ({ cardId, onAdd, members = [] }) => {
+  const [val, setVal] = useState(() => draftOf(cardId).comment);
+  const growRef = useAutoGrow(val);
+  const change = (v) => { setVal(v); keepDraft(cardId, { comment: v }); };
+  const submit = () => { if (val.trim()) { onAdd(val); change(''); } };
 
   return (
     <div className="cmt-input p-3 bg-surface border-t border-line shrink-0 relative">
       <MentionInput
-        as="textarea" value={val} onChange={setVal} members={members} dropUp
+        as="textarea" value={val} onChange={change} members={members} dropUp elementRef={growRef}
         placeholder="@이름 으로 멘션..."
-        className="w-full text-xs border border-line rounded-xs p-2 focus:ring-2 focus:ring-accent outline-none resize-none h-14 bg-surface text-fg placeholder:text-fg-faint"
+        className="w-full text-xs border border-line rounded-xs p-2 focus:ring-2 focus:ring-accent outline-none resize-none min-h-14 bg-surface text-fg placeholder:text-fg-faint"
         // **손가락 기기에서는 Enter가 줄바꿈이다**(2026-09-25 감사 9) — 폰 키보드에는 Shift+Enter가
         // 없어서 Enter가 곧 등록이면 댓글·답글·댓글 수정에서 줄을 바꿀 길이 없었다. 등록은
         // 옆의 버튼이 한다(세 칸 모두 버튼이 있다). 마우스·트랙패드 기기는 예전 그대로다.

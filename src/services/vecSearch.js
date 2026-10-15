@@ -82,14 +82,16 @@ export function relatedTasks(rows, { tasksById = {}, exclude = new Set(), limit 
     if (!task) continue;
     const excerpt = docExcerpt(r);
     const kind = RELATED_KIND_LABEL[r.kind] ? r.kind : 'card';
+    // 댓글 조각이면 그 댓글 id도 싣는다 — 고르면 업무 창이 그 댓글을 보며 연다(searchBox · modals/taskFocus.js)
+    const commentId = kind === 'comment' ? (r.comment_id || null) : null;
     if (at.has(id)) {
       const cur = out[at.get(id)];
-      if (!cur.excerpt && excerpt) Object.assign(cur, { kind, excerpt });
+      if (!cur.excerpt && excerpt) Object.assign(cur, { kind, excerpt, commentId });
       continue;
     }
     if (out.length >= limit) continue;   // 이미 찼으면 새 업무는 안 받는다(빈 발췌 빌리기는 계속)
     at.set(id, out.length);
-    out.push({ task, kind, excerpt, score: r.score ?? null });
+    out.push({ task, kind, excerpt, commentId, score: r.score ?? null });
   }
   return out;
 }

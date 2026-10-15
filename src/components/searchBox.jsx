@@ -11,6 +11,7 @@ import { useReducedMotion } from '../hooks/useReducedMotion.js';
 import { Skeleton } from './media.jsx';
 import { semanticOn, matchDocs, peekDocs } from '../services/semantic.js';
 import { relatedKey, relatedReady, relatedTasks, RELATED_KIND_LABEL, RELATED_DEBOUNCE_MS } from '../services/vecSearch.js';
+import { setTaskFocus } from '../modals/taskFocus.js';
 
 // ============================================================================
 // 통합 검색 — 데스크톱 상단의 인라인 칸 + 결과 판(body 포털 · z-[80]) · 폰 상단바의 아이콘 + 전체 판(body 포털 · z-50).
@@ -161,18 +162,22 @@ function SearchResults({ query, onPick }) {
     // 그래도 없는 것보다 낫고, 게스트·최근에 연 카드에서는 온전히 잡힌다.
     // 나에게 잠긴 업무(0099)는 제목·담당·팀으로만 — 클라우드는 본문·댓글·첨부가 애초에 안 온다(RLS · card_secrets),
     // 게스트는 들고 있으니 여기서 거른다(같은 흐름)
-    const taskHits = tasksList.filter(t => isCardClosed(t)
-      ? hit(t.title) || (t.assignees || []).some(hit) || (t.teams || []).some(hit)
-      : hit(t.title) || hit(t.content) ||
-      (t.assignees || []).some(hit) ||
-      (t.teams || []).some(hit) ||
-      // 첨부는 이름뿐 아니라 **안에 든 글자**도 본다(files.text_excerpt, 0030).
-      // "야식 찬조"로 결산 엑셀이 잡힌다. 백필한 사진에는 Gemini 캡션([사진] 접두)이 있어
-      // 그 글로도 잡힌다 · 새로 올리는 사진에는 캡션이 생기지 않아 이름으로만 잡힌다.
-      (t.attachments || []).some(a => (typeof a === 'string' ? hit(a) : (hit(a?.name) || hit(a?.text_excerpt)))) ||
-      (t.comments || []).some(c => hit(c?.text))
-    );
-    return { projectHits, taskHits };
+    // **댓글에만 걸린 업무는 그 댓글을 기억한다**(viaComment · UX 다듬기 α 2026-10-15) — 고르면 그 댓글을 보며 연다(taskFocus).
+    const viaComment = new Map();
+    const taskHits = tasksList.filter(t => {
+      if (isCardClosed(t)) return hit(t.title) || (t.assignees || []).some(hit) || (t.teams || []).some(hit);
+      if (hit(t.title) || hit(t.content) ||
+        (t.assignees || []).some(hit) ||
+        (t.teams || []).some(hit) ||
+        // 첨부는 이름뿐 아니라 **안에 든 글자**도 본다(files.text_excerpt, 0030).
+        // "야식 찬조"로 결산 엑셀이 잡힌다. 백필한 사진에는 Gemini 캡션([사진] 접두)이 있어
+        // 그 글로도 잡힌다 · 새로 올리는 사진에는 캡션이 생기지 않아 이름으로만 잡힌다.
+        (t.attachments || []).some(a => (typeof a === 'string' ? hit(a) : (hit(a?.name) || hit(a?.text_excerpt))))) return true;
+      const c = [...(t.comments || [])].reverse().find(x => hit(x?.text));   // 가장 최근 것
+      if (c?.id) viaComment.set(t.id, c.id);
+      return !!c;
+    });
+    return { projectHits, taskHits, viaComment };
   }, [deferred, projectsList, tasksList]);
 
   const pShown = results ? results.projectHits.slice(0, SEARCH_LIMIT) : [];
@@ -218,7 +223,7 @@ function SearchResults({ query, onPick }) {
           <div>
             <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">업무</p>
             {tShown.map(t => (
-              <button key={t.id} onClick={() => onPick('task', t)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
+              <button key={t.id} onClick={() => onPick('task', t, results.viaComment.has(t.id) ? { kind: 'comment', commentId: results.viaComment.get(t.id) } : null)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
                 <span className="w-6 h-6 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={13} strokeWidth={1.75} /></span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm text-fg truncate">{highlight(t.title, q)}</span>
@@ -233,10 +238,12 @@ function SearchResults({ query, onPick }) {
       {showRelated && (
         <div className="search-related mt-1" aria-busy={related.loading || undefined}>
           <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">관련된 업무 내용</p>
-          {related.loading ? <><RelatedSkeleton /><RelatedSkeleton /></> : relatedRows.map(({ task, kind, excerpt }) => {
+          {related.loading ? <><RelatedSkeleton /><RelatedSkeleton /></> : relatedRows.map(({ task, kind, excerpt, commentId }) => {
             const { Icon, cls } = RELATED_ICON[kind] || RELATED_ICON.card;
+            // 댓글 조각에 걸린 줄은 그 댓글을 보며 연다(조각의 댓글 id가 없으면 발췌로 찾는다 · taskFocus.findFocusComment)
+            const focus = kind === 'comment' ? { kind: 'comment', commentId: commentId || null, preview: commentId ? '' : excerpt } : null;
             return (
-              <button key={task.id} onClick={() => onPick('task', task)} data-kind={kind}
+              <button key={task.id} onClick={() => onPick('task', task, focus)} data-kind={kind}
                 className="search-related-row w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
                 <span className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${cls}`}><Icon size={13} strokeWidth={1.75} /></span>
                 <span className="flex-1 min-w-0">
@@ -295,7 +302,11 @@ export function SearchBox({ onSearchSelect, variant = 'inline' }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [mobileOpen]);
 
-  const pick = (kind, item) => { onSearchSelect(kind, item); setOpen(false); setMobileOpen(false); reset(); };
+  // focus — 댓글에 걸린 업무면 그 댓글을 보며 연다(App을 거치지 않는 통로 · modals/taskFocus.js). 업무 창보다 먼저 적어 둔다.
+  const pick = (kind, item, focus = null) => {
+    if (kind === 'task') setTaskFocus(item.id, focus);
+    onSearchSelect(kind, item); setOpen(false); setMobileOpen(false); reset();
+  };
 
   // ── 키보드로 결과 고르기 (데스크톱 · 2026-09-25) ──────────────────────────
   // 결과 판이 body 포털이라 **Tab으로는 닿지 않는다**(DOM 순서가 문서 맨 끝이다) — 키보드로는
@@ -310,6 +321,26 @@ export function SearchBox({ onSearchSelect, variant = 'inline' }) {
       if (first) { e.preventDefault(); first.focus(); }
     }
   };
+  // '/' = 찾기 칸으로(데스크톱 · UX 다듬기 α 2026-10-15) — 글을 쓰는 칸 밖에서만. 칸이 가려져 있으면(업무 창의 딤 등
+  // 무언가 위에 떠 있으면) 건드리지 않는다 — 가려진 칸에 초점이 가면 보이지 않는 곳에 글자가 쳐진다.
+  useEffect(() => {
+    if (variant !== 'inline') return undefined;
+    const onKey = (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      const input = inputRef.current;
+      if (!input?.offsetParent) return;
+      const r = input.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (!top || !(top === input || rootRef.current?.contains(top))) return;
+      e.preventDefault();
+      input.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [variant]);
+
   const onListKey = (e) => {
     const btns = [...(listRef.current?.querySelectorAll('button') || [])];
     const i = btns.indexOf(document.activeElement);

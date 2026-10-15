@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Bell, BellRing, BellOff, Users, CalendarClock, Smartphone, Church } from 'lucide-react';
 import { store } from '../store/workspaceStore.js';
 import { useAuth } from '../services/auth.jsx';
@@ -12,6 +12,8 @@ import { isAppLink } from '../services/entryQuery.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { usePopover } from '../hooks/usePopover.js';
+import { markCardNotificationsRead } from '../services/cloud.js';
+import { setTaskFocus, notifFocusHint, onTaskOpen, openTaskId, notifArrival } from '../modals/taskFocus.js';
 
 // ============================================================================
 // 알림 종(클라우드 모드에서만 선다 · 데스크톱 TopNav와 폰 상단바가 같은 것을 쓴다).
@@ -156,30 +158,58 @@ export function NotificationBell({ onOpenTask, onOpenLink }) {
     return () => { alive = false; };
   }, [userId]);
 
-  // 실시간: 본인 수신 알림 INSERT
-  useEffect(() => {
-    if (!userId) return;
-    const unsub = cloudSync.subscribeMyNotifications(userId, (row) => {
-      setItems(prev => (prev.some(n => n.id === row.id) ? prev : [row, ...prev].slice(0, 30)));
-      showToast(notifLine(row.kind, row.actor_name));
-    });
-    return unsub;
-  }, [userId]);
+  // 한 업무의 안 읽은 알림을 모두 읽음으로(UX 다듬기 α · 2026-10-15 · D4) — 업무 창이 어느 길로 열리든(보드·검색·알림·링크)
+  // 그 업무의 알림은 이미 본 것이다. 손에 든 목록에 안 읽은 것이 있을 때만 서버에 **한 번** 쓴다(업무를 열 때마다 쓰지 않는다).
+  // 목록은 ref로도 든다 — 알림 줄을 눌러 여는 길은 같은 흐름 안에서 이것을 두 번 부른다(누를 때 · 창이 열릴 때).
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const markCardRead = useCallback((cardId) => {
+    if (!cardId || !itemsRef.current.some(n => n.card_id === cardId && !n.read)) return;
+    const read = (list) => list.map(n => (n.card_id === cardId && !n.read ? { ...n, read: true } : n));
+    itemsRef.current = read(itemsRef.current);
+    setItems(read);
+    markCardNotificationsRead(cardId).catch(e => console.error('[cloud] 업무 알림 읽음 처리 실패:', e));
+  }, []);
+  useEffect(() => onTaskOpen(markCardRead), [markCardRead]);
 
+  // 알림 하나 열기 — 판의 줄 · 새 알림 토스트의 '열기'가 같이 쓴다
   const openItem = (n) => {
     pop.close();
-    if (!n.read) {
+    // 예배·모임 알림(0053)은 우리 주소 한 칸으로 간다 — App이 화면을 바꾸고 나머지 값은
+    // entryQuery에 실어 그 화면이 마운트되며 읽는다(새로고침 없음).
+    const task = !isAppLink(n.link) && n.card_id ? store.getState().tasks.byId[n.card_id] : null;
+    if (task) markCardRead(n.card_id);   // 이 업무의 다른 알림까지 한 번에(창이 열리며 다시 불러도 쓰지 않는다)
+    else if (!n.read) {
       setItems(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
       cloudSync.markNotificationRead(n.id).catch(e => console.error('[cloud] 알림 읽음 처리 실패:', e));
     }
-    // 예배·모임 알림(0053)은 우리 주소 한 칸으로 간다 — App이 화면을 바꾸고 나머지 값은
-    // entryQuery에 실어 그 화면이 마운트되며 읽는다(새로고침 없음).
     if (isAppLink(n.link)) { onOpenLink?.(n.link); return; }
     if (!n.card_id) return;
-    const task = store.getState().tasks.byId[n.card_id];
-    if (task) onOpenTask?.(task);
-    else showToast('업무를 찾을 수 없어요');
+    if (!task) { showToast('업무를 찾을 수 없어요'); return; }
+    // 댓글에서 온 알림(멘션·답글·반응)은 그 댓글을 보며 연다 — 창보다 먼저 적어 둔다(modals/taskFocus.js)
+    setTaskFocus(task.id, notifFocusHint(n));
+    onOpenTask?.(task);
   };
+  const openRef = useRef(openItem);
+  openRef.current = openItem;
+
+  // 실시간: 본인 수신 알림 INSERT — 토스트에 '열기'(D3). **그 업무 창이 지금 열려 있으면** 토스트 없이 읽음으로 둔다
+  // (보고 있는 업무에 단 댓글을 토스트로 또 알릴 이유가 없다).
+  useEffect(() => {
+    if (!userId) return;
+    const unsub = cloudSync.subscribeMyNotifications(userId, (row) => {
+      const quiet = notifArrival(row, openTaskId()) === 'quiet';
+      const got = quiet ? { ...row, read: true } : row;
+      setItems(prev => (prev.some(n => n.id === row.id) ? prev : [got, ...prev].slice(0, 30)));
+      if (quiet) {
+        cloudSync.markNotificationRead(row.id).catch(e => console.error('[cloud] 알림 읽음 처리 실패:', e));
+        return;
+      }
+      const canOpen = isAppLink(row.link) || !!row.card_id;
+      showToast(notifLine(row.kind, row.actor_name), canOpen ? { label: '열기', onAction: () => openRef.current(got) } : null);
+    });
+    return unsub;
+  }, [userId]);
 
   // 알림 1건 지우기. 확인은 묻지 않는다 — 잃는 것이 알림 한 줄뿐이고, 지우려고
   // 누르는 자리에 또 한 번 물으면 목록을 정리하는 일이 두 배로 는다.

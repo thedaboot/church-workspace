@@ -105,6 +105,13 @@ export async function markAllNotificationsRead() {
   unwrap(await client().from('notifications').update({ read: true }).eq('recipient_id', uid).eq('read', false));
 }
 
+// 한 업무의 내 안 읽은 알림을 한 번에 읽음으로(업무 창을 열면 · UX 다듬기 α 2026-10-15). update 정책은 본인 수신 행만이다.
+export async function markCardNotificationsRead(cardId) {
+  const uid = await myUid();
+  if (!uid || !cardId) return;
+  unwrap(await client().from('notifications').update({ read: true }).eq('recipient_id', uid).eq('card_id', cardId).eq('read', false));
+}
+
 // 본인 수신 알림 INSERT만 구독
 export function subscribeMyNotifications(userId, onInsert) {
   const c = client();
