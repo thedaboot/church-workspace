@@ -384,6 +384,32 @@ try {
     const r = await ev(tocOk);
     check(`목차 번호 = 마디 머리(${t})`, r.ok, JSON.stringify(r).slice(0, 300));
   }
+  // 목차 → 그 마디: main만 앱 곡선(quint)으로 옮기고 마디 위 12px에 세운다 · 움직임 줄이기면 즉시(2026-10-15 · hooks/scrollGlide · 56-g).
+  // 화면을 낮춰 장이 스크롤되게 한다. **되돌리기**: wikiView의 tocJump를 예전 scrollIntoView(smooth)로 두면 움직임 줄이기 단정이 깨진다.
+  {
+    await openPage('월례회', 'p:wol');
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 420, deviceScaleFactor: 1, mobile: false }); await sleep(400);
+    const tocLast = `(()=>{const b=[...document.querySelectorAll('.wiki-toc-item')].pop();if(!b)return null;const no=b.querySelector('span').textContent.trim();const sec=[...document.querySelectorAll('.wiki-sec, .wiki-sub')].find(x=>x.querySelector('.wiki-no')?.textContent.trim()===no);b.click();return sec?sec.id:null})()`;
+    const gap = (id) => `(()=>{const m=document.querySelector('main');const e=document.getElementById(${JSON.stringify(id)});return {gap:Math.round(e.getBoundingClientRect().top-m.getBoundingClientRect().top), top:m.scrollTop, max:m.scrollHeight-m.clientHeight, page:document.scrollingElement.scrollTop}})()`;
+    await ev(`document.querySelector('main').scrollTop=0`); await sleep(200);
+    const idA = await ev(tocLast);
+    await sleep(60);
+    const mid = await ev(`document.querySelector('main').scrollTop`);
+    await sleep(700);
+    const end = idA ? await ev(gap(idA)) : null;
+    // 끝까지 못 가는(맨 아래에 붙는) 마디면 gap이 12보다 클 수 있다 — 그때는 맨 아래에 닿았는지를 본다
+    check('목차 → 그 마디: main이 움직여 마디 위 12px(또는 맨 아래)에 · 페이지는 그대로',
+      !!end && end.page === 0 && end.top > 0 && (Math.abs(end.gap - 12) <= 3 || end.top >= end.max - 1), JSON.stringify({ idA, mid, end }));
+    check('목차 → 그 마디: 한 번에 뛰지 않고 미끄러진다(움직임 줄이기가 아닐 때)', !!end && mid > 0 && mid < end.top, JSON.stringify({ mid, end }));
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await ev(`document.querySelector('main').scrollTop=0`); await sleep(200);
+    const idB = await ev(tocLast);
+    await sleep(40);
+    const now = idB ? await ev(gap(idB)) : null;
+    check('목차 → 그 마디: 움직임 줄이기면 즉시', !!now && !!end && Math.abs(now.top - end.top) <= 2, JSON.stringify({ now, end }));
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }); await sleep(400);
+  }
   // 팀 장: 정보 상자(팀장 · 이름 · 가입자) · 구성원(현재 명단 기준 · 팀 몫 · 기록 전) · 지금 하는 일(현재 업무 기준 · 개발 프로젝트 뺌) · 날짜 붙은 칩 · 관련 문서 · 글 안 링크
   await openPage('찬양팀', 'team:찬양팀');
   const team = await ev(`(()=>{const p=document.querySelector('.wiki-page');const info=p.querySelector('.wiki-info');const rows=info?[...info.querySelectorAll('.grid')].map(r=>r.textContent):[];const labels=[...p.querySelectorAll('.wiki-live-label')].map(x=>x.textContent);
@@ -502,10 +528,44 @@ try {
         check(`폰: 긴 낱말·주소도 질문·답 말풍선이 화면 안에서 줄을 바꾼다`, wrap.qRight <= wrap.w && wrap.aRight <= wrap.w && wrap.sw <= wrap.w + 1 && wrap.aH > 80, JSON.stringify(wrap));
         await ev(`window.__dabootiAnswer=${JSON.stringify(ANSWER)}`);
       }
+      // 화면보다 긴 답은 끝이 아니라 그 질문부터 보인다 — 질문 말풍선이 main 맨 위에 선다(2026-10-15 · 56-g).
+      // 짧은 답은 예전처럼 맨 아래. **되돌리기**: dabooti.jsx의 질문 맨 위 갈래를 빼면(늘 맨 아래) 깨진다.
+      {
+        const ask1 = (q) => ev(`(()=>{const i=document.querySelector('.dab-input input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${JSON.stringify(q)});i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
+        const LONG_A = { id: 'q-longans', status: 'answered', sentences: Array.from({ length: 28 }, (_, i) => ({ text: `${i + 1}번째 문장. 월례회는 둘째 주 순모임 뒤에 모여서 한 달을 돌아보고 다음 달을 맞춰 봐요.`, cites: [] })), files: [] };
+        await ev(`window.__dabootiAnswer=${JSON.stringify(LONG_A)}`);
+        const before = await ev(`document.querySelectorAll('.dab-answer').length`);
+        await ask1('월례회 처음부터 다 알려줘');
+        await until(`document.querySelectorAll('.dab-answer').length > ${before}`);
+        await sleep(900);
+        const longTop = await ev(`(()=>{const m=document.querySelector('main');const q=[...document.querySelectorAll('.dab-q')].pop();const a=[...document.querySelectorAll('.dab-answer')].pop();const mt=m.getBoundingClientRect().top;return {q:Math.round(q.getBoundingClientRect().top-mt), aBottom:Math.round(a.getBoundingClientRect().bottom-mt), h:m.clientHeight, left:Math.round(m.scrollHeight-m.clientHeight-m.scrollTop)}})()`);
+        check('폰: 화면보다 긴 답은 그 질문이 맨 위에 선다(끝이 아니라 처음부터)', longTop.q >= 0 && longTop.q <= 40 && longTop.aBottom > longTop.h && longTop.left > 40, JSON.stringify(longTop));
+        await ev(`window.__dabootiAnswer=${JSON.stringify(ANSWER)}`);
+        await ask1('월례회는 언제 해요?');
+        await until(`document.querySelectorAll('.dab-answer').length > ${before + 1}`);
+        await sleep(900);
+        const shortEnd = await ev(`(()=>{const m=document.querySelector('main');return Math.round(m.scrollHeight-m.clientHeight-m.scrollTop)})()`);
+        check('폰: 짧은 답은 예전처럼 맨 아래', shortEnd <= 2, String(shortEnd));
+      }
     }
 
     await click('button', '위키');
     check(`폰(${theme}): 돌아오면 왼쪽에서`, await until(`!!document.querySelector('.wiki-mobile .wiki-in-back')`));
+    // 장 목록 → 장 → ‹ 위키면 목록 자리 그대로 · 장은 맨 위에서(2026-10-15 · hooks/useScrollMemory · 56-h).
+    // **되돌리기**: wikiView의 useScrollMemory를 빼고 go()가 늘 맨 위로 올리면 깨진다.
+    if (theme === 'light') {
+      await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 520, deviceScaleFactor: 2, mobile: true }); await sleep(500);
+      const listTop = await ev(`(()=>{const m=document.querySelector('main');m.scrollTop=m.scrollHeight;return m.scrollTop})()`);
+      await sleep(300);
+      await ev(`[...document.querySelectorAll('.wiki-item')].pop().click()`);
+      await until(`!!document.querySelector('.wiki-page')`); await sleep(500);
+      const inPage = await ev(`document.querySelector('main').scrollTop`);
+      await click('button', '위키');
+      await until(`!!document.querySelector('.wiki-mobile .wiki-list')`); await sleep(500);
+      const back = await ev(`document.querySelector('main').scrollTop`);
+      check('폰: 위키 목록 → 장은 맨 위에서 · ‹ 위키면 목록 자리 그대로', listTop > 40 && inPage === 0 && Math.abs(back - listTop) <= 2, JSON.stringify({ listTop, inPage, back }));
+      await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true }); await sleep(400);
+    }
     await click('.wiki-item', '주보 만들기');
     check(`폰(${theme}): 행 블록 넘침 없음`, await until(`!!document.querySelector('.wiki-page[data-page="weekly:bulletin"]')`) && await over());
     await click('.wiki-item', '월례회').catch(() => false);

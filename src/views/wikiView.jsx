@@ -24,6 +24,8 @@ import { isCloudEnabled } from '../services/supabaseClient.js';
 import { showToast } from '../components/Toast.jsx';
 import { errorReason } from '../services/errorText.js';
 import { FailTail } from '../components/groupsParts.jsx';
+import { useScrollMemory } from '../hooks/useScrollMemory.js';
+import { glideTo } from '../hooks/scrollGlide.js';
 
 const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
 
@@ -129,7 +131,14 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   // 자주 묻는 질문 칩 → 물어보기 판에 그 질문(n이 바뀔 때마다 한 번)
   const [askNow, setAskNow] = useState(null);
   const askFromPage = (q) => { if (!q) return; setAskNow({ q, n: Date.now() }); go('ask'); };
-  const go = (id) => { if (MASTER_PAGES.has(id) && !isMaster) return; setDir(id === null ? 'back' : 'fwd'); setSel(id); document.querySelector('main')?.scrollTo?.({ top: 0 }); };
+  // 폰의 첫 화면(장 목록) ↔ 장은 목록 자리를 지킨다(hooks/useScrollMemory · 56-h) — 그 넘나듦에서는 여기서 맨 위로 올리지 않는다
+  // (훅이 목록 자리를 스크롤로 적어 두므로, 넘어가기 전에 0으로 올리면 그 0이 목록 자리가 된다). 장 → 장은 예전처럼 맨 위.
+  useScrollMemory(isMobile && sel !== null);
+  const go = (id) => {
+    if (MASTER_PAGES.has(id) && !isMaster) return;
+    setDir(id === null ? 'back' : 'fwd'); setSel(id);
+    if (!(isMobile && (id === null || sel === null))) document.querySelector('main')?.scrollTo?.({ top: 0 });
+  };
   // 딥링크 `/?p=wiki&wiki=<장 id>` — 8시 크론의 마스터 알림('다붓이가 모르는 질문 N개' → 자주 묻는 질문)이 연다(services/entryQuery)
   const entry = useEntryQuery();
   useEffect(() => {
@@ -334,11 +343,19 @@ function WikiPage({ page, pages = [], live = {}, mobile = false, isMaster = fals
 
   const ctx = { page, pages, live, today, mobile, editing, isMaster, drafts, setDrafts, added, setAdded, onOpenCite, onOpenQt, onGo, onSaved, onAsk, prep, team, related };
   const single = outline.sections.length < 2;
+  // 목차 → 그 마디. scrollIntoView는 움직임 줄이기를 안 보고 폰에서 main 말고 페이지까지 밀었다(2026-10-15 · 56-g) —
+  // main만 앱 곡선으로 옮긴다(scrollGlide · 움직임 줄이기면 즉시). 위 여백은 .wiki-sec의 scroll-margin-top(12px)과 같다.
+  const tocJump = (id) => {
+    const el = document.getElementById(id);
+    const main = el?.closest('main');
+    if (!main) { el?.scrollIntoView({ block: 'start' }); return; }
+    glideTo(main, main.scrollTop + el.getBoundingClientRect().top - main.getBoundingClientRect().top - 12);
+  };
   const toc = !single && (
     <nav className="wiki-toc self-start justify-self-start min-w-[240px] max-w-full rounded-[10px] border border-line bg-surface px-[18px] py-3.5 grid gap-1.5 text-[13px]" aria-label="목차">
       <b className="text-[13px] font-extrabold text-fg mb-0.5">목차</b>
       {outline.toc.map(t => (
-        <button key={t.id} type="button" onClick={() => document.getElementById(`${page.id}:${t.id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
+        <button key={t.id} type="button" onClick={() => tocJump(`${page.id}:${t.id}`)}
           className={`wiki-toc-item text-left leading-snug hover:underline underline-offset-2 ${t.sub ? 'pl-3.5' : ''}`}>
           <span className="font-bold text-accent-text">{t.no}</span> <span className="text-fg">{t.title}</span>
         </button>

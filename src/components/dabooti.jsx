@@ -3,6 +3,7 @@ import { ArrowUp, Lock, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { askDabooti, sendFeedback, tellDabooti } from '../services/wiki.js';
 import { imeComposing, coarsePointer } from '../utils.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
+import { glideTo } from '../hooks/scrollGlide.js';
 import { chipPool, rotateChips, normQ, chatExpired, looksFollowUp, waitLine, tellTurn, TELL_ASK, NUDGE, TALK_ANSWERS } from '../services/wikiCore.js';
 import { fetchMyPerson, fetchGroups, fetchGroupMembers } from '../services/people.js';
 
@@ -177,14 +178,31 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   const busy = chat.some(m => m.loading);
   // 새 말풍선이 생기거나 답이 왔을 때만 main(스크롤 통)을 맨 아래로 — 판이 다시 붙을 때(폰: 위키 목록 → 물어보기)는 내리지 않는다.
   // scrollIntoView는 폰에서 main 말고 페이지 전체까지 밀어 화면이 살짝 밀렸다(사용자 지적 2026-10-03).
+  // **긴 답은 끝이 아니라 처음부터 보이게**(2026-10-15 · PITFALLS 56-g) — 맨 아래로만 내리면 화면보다 긴 답은 끝부분이 서서
+  // 위로 거슬러 올라가 읽어야 했다. 답이 온 그 질문 말풍선부터 답 끝까지가 보이는 높이(입력 칸 뺀)보다 크면 질문을 맨 위에 세운다.
+  // 움직임은 앱 곡선(scrollGlide · 움직임 줄이기면 즉시). 그때는 맨 아래가 아니므로 키보드 바닥 붙이기(stickRef)도 푼다.
   const seenRef = useRef(`${chat.length}:${chat[chat.length - 1]?.loading ? 1 : 0}`);
   useEffect(() => {
     const sig = `${chat.length}:${chat[chat.length - 1]?.loading ? 1 : 0}`;
     if (seenRef.current === sig) return;
     seenRef.current = sig;
     const main = endRef.current?.closest('main');
-    main?.scrollTo({ top: main.scrollHeight, behavior: 'smooth' });
-  }, [chat.length, chat[chat.length - 1]?.loading]);
+    if (!main) return;
+    const last = chat[chat.length - 1];
+    const turn = last && !last.loading && last.a ? main.querySelector(`[data-turn="${last.id}"]`) : null;
+    const qEl = turn?.querySelector('.dab-q');
+    if (qEl) {
+      const top = main.getBoundingClientRect().top;
+      const room = main.clientHeight - (inputRef.current?.closest('.sticky')?.offsetHeight || 0) - 16;   // 아래에 붙은 입력 줄(sticky)이 가리는 몫
+      const qTop = qEl.getBoundingClientRect().top;
+      if (turn.getBoundingClientRect().bottom - qTop > room) {
+        stickRef.current = false;
+        glideTo(main, main.scrollTop + qTop - top - 12);
+        return;
+      }
+    }
+    glideTo(main, main.scrollHeight);
+  }, [chat.length, chat[chat.length - 1]?.loading]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = async (text) => {
     const question = String(text ?? q).trim();
@@ -358,7 +376,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
             </div>
           </div>
         ) : (
-          <div key={m.id} className="grid grid-cols-[minmax(0,1fr)] gap-3">
+          <div key={m.id} data-turn={m.id} className="grid grid-cols-[minmax(0,1fr)] gap-3">
             <div className="dab-q dab-q-in justify-self-end max-w-[82%] rounded-[14px_14px_4px_14px] bg-accent text-white px-3 py-2 text-[13.5px] leading-relaxed [overflow-wrap:anywhere]">{m.q}</div>
             <div className="grid grid-cols-[34px_minmax(0,1fr)] gap-2 items-start">
               <span key={m.react ? `${m.react.v}${m.react.n}` : 'still'} className={`w-[34px] h-[34px] rounded-full overflow-hidden ${fresh(m) ? (m.react.v === 'good' ? 'dab-hop' : 'dab-droop') : ''}`} style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
