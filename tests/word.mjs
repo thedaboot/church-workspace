@@ -1505,8 +1505,29 @@ await sleep(300);
 check('제목 칸에 친 글이 그대로 남는다',
   (await ev(`(document.querySelector('.qt-note-editor .paper-title-input') || {}).value`)) === NOTE_TITLE);
 
-await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='저장'); b && b.click(); })()`);
+// 쓰기가 끝났으면 뒤따르는 나눔 다시 읽기가 실패해도 '저장하지 못했어요'가 아니다(2026-10-15 · PITFALLS 56-e).
+// 저장 직후 **한 번만** 나눔 묶음을 깨진 값으로 읽히게 한다(fetchSharedEntries가 던진다 — 쓰기 뒤 꼬리의 첫 읽기).
+// 그 다음 읽기(화면 다시 읽기)는 멀쩡해서 '불러오지 못했어요'는 안 뜬다. 아래 토스트 단정이 그것을 본다.
+// **되돌리기**: wordView의 afterWrite를 다시 await하면 토스트가 '묵상을 저장하지 못했어요'가 되어 아래 둘이 깨진다.
+const logsBefore = logs.length;
+await ev(`(() => {
+  const orig = Storage.prototype.getItem;
+  let left = 1;
+  Storage.prototype.getItem = function (k) {
+    if (k === 'word_qt_shared' && left > 0) { left--; Storage.prototype.getItem = orig; return JSON.stringify({ ${JSON.stringify(today)}: 5 }); }
+    return orig.call(this, k);
+  };
+  window.__unpoison = () => { Storage.prototype.getItem = orig; };
+  const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='저장'); b && b.click();
+})()`);
 await sleep(900);
+const afterTailFail = await ev(`(() => { window.__unpoison?.(); return {
+  toast: [...document.querySelectorAll('[role="status"]')].map(t => t.textContent).join(' | '),
+}; })()`);
+check("저장 뒤 나눔 다시 읽기가 실패해도 '저장하지 못했어요'가 아니다(쓰기는 됐다)",
+  !afterTailFail.toast.includes('저장하지 못했어요') && afterTailFail.toast.includes('묵상을 저장'), JSON.stringify(afterTailFail));
+// 일부러 낸 실패의 콘솔 줄은 맨 끝 '콘솔 오류 0'에서 빼 둔다
+for (let i = logs.length - 1; i >= logsBefore; i--) if (/쓴 뒤 나눔 다시 읽기 실패|묵상 저장 실패/.test(logs[i])) logs.splice(i, 1);
 const mine = await ev(`JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}]`);
 check('묵상과 공유 상태가 같이 저장된다',
   mine && mine.body.includes('그리고 한 줄 더') && mine.shared === true, JSON.stringify(mine));
@@ -2984,6 +3005,56 @@ for (const w of [768, 1024, 1160, 1440]) {
   check(`${w}px 성경 읽기가 가로로 넘치지 않는다`, overRead.over === false && overRead.wide === 0,
     JSON.stringify(overRead));
 }
+await send('Emulation.clearDeviceMetricsOverride');
+
+// ── 글자 크기는 QT 본문에도 · 이어읽기는 절까지 (2026-10-15 · PITFALLS 56-f) ──────────────
+// 성경 탭 '가 가 가'(기기에 남는 값)가 QT 본문에도 걸린다. 이어읽기는 장 단위(bible_state.lastRef)였어서 긴 장을
+// 다시 열면 1절부터였다 — 맨 위에 보이던 절을 이 기기(word_bible_spot)에 남기고, 이어읽기로 같은 장을 열면 그 절로 곧장.
+// 장 넘기기는 예전처럼 장 머리로 간다(그때 남은 절도 지워진다).
+// **되돌리기**: wordView QtPassage의 step을 빼면 첫째가, wordBible의 resumeRef 쓰기를 빼면 둘째가, 저장 효과를 빼면 셋째가 깨진다.
+for (const [w, h, mobile] of [[1440, 900, false], [390, 844, true]]) {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile });
+  await ev(`(() => {
+    localStorage.setItem('word_bible_font', '2');
+    localStorage.setItem('word_bible_state', JSON.stringify({ lastRef: 'psa 119', bookmarks: [], highlights: [] }));
+    localStorage.setItem('word_bible_spot', JSON.stringify({ ref: 'psa 119', verse: '119:80' }));
+  })()`);
+  await reload();
+  await sleep(1400);
+  await clickText('말씀');
+  await sleep(1400);
+  await waitFor(`document.querySelector('p[data-verse]')`);
+  const qtSize = await ev(`(getComputedStyle(document.querySelector('p[data-verse]') || document.body).fontSize)`);
+  check(`${w}px 성경 탭에서 고른 글자 크기(크게)가 QT 본문에도 걸린다`, qtSize === '17px', qtSize);
+  await clickText('성경 읽기');
+  await waitFor(`document.querySelector('p[data-verse="119:80"]')`);
+  await sleep(700);
+  const resumed = await ev(`(() => {
+    const v = document.querySelector('p[data-verse="119:80"]'), head = document.querySelector('[data-chap-head]');
+    if (!v || !head) return null;
+    return { top: Math.round(v.getBoundingClientRect().top), headTop: Math.round(head.getBoundingClientRect().top), size: getComputedStyle(v).fontSize };
+  })()`);
+  check(`${w}px 이어읽기로 연 긴 장은 남겨 둔 절(시편 119:80)이 맨 위에 선다`,
+    !!resumed && resumed.top >= 0 && resumed.top <= 140 && resumed.headTop < 0, JSON.stringify(resumed));
+  // 읽다가 멈춘 자리를 남긴다 — 119:120을 맨 위로 올리고 .3초 넘게 기다린다
+  await ev(`(() => { const v = document.querySelector('p[data-verse="119:120"]'); v && v.scrollIntoView({ block: 'start', behavior: 'instant' }); })()`);
+  await sleep(900);
+  const spot = await ev(`JSON.parse(localStorage.getItem('word_bible_spot') || 'null')`);
+  const vn = Number(String(spot?.verse || '').split(':')[1]);
+  check(`${w}px 읽던 자리(맨 위 절)가 장과 짝지어 이 기기에 남는다`,
+    spot?.ref === 'psa 119' && vn >= 112 && vn <= 120, JSON.stringify(spot));
+  // 장 넘기기는 예전 그대로 장 머리 — 남은 절은 지워진다(새 장의 첫 절이 맨 위)
+  await ev(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '다음 장'); b && b.click(); })()`);
+  await waitFor(`(document.querySelector('[data-chap-head]') || {}).textContent?.includes('120')`);
+  await sleep(900);
+  const moved = await ev(`(() => ({
+    head: Math.round((document.querySelector('[data-chap-head]') || document.body).getBoundingClientRect().top),
+    spot: localStorage.getItem('word_bible_spot'),
+  }))()`);
+  check(`${w}px 다음 장은 장 머리부터이고 남은 절이 지워진다`,
+    moved.head >= 0 && moved.head <= 300 && moved.spot === null, JSON.stringify(moved));
+}
+await ev(`(() => { localStorage.removeItem('word_bible_font'); localStorage.removeItem('word_bible_spot'); })()`);
 await send('Emulation.clearDeviceMetricsOverride');
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 2).join(' | '));

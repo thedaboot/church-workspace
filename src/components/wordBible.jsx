@@ -333,6 +333,50 @@ function useSwipe(onSwipe) {
 }
 
 // ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
+// ── 이어읽기의 절 (2026-10-15 · PITFALLS 56-f) ────────────────────────────────
+// 이어읽기(bible_state.lastRef)는 **장** 단위라 긴 장(시편 119편 · 176절)을 다시 열면 1절부터였다.
+// 맨 위에 보이던 절을 그 장과 짝지어 **이 기기에만** 둔다(마이그레이션 없음 · 같은 사람도 폰과 노트북에서
+// 읽던 자리가 다르다 — 글자 크기와 같은 판단). 이어읽기로 **같은 장**을 열 때만 그 절로 곧장 간다 —
+// 장 넘기기·검색·형광펜·주보에서 들어온 길은 예전 그대로다. 장의 첫 절이 맨 위면 지운다(머리부터 = 지금과 같다).
+const SPOT_KEY = 'word_bible_spot';
+export const loadReadSpot = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(SPOT_KEY) || 'null');
+    return v && typeof v.ref === 'string' && typeof v.verse === 'string' ? v : null;
+  } catch { return null; }
+};
+const saveReadSpot = (spot) => {
+  try { if (spot) localStorage.setItem(SPOT_KEY, JSON.stringify(spot)); else localStorage.removeItem(SPOT_KEY); } catch { /* 비공개 모드 */ }
+};
+
+// 본문이 스크롤되는 통과 그 통에서 '보이는 맨 위'(화면 좌표). 장 머리로 올리기·이어읽기 절로 가기·
+// 맨 위 절 재기가 같은 값을 본다 — 셋이 다르면 저장한 절과 돌아온 절이 한 칸씩 어긋난다.
+function readScroller(el) {
+  let box = el.parentElement;
+  while (box && box !== document.body) {
+    const oy = getComputedStyle(box).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && box.scrollHeight > box.clientHeight + 8) break;
+    box = box.parentElement;
+  }
+  const page = document.scrollingElement || document.documentElement;
+  const scroller = box && box !== document.body ? box : page;
+  const isPage = scroller === page;
+  // 페이지가 스크롤되는 폭에서는 상단 내비가 화면에 붙어 있다(≈52px) — 그만큼 비운다.
+  // 안쪽 통이 스크롤되는 폭에서는 그 통이 이미 내비 아래에서 시작하므로 조금만 띄운다.
+  const top = isPage ? 64 : scroller.getBoundingClientRect().top + 8;
+  return { scroller, isPage, top };
+}
+// el의 위 끝을 '보이는 맨 위'에 둔다 — 즉시(장이 바뀌는 결은 Swap이 낸다).
+// 화면 전환(Swap)이 아직 돌고 있으면 그 이동(translate)만큼 빼고 잰다 — 첫 진입은 세로 8px로 들어온다.
+function scrollElToTop(el) {
+  const { scroller, top } = readScroller(el);
+  const sw = el.closest('[data-swap]');
+  let shift = 0;
+  try { const t = sw ? getComputedStyle(sw).transform : 'none'; if (t && t !== 'none') shift = new DOMMatrixReadOnly(t).m42; } catch { /* 옛 브라우저 */ }
+  const y = scroller.scrollTop + el.getBoundingClientRect().top - shift - top;
+  scroller.scrollTo({ top: Math.max(0, y), behavior: 'instant' });
+}
+
 export function BibleTab({ initialRef = '' }) {
   const [books, setBooks] = useState([]);
   // **캐시가 있으면 그 값으로 시작한다**(사용자 요청 2026-09-03 — "매번 스켈레톤이 아니라
@@ -380,27 +424,16 @@ export function BibleTab({ initialRef = '' }) {
   // 넘긴 뒤에는 **장 제목 줄**로 올라간다(사용자 피드백 2026-09-03 — 1절이 아니라 그 줄이
   // 기준이다). `scrollIntoView({block:'start'})`만 쓰면 화면 위에 붙어 있는 내비 밑으로
   // 들어가 제목이 가려지므로, 스크롤 통을 찾아 그만큼 여유를 두고 올린다.
+  // 통 찾기·여유(내비 64 · 안쪽 통 8)는 readScroller 한 벌이다(위 이어읽기 절과 같은 값을 봐야 한다).
+  // **즉시 옮긴다**(사용자 피드백 2026-09-03 — "스르륵 올라가는 게 어색하다").
+  // 장이 바뀌는 결은 Swap의 슬라이드가 내고, 스크롤은 그 프레임에 한 번 끝난다.
   const scrollToHead = () => {
     const el = headRef.current;
     if (!el) return;
-    let box = el.parentElement;
-    while (box && box !== document.body) {
-      const oy = getComputedStyle(box).overflowY;
-      if ((oy === 'auto' || oy === 'scroll') && box.scrollHeight > box.clientHeight + 8) break;
-      box = box.parentElement;
-    }
-    const page = document.scrollingElement || document.documentElement;
-    const scroller = box && box !== document.body ? box : page;
-    const isPage = scroller === page;
-    // 페이지가 스크롤되는 폭에서는 상단 내비가 화면에 붙어 있다(≈52px) — 그만큼 비운다.
-    // 안쪽 통이 스크롤되는 폭에서는 그 통이 이미 내비 아래에서 시작하므로 조금만 띄운다.
-    const pad = isPage ? 64 : 8;
-    const base = isPage ? 0 : scroller.getBoundingClientRect().top;
-    const top = scroller.scrollTop + el.getBoundingClientRect().top - base - pad;
-    // **즉시 옮긴다**(사용자 피드백 2026-09-03 — "스르륵 올라가는 게 어색하다").
-    // 장이 바뀌는 결은 Swap의 슬라이드가 내고, 스크롤은 그 프레임에 한 번 끝난다.
-    scroller.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
+    scrollElToTop(el);
   };
+  // 이어읽기로 연 장에서 돌아갈 절('장:절') — 그 장이 도착하면 한 번 쓰고 비운다. 다른 길로 장을 열면(goto) 버린다.
+  const resumeRef = useRef(null);
 
   const bookOf = useCallback((id) => books.find(b => b.id === id) || null, [books]);
 
@@ -421,7 +454,12 @@ export function BibleTab({ initialRef = '' }) {
       const last = fromRef
         ? { bookId: fromRef.bookId, chapter: fromRef.start.chapter }
         : parseChapterKey(saved.lastRef);
-      if (last && list.some(b => b.id === last.bookId)) setPlace(last);
+      if (last && list.some(b => b.id === last.bookId)) {
+        setPlace(last);
+        // 이어읽기일 때만, 그리고 이 기기에 남은 절이 **같은 장**의 것일 때만
+        const spot = fromRef ? null : loadReadSpot();
+        resumeRef.current = spot && spot.ref === chapterKey(last.bookId, last.chapter) ? spot.verse : null;
+      }
       setReady(true);
     })().catch(err => {
       // 예전에는 조용히 빈 목록으로 떨어져 '구약 0권 · 신약 0권'이 떴다 — 화면이
@@ -480,6 +518,32 @@ export function BibleTab({ initialRef = '' }) {
     scrollToHead();
   }, [loaded, placeKey]);
 
+  // 이어읽기 — 장이 도착한 그 프레임에 남겨 둔 절을 맨 위로(즉시 · 위 resumeRef). 그 절이 없으면(판이 바뀌었다) 머리부터.
+  useLayoutEffect(() => {
+    if (!loaded || !resumeRef.current) return;
+    const el = bodyRef.current?.querySelector(`[data-verse="${resumeRef.current}"]`);
+    resumeRef.current = null;
+    if (el) scrollElToTop(el);
+  }, [loaded, placeKey]);
+
+  // 읽는 동안 맨 위에 보이는 절을 이 장과 짝지어 남긴다(위 SPOT_KEY) — 스크롤이 멎고 .3초 뒤에 한 번.
+  // 문서에 capture로 듣는다 — 짧은 장은 main이 스크롤 통이 아니게 되어(readScroller가 문서로 떨어진다) 통을 골라 걸면 놓친다.
+  useEffect(() => {
+    if (!loaded || !headRef.current) return undefined;
+    let t = 0;
+    const note = () => {
+      const lines = bodyRef.current?.querySelectorAll('[data-verse]');
+      if (!lines?.length) return;
+      const top = readScroller(headRef.current || bodyRef.current).top;
+      const first = [...lines].find(p => p.getBoundingClientRect().bottom > top + 1);
+      if (!first) return;
+      saveReadSpot(first === lines[0] ? null : { ref: placeKey, verse: first.dataset.verse });
+    };
+    const onScroll = () => { clearTimeout(t); t = setTimeout(note, 300); };
+    document.addEventListener('scroll', onScroll, { passive: true, capture: true });
+    return () => { clearTimeout(t); document.removeEventListener('scroll', onScroll, { capture: true }); };
+  }, [loaded, placeKey]);
+
   // 기다리는 동안 세울 스켈레톤 줄 수 — 붙잡아 둔 높이를 채운다(한 줄 ≈ 34px)
   const holdLines = holdH ? Math.max(8, Math.round((holdH - 44) / 34)) : 10;
 
@@ -493,6 +557,8 @@ export function BibleTab({ initialRef = '' }) {
   // keepSearch: 검색 결과를 들고 간다(결과에서 절을 열 때 · 결과에서 연 장을 넘길 때). 그 밖의 길
   // (목차·북마크·형광펜)은 예전처럼 검색을 접는다.
   const goto = (bookId, chapter, at = null, delta = 0, keepSearch = false) => {
+    resumeRef.current = null;   // 다른 길로 연 장 — 이어읽기 절로 가지 않는다
+    saveReadSpot(null);         // 이어읽기 자리가 이 장으로 옮겨 가므로 앞 장의 절은 쓸 데가 없다(새 장에서 읽으면 다시 남는다)
     setDir(delta);
     setPane('toc');          // 북마크·형광펜 줄에서 왔어도 이제 보는 것은 본문이다
     setPlace({ bookId, chapter });

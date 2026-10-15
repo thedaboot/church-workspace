@@ -29,7 +29,7 @@ import { ShareFeed, FeedSkeleton, mergeFeed, MY_ROW, QT_SHEET_BOX, QT_CUT } from
 import { Grass } from './grass.jsx';
 import {
   kstToday, shiftDay, dayLabel, shouldAdoptBody,
-  fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, deleteEntryAsMaster, fetchSharedEntries,
+  fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, deleteEntryAsMaster, fetchSharedEntries, loadFontStep,
 } from '../services/word.js';
 
 import { Segmented } from '../components/segmented.jsx';
@@ -406,9 +406,18 @@ function QtTab({ onOpenBible, focus = null }) {
 
   // 쓰고 난 뒤의 꼬리 한 벌 — 그날 나눔을 다시 읽고, 옛 값이 먼저 그려지지 않게 그 날짜의 묶음만 비우고
   // 다시 읽는다. home: 홈의 '오늘의 QT' 카드·모임이 묵상을 센다(homeView) · grass: 내 기록(잔디)에 찍히거나 빠진다.
-  // 저장·공유 바꿈·지우기·남의 나눔 지우기 넷이 부른다 — 하나가 실패하면(던지면) 부른 쪽의 catch로 간다.
-  const afterWrite = async ({ home = false, grass = false } = {}) => {
-    setFeed(await fetchSharedEntries(date));
+  // 저장·공유 바꿈·지우기·남의 나눔 지우기 넷이 부른다.
+  // **기다리지 않고 던지지도 않는다**(2026-10-15 · PITFALLS 56-e) — 예전에는 부른 쪽의 try 안에서 await해서,
+  // 쓰기는 이미 됐는데 나눔 다시 읽기가 실패하면 '묵상을 저장하지 못했어요'가 떴다(초안까지 지운 뒤라 더 헷갈렸다).
+  // 쓰기가 끝나면 성공을 말하고, 이 꼬리는 뒤에서 돈다 — 실패는 콘솔에만(다음에 이 날을 열면 다시 읽는다).
+  // 그 사이 다른 날로 넘어갔으면 받아 온 나눔을 앉히지 않는다(날짜가 다르다).
+  const dateRef = useRef(date);
+  dateRef.current = date;
+  const afterWrite = ({ home = false, grass = false } = {}) => {
+    const d = date;
+    fetchSharedEntries(d)
+      .then(rows => { if (dateRef.current === d) setFeed(rows); })
+      .catch(e => console.error('[word] 쓴 뒤 나눔 다시 읽기 실패:', e));
     dropCache(qtKey); refreshQt();
     if (home) dropCache('home');
     if (grass) reloadGrass();
@@ -464,7 +473,7 @@ function QtTab({ onOpenBible, focus = null }) {
       // 글이 달라져서 저장 직후에도 '고친 것이 있다'(dirty)로 남고, 그러면 방금 지운
       // 초안이 곧바로 다시 쓰인다. putBody가 `syncedBody`까지 맞춰 준다(다음 도착값 판정).
       putBody(kept);
-      await afterWrite({ home: true, grass: true });
+      afterWrite({ home: true, grass: true });
       showToast(entry.shared ? '묵상을 저장하고 더다붓에 공유했어요' : '묵상을 저장했어요');
     } catch (e) {
       console.error('[word] 묵상 저장 실패:', e);
@@ -483,7 +492,7 @@ function QtTab({ onOpenBible, focus = null }) {
     try {
       await saveMyEntry(date, { body: entry.body, title: entry.title || '', shared: v });
       setEntry(e => ({ ...e, shared: v }));
-      await afterWrite({ home: true });   // 모임·홈이 공유된 묵상을 같이 센다
+      afterWrite({ home: true });   // 모임·홈이 공유된 묵상을 같이 센다
       setShareState('saved');
     } catch (e) {
       console.error('[word] 공유 상태 저장 실패:', e);
@@ -499,7 +508,7 @@ function QtTab({ onOpenBible, focus = null }) {
       setEntry({ date, body: '', title: '', shared: false, exists: false });
       putBody(''); putTitle(''); setEditing(false);
       dropCache(draftKey); setNoteState('');
-      await afterWrite({ home: true, grass: true });
+      afterWrite({ home: true, grass: true });
       showToast('이 날 묵상을 지웠어요');
     } catch (e) {
       console.error('[word] 묵상 삭제 실패:', e);
@@ -512,7 +521,7 @@ function QtTab({ onOpenBible, focus = null }) {
   const removeShared = async (row) => {
     try {
       await deleteEntryAsMaster(row.id);
-      await afterWrite();
+      afterWrite();
       showToast('이 나눔을 지웠어요');
     } catch (e) {
       console.error('[word] 남의 나눔 삭제 실패:', e);
@@ -748,11 +757,14 @@ export function QtPassage({ day, date, minH = PASSAGE_MIN_H, refText = '', onOpe
     refOf: (chapter, verse) => `${prefix}${chapter}:${verse}`,
   });
   const marks = useMemo(() => marksFor(hl.highlights, prefix), [hl.highlights, prefix]);
+  // 글자 크기는 성경 탭의 '가 가 가'가 정한 그 값이다(2026-10-15 · 기기마다 · 새 조절은 두지 않는다).
+  // 그릴 때마다 읽는다 — 성경 탭에서 바꾸고 돌아오면 이 칸이 새로 서므로 따로 알릴 길이 필요 없다.
+  const step = loadFontStep();
   if (day.loading) {
     const lines = Math.max(8, Math.round((minH - 44) / 34));
     return (
       <Card className="p-4 md:p-5" style={{ minHeight: minH }}>
-        <PassageSkeleton lines={lines} />
+        <PassageSkeleton lines={lines} step={step} />
       </Card>
     );
   }
@@ -787,7 +799,7 @@ export function QtPassage({ day, date, minH = PASSAGE_MIN_H, refText = '', onOpe
       <div className="mt-3.5">
         {passage?.verses?.length
           ? <PassageText
-              verses={passage.verses} showChapter={passage.verses[0].chapter !== passage.verses.at(-1).chapter}
+              verses={passage.verses} step={step} showChapter={passage.verses[0].chapter !== passage.verses.at(-1).chapter}
               marks={marks} onPickVerse={paint.onPickVerse} picked={paint.picked} toolAt={paint.toolAt} tool={paint.tool}
             />
           : <p className="text-[12.5px] text-fg-faint">읽기표에 적힌 구절을 성경에서 찾지 못했어요</p>}
