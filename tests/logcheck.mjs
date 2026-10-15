@@ -166,8 +166,11 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   // 업무 창 자리(2026-10-14 · PITFALLS 47-c) — 앱 안에서 연 창만 한 자리를 push하고, 뒤로가기는 창만 닫고, 닫기 버튼은 그 자리를 뒤로 걷는다.
   // 되돌리기 검사: openTaskModal의 pushModalRef를 안 올리면 첫 단정이, 딥링크에 { history: false }를 빼면 둘째가, closeTaskModal의
   // history.back()을 지우면 넷째가 깨진다. (실제 동작은 tests/modalclose가 브라우저로 잰다)
-  assert.ok(/if \(remember && task\?\.id && !modalOpenRef\.current\) \{ pushModalRef\.current = true;/.test(src),
-    '닫힌 창을 앱 안에서 열 때만(있는 업무) 업무 창 자리를 남긴다');
+  // 2026-10-15부터 새 업무 폼도 한 자리(PITFALLS 55-a) — 뒤로가기가 ✕와 같은 확인을 연다(브라우저 동작은 tests/modalclose ⑤)
+  assert.ok(/if \(remember && !modalOpenRef\.current\) \{ pushModalRef\.current = true;/.test(src),
+    '닫힌 창을 앱 안에서 열 때만(새 업무 폼 포함) 업무 창 자리를 남긴다');
+  assert.ok(/if \(modalHistRef\.current && newFormRef\.current && !window\.history\.state\?\.taskModal\) \{\s*window\.history\.pushState\(\{ taskModal: 1 \}, '', lastUrlRef\.current\);/.test(src)
+    && /\[data-task-modal\] button\[aria-label="닫기"\]/.test(src), '새 업무 폼에서 뒤로가기는 자리를 다시 세우고 ✕를 대신 누른다');
   assert.ok(/openTaskModal\(task, \{ history: false \}\)/.test(src),
     '딥링크·공유 주소로 들어온 창은 자리를 남기지 않는다');
   assert.ok(/window\.history\.pushState\(\{ taskModal: 1 \}, '', next\)/.test(src) && /if \(modalHistRef\.current && !q\.get\('t'\)\)/.test(src),
