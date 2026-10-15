@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2, SquarePen } from 'lucide-react';
+import { X, ExternalLink, Download, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2, SquarePen, RotateCw } from 'lucide-react';
 import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, getFileDownloadUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -10,6 +10,8 @@ import { Skeleton, SmartImage, usePanDrag } from './media.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { PdfView } from './PdfView.jsx';
+import { fileKind } from './fileRow.jsx';
+import { readBody, pctOf } from '../services/transfer.js';
 // 워드·PPT를 우리가 그리는 길(사본이 없는 옛 첨부·변환 실패)은 **열 때만** 필요하다 —
 // 파서(docx.js·pptx.js)가 같이 딸려 오는데, 메인 번들에 두면 그 파일을 한 번도 안 여는
 // 사람까지 내려받는다. 엑셀 파서(xlsx.js)는 이 화면이 더 쓰지 않는다 — 표는 구글이
@@ -20,6 +22,7 @@ const DocView = (props) => <Suspense fallback={<PreparingFrame />}><DocLazy {...
 const SlideView = (props) => <Suspense fallback={<PreparingFrame />}><SlideLazy {...props} /></Suspense>;
 
 // 미리보기 실패 문구(Fallback에 선다) — 두 줄(§8), 원문은 콘솔에만.
+// 받기 실패만 '다시 시도'를 준다(2026-10-15 시안 C9) — 그리기 실패는 같은 바이트로 다시 그려도 같다(새 탭에서 열기뿐).
 //  · 받기 실패: 뒷도막은 errorText가 만든다 — 우리 API가 준 이유(e.human · 드라이브 중계)를
 //    먼저 보고 인터넷·로그인·서버를 가른다(§6-29-e — 드라이브 원문은 그대로 둔다).
 //  · 받았는데 못 그림(pdf.js·워드/PPT 파서): 파서의 영어 원문은 쓰는 사람에게 소용이 없다 —
@@ -113,7 +116,7 @@ export const swipeStep = ({ dx, dy, scale, multi }) => {
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 // 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §3-5).
 import { driveSrc, sheetPreviewUrl } from '../utils.js';
-import { BTN } from './buttons.js';
+import { BTN, BTN_SOFT } from './buttons.js';
 
 // 어느 뷰어로 그리고 있는지 — 화면 아래 한 줄에 그대로 적는다.
 // 예전에는 이 문구가 조건 없이 '마이크로소프트 오피스 미리보기로 표시해요'였다.
@@ -161,7 +164,23 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   const canNav = kind === 'image' && gi >= 0 && gallery.length > 1;
   const [url, setUrl] = useState(initialSrc);
   const [text, setText] = useState(null);
+  // { msg, retry } — retry는 받기 실패(previewFail)에만 참이다(아래 Fallback의 '다시 시도' · 시안 C9)
   const [error, setError] = useState(null);
+  const failFetch = (e) => setError({ msg: previewFail(e), retry: true });
+  const failDraw = (e, what) => setError({ msg: drawFail(e, what), retry: false });
+  // '다시 시도' — 실패를 걷고 같은 파일을 처음부터 다시 받는다(받기 효과들이 attempt를 본다)
+  const [attempt, setAttempt] = useState(0);
+  // 받는 동안의 진행 '다운로드 중 N%'(시안 C4) — 어느 파일의 것인지 같이 적는다(넘긴 뒤 앞 파일의 진행이 서지 않게).
+  // 길이를 모르면(압축돼 온 응답) pct가 null이라 줄을 세우지 않는다.
+  const [dl, setDl] = useState(null);   // { id, pct }
+  const dlIdRef = useRef(row.id);
+  dlIdRef.current = cur.id;
+  const onDl = useCallback((loaded, total) => {
+    const pct = pctOf(loaded, total);
+    setDl(prev => (prev?.id === dlIdRef.current && prev.pct === pct ? prev : { id: dlIdRef.current, pct }));
+  }, []);
+  const dlPct = dl?.id === cur.id ? dl.pct : null;
+  const retry = () => { setError(null); setDl(null); setAttempt(a => a + 1); };
   const [frameReady, setFrameReady] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [pdfSrc, setPdfSrc] = useState(null); // { blob } 또는 { src } — 준비가 끝난 뒤에만 렌더
@@ -545,10 +564,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     let alive = true;
     getFileOpenUrl(cur)
       .then(u => { if (alive) setUrl(u); })
-      .catch(e => { if (alive) setError(previewFail(e)); });
+      .catch(e => { if (alive) failFetch(e); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cur.id]);
+  }, [cur.id, attempt]);
 
   // 텍스트/마크다운은 내려받아 그대로 보여준다
   useEffect(() => {
@@ -560,24 +579,24 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     let alive = true;
     const put = (t) => { if (alive) setText(t.slice(0, MAX_TEXT_CHARS)); };
     if (local) {
-      local.text().then(put).catch(e => { if (alive) setError(previewFail(e)); });
+      local.text().then(put).catch(e => { if (alive) failFetch(e); });
       return () => { alive = false; };
     }
     if (cur.source === 'drive' && cur.drive_file_id) {
-      fetchDriveFileBlob(cur.drive_file_id)
+      fetchDriveFileBlob(cur.drive_file_id, { onProgress: onDl })
         .then(b => b.text())
         .then(put)
-        .catch(e => { if (alive) setError(previewFail(e)); });
+        .catch(e => { if (alive) failFetch(e); });
       return () => { alive = false; };
     }
     if (!url) return;
     fetch(url)
       .then(r => (r.ok ? r.text() : Promise.reject(httpFail(r))))
       .then(put)
-      .catch(e => { if (alive) setError(previewFail(e)); });
+      .catch(e => { if (alive) failFetch(e); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, url, cur.id]);
+  }, [kind, url, cur.id, attempt]);
 
   // 워드·PPT는 바이트를 받아 우리가 직접 읽는다(사본이 없어 구글 화면을 못 쓸 때만 — 위 BYTE_KINDS).
   // 드라이브 파일은 /api/drive-file 중계로만 받을 수 있다 — 브라우저에서
@@ -587,19 +606,19 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     let alive = true;
     if (local) { setOfficeBlob(local); return () => { alive = false; }; }
     if (cur.source === 'drive' && cur.drive_file_id) {
-      fetchDriveFileBlob(cur.drive_file_id)
+      fetchDriveFileBlob(cur.drive_file_id, { onProgress: onDl })
         .then(b => { if (alive) setOfficeBlob(b); })
-        .catch(e => { if (alive) setError(previewFail(e)); });
+        .catch(e => { if (alive) failFetch(e); });
       return () => { alive = false; };
     }
     if (!url) return;
     fetch(url)
-      .then(r => (r.ok ? r.blob() : Promise.reject(httpFail(r))))
+      .then(r => (r.ok ? readBody(r, onDl) : Promise.reject(httpFail(r))))
       .then(b => { if (alive) setOfficeBlob(b); })
-      .catch(e => { if (alive) setError(previewFail(e)); });
+      .catch(e => { if (alive) failFetch(e); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, url, cur.id]);
+  }, [kind, url, cur.id, attempt]);
 
   // PDF는 파일을 먼저 통째로 받아두고 그 바이트로 그린다.
   // 주소만 넘기면 그리기 시작한 뒤에야 내려받기가 진행돼 빈 화면이 오래 보인다.
@@ -610,19 +629,19 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     if (local) { setPdfSrc({ blob: local }); return () => { alive = false; }; }
     // 드라이브 파일은 서버 중계로 바이트를 받는다(웹 주소는 HTML 페이지라 못 쓴다)
     if (cur.source === 'drive' && cur.drive_file_id) {
-      fetchDriveFileBlob(cur.drive_file_id)
+      fetchDriveFileBlob(cur.drive_file_id, { onProgress: onDl })
         .then(b => { if (alive) setPdfSrc({ blob: b }); })
-        .catch(e => { if (alive) setError(previewFail(e)); });
+        .catch(e => { if (alive) failFetch(e); });
       return () => { alive = false; };
     }
     if (!url) return;
     fetch(url)
-      .then(r => (r.ok ? r.blob() : Promise.reject(httpFail(r))))
+      .then(r => (r.ok ? readBody(r, onDl) : Promise.reject(httpFail(r))))
       .then(b => { if (alive) setPdfSrc({ blob: b }); })
       .catch(() => { if (alive) setPdfSrc({ src: url }); }); // 실패하면 주소로
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, url, cur.id]);
+  }, [kind, url, cur.id, attempt]);
 
   // 드라이브 영상·소리 — 프록시로 통째로 받아 블롭 URL로 튼다(첨부 상한 10MB).
   // <video src>에 웹 주소(web_view_link)를 주면 HTML 페이지라 못 튼다.
@@ -638,10 +657,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     let alive = true; let obj = null;
     fetchDriveFileBlob(cur.drive_file_id)
       .then(b => { if (!alive) return; obj = URL.createObjectURL(b); setBlobSrc(obj); })
-      .catch(e => { if (alive) setError(previewFail(e)); });
+      .catch(e => { if (alive) failFetch(e); });
     return () => { alive = false; if (obj) URL.revokeObjectURL(obj); setBlobSrc(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, cur.id]);
+  }, [kind, cur.id, attempt]);
 
   useEffect(() => () => clearTimeout(settleRef.current), []);
 
@@ -744,7 +763,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   };
 
   const body = (() => {
-    if (error) return <Fallback row={cur} message={error} onOpen={openExternal} />;
+    if (error) return <Fallback row={cur} message={error.msg} onOpen={openExternal} onRetry={error.retry ? retry : null} />;
 
     if (kind === 'image') {
       // 두 번 누르면 2배↔맞춤 — 폰에서 손가락을 오므리지 않고 한 번에 키우는 길이고,
@@ -854,7 +873,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // 받는 동안도, 받은 뒤 iframe이 문서를 그리는 동안도 '준비하고 있어요'다(사용자 요청
       // 2026-09-05). Tailwind CDN 문서는 스크립트가 CSS를 만들기 전까지 흰 종이라 load
       // 이벤트까지 덮어 둔다 — 그 전에 걷으면 빈 흰 칸이 잠깐 보인다.
-      if (text === null) return <PreparingFrame />;
+      if (text === null) return <PreparingFrame pct={dlPct} />;
       // sandbox 허용 목록은 **allow-scripts 하나뿐이다.** 폼·팝업·상위 창 이동은 막히고
       // 출처가 불투명해서 우리 쿠키·localStorage·Supabase 세션에 닿지 못한다.
       // **allow-same-origin은 절대 함께 주지 않는다** — 둘을 같이 주면 문서가 자기 자신의
@@ -885,9 +904,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     }
     // 워드·PPT는 우리가 그린다. 옛 형식(.doc·.ppt)만 구글 편집기로 남는다.
     if (kind === 'doc' || kind === 'slide') {
-      if (!officeBlob) return <PreparingFrame />;
+      if (!officeBlob) return <PreparingFrame pct={dlPct} />;
       const View = kind === 'doc' ? DocView : SlideView;
-      return <View blob={officeBlob} onError={(e) => setError(drawFail(e, `${kind === 'doc' ? '문서' : '슬라이드'}를 읽지 못했어요`))} />;
+      return <View blob={officeBlob} onError={(e) => failDraw(e, `${kind === 'doc' ? '문서' : '슬라이드'}를 읽지 못했어요`)} />;
     }
     // 워드·PPT에 변환 사본이 있으면 **구글이 그린 화면**을 그대로 띄운다(사용자 요청
     // 2026-09-08 — "그냥 실제 뷰로 볼 수 있게끔, 우리 엑셀 미리보기 하는 것처럼"). 우리
@@ -1012,7 +1031,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     }
     // PDF는 pdf.js로 직접 그린다 — iOS 사파리는 iframe 안의 PDF를 첫 쪽만 보여준다.
     if (kind === 'pdf') {
-      if (!pdfSrc) return <PreparingFrame />;
+      if (!pdfSrc) return <PreparingFrame pct={dlPct} />;
       return (
         <PdfView
           blob={pdfSrc.blob} src={pdfSrc.src} zoom={zoom}
@@ -1022,7 +1041,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
           // 불려서 리스너가 계속 붙었다 떨어진다.
           onBox={setZoomBox}
           onToggleZoom={(px, py) => zoomTo(zoomRef.current > ZOOM_MIN ? ZOOM_MIN : ZOOM_TAP, px, py)}
-          onError={(e) => setError(drawFail(e, '미리보기를 그릴 수 없어요'))}
+          onError={(e) => failDraw(e, '미리보기를 그릴 수 없어요')}
         />
       );
     }
@@ -1153,7 +1172,8 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
 // `stalled`면 **나가는 길**을 준다 — 틀이 막혀 onLoad가 영영 안 오는 경우가 있고
 // (서드파티 프레임 차단·콘텐츠 차단기), 그때 돌던 스피너는 거짓말이다. 문구는 예전
 // 시간 초과 카드가 쓰던 그대로다.
-function PreparingFrame({ absolute = false, stalled = false, onOpen = null }) {
+// `pct` — 바이트를 받는 동안의 진행(시안 C4 · 12px faint 한 줄 '다운로드 중 N%'). 길이를 모르면 null — 줄이 없다.
+function PreparingFrame({ absolute = false, stalled = false, onOpen = null, pct = null }) {
   return (
     <div className={absolute ? 'absolute inset-0' : 'relative w-full h-full'}>
       {/* Skeleton에 absolute를 주면 먹지 않는다(.dc-skeleton이 position: relative를
@@ -1170,23 +1190,40 @@ function PreparingFrame({ absolute = false, stalled = false, onOpen = null }) {
           )}
         </span>
       ) : (
-        <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
-          <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
+        <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5">
+          <span className="flex items-center gap-2 text-xs text-fg-muted">
+            <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
+          </span>
+          {pct !== null && <span data-dl-pct className="text-[12px] text-fg-faint tabular-nums">다운로드 중 {pct}%</span>}
         </span>
       )}
     </div>
   );
 }
 
-function Fallback({ row, message, onOpen }) {
+// 실패 카드 — 위 그림은 그 파일의 종류 표시다(2026-10-15 시안 C9 · 회색 물음표 대신). PDF는 다붓이 답의 파일 카드
+// (dabooti.jsx FileCard · EXT_PAINT)와 같은 'PDF' 글자 칩을 48px로, 그 밖은 첨부 줄의 종류 칩(fileRow.fileKind)을 48px로.
+// `onRetry`(받기 실패만) — '다시 시도'가 accent로 앞에 서고 '새 탭에서 열기'는 옅은 버튼으로 물러난다.
+function Fallback({ row, message, onOpen, onRetry = null }) {
+  const kind = fileKind(row.name, row.mime_type, 22);
   return (
     <div className="text-center px-6 py-10">
-      <span className="inline-flex w-12 h-12 rounded-lg bg-tag-gray text-tag-gray-fg items-center justify-center mb-3"><FileQuestion size={22} strokeWidth={1.75} /></span>
+      {kind.pdf
+        ? <span data-kind-chip="pdf" className="inline-flex w-12 h-12 items-center justify-center mb-3 text-[13px] font-extrabold text-white"
+            style={{ background: '#c4302b', borderRadius: 11, letterSpacing: '.02em' }}>PDF</span>
+        : <span data-kind-chip="" className={`inline-flex w-12 h-12 rounded-lg items-center justify-center mb-3 ${kind.chip}`}>{kind.icon}</span>}
       <p className="text-sm text-fg font-medium truncate max-w-xs mx-auto">{row.name}</p>
       <p className="text-xs text-fg-muted mt-1.5 leading-relaxed whitespace-pre-line">{message}</p>
-      <button type="button" onClick={onOpen} className={`mt-4 inline-flex items-center gap-1.5 ${BTN}`}>
-        <ExternalLink size={13} /> 새 탭에서 열기
-      </button>
+      <div className="mt-4 inline-flex items-center gap-2">
+        {onRetry && (
+          <button type="button" onClick={onRetry} className={`inline-flex items-center gap-1.5 ${BTN}`}>
+            <RotateCw size={13} /> 다시 시도
+          </button>
+        )}
+        <button type="button" onClick={onOpen} className={`inline-flex items-center gap-1.5 ${onRetry ? BTN_SOFT : BTN}`}>
+          <ExternalLink size={13} /> 새 탭에서 열기
+        </button>
+      </div>
     </div>
   );
 }

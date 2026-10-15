@@ -147,7 +147,8 @@ import { loadSource, readSplit } from './_load.mjs';
   const links = src('../src/components/links.jsx');
   assert.ok(!/LinkRow|LinkAddPopover|onLinkAdd/.test(att),
     '첨부 구역에 링크 부품이 다시 들어왔다');
-  assert.ok(!/\+ 링크|참고 링크/.test(att + modals), "업무 창에 '+ 링크'·'참고 링크'가 있다");
+  // 버튼 글자로 본다 — 용량 초과 상자의 '참고 링크로 공유해 주세요'(2026-10-15 시안 C14)는 프로젝트 머리의 참고 링크를 가리키는 말이다
+  assert.ok(!/\+ 링크|\+ 참고 링크/.test(att + modals), "업무 창에 '+ 링크'·'+ 참고 링크'가 있다");
   assert.ok(!/export function LinkRow/.test(links), '첨부 구역용 링크 줄(LinkRow)이 남아 있다');
   // 첨부 구역은 예전 모양 그대로다 — 점선 상자 안에 끌어다 놓기·붙여넣기 안내 두 줄
   const dropBox = att.slice(att.indexOf('border-2 border-dashed'), att.indexOf('{!readOnly && rejected.length > 0'));

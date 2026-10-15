@@ -14,9 +14,18 @@
 // 사라져서 토스트를 놓치면 파일을 다시 골라야 했다. 이제 빨간 줄로 서서 '다시 시도'를
 // 기다린다. blob 주소는 줄이 **빠질 때만** 돌려준다 — 다시 시도는 같은 줄·같은 주소로 간다.
 // ============================================================================
+// 올리는 진행·멈춤(2026-10-15 · UX 다듬기 2차 C2·C3 · PITFALLS 60-a~c):
+//   줄에 `_pct`(0~100 · 모르면 null)와 `_phase`('send' 바이트를 보내는 중 · 'move' 다 보냈고 드라이브로 옮기는 중)가 붙는다.
+//   send(file, ctx, ctl)의 셋째 ctl = { onProgress(loaded, total), onSent(), signal, isCancelled() } — 업무 첨부만 쓴다
+//   (송폼·모임 보고서는 받지 않아도 된다 · 예전 모양 그대로 돈다).
+//   cancelUpload(열쇠, id) — 아직 차례가 안 온 줄은 목록에서 빼고 · 바이트를 보내는 중이면 끊고(abort) · 이미 다 보낸 줄은
+//   `_cancel`(화면에서는 곧바로 빠진다)로 두고 올라오는 즉시 행·실체를 거둔다(cloud/drive.uploadOwnedFile · attachments send).
+//   멈춘 줄의 실패는 실패가 아니다 — 토스트도 빨간 줄도 없다.
 // 열쇠는 업무 첨부면 cards.id, 모임 보고서면 `meeting:<모임 id>`(groups.meetingQueueKey) — 이름은 옛 그대로 둔다.
 export const uploadingByCard = new Map();   // 열쇠 → [고른 파일 줄]
 export const uploadWatchers = new Set();    // 지금 떠 있는 첨부 영역들(보기·수정이 다른 인스턴스다 · 모임 보고서 칸)
+const cancelled = new Set();                // 멈춘 줄 id — 차례가 와도 보내지 않고, 올라와 버리면 거둔다
+const inflight = new Map();                 // 보내는 중인 줄 id → AbortController
 
 // 아직 올라가는 중인 줄이 있나 — 못 올린 줄은 셈하지 않는다(그건 기다리는 일이 아니다)
 const active = (list) => (list || []).some(r => !r._failed);
@@ -51,10 +60,10 @@ const put = (cardId, rows) => {
   uploadingByCard.set(cardId, list);
   notifyUploads();
 };
-export const stageUploads = (cardId, rows) => put(cardId, rows.map(r => ({ ...r, _failed: false })));
+export const stageUploads = (cardId, rows) => put(cardId, rows.map(r => ({ ...r, _failed: false, _pct: null, _phase: undefined, _cancel: false })));
 export const failUpload = (cardId, id) => {
   const row = (uploadingByCard.get(cardId) || []).find(p => p.id === id);
-  if (row) put(cardId, [{ ...row, _failed: true }]);
+  if (row) put(cardId, [{ ...row, _failed: true, _pct: null, _phase: undefined }]);
 };
 export const unstageUpload = (cardId, id) => {
   const list = uploadingByCard.get(cardId) || [];
@@ -81,12 +90,26 @@ export async function runUploads({ cardId, rows, prepare, send, onError }) {
     const worker = async () => {
       while (next < rows.length) {
         const row = rows[next++];
+        if (cancelled.has(row.id)) { cancelled.delete(row.id); continue; }   // 차례가 오기 전에 멈춘 줄
+        const ac = new AbortController();
+        inflight.set(row.id, ac);
+        const ctl = {
+          signal: ac.signal,
+          isCancelled: () => cancelled.has(row.id),
+          onProgress: (loaded, total) => setUploadProgress(cardId, row.id, { pct: total > 0 ? Math.min(100, Math.floor((loaded / total) * 100)) : null, phase: 'send' }),
+          onSent: () => setUploadProgress(cardId, row.id, { phase: 'move' }),
+        };
         try {
-          done.push(await send(row._file, ctx));
+          const out = await send(row._file, ctx, ctl);
+          if (cancelled.has(row.id)) throw Object.assign(new Error('멈춘 줄'), { cancelled: true });
+          done.push(out);
           unstageUpload(cardId, row.id);
         } catch (e) {
-          onError?.(row._file, e);
-          failUpload(cardId, row.id);
+          if (e?.cancelled || cancelled.has(row.id)) unstageUpload(cardId, row.id);   // 멈춘 줄 — 알리지도 남기지도 않는다
+          else { onError?.(row._file, e); failUpload(cardId, row.id); }
+        } finally {
+          inflight.delete(row.id);
+          cancelled.delete(row.id);
         }
       }
     };
@@ -103,5 +126,30 @@ export async function runUploads({ cardId, rows, prepare, send, onError }) {
 }
 
 // '다시 시도'가 넘길 줄 — 못 올린 줄만 돌려준다(이미 다시 올라가는 중이면 null)
+// 진행을 줄에 적는다 — 같은 정수 퍼센트·같은 단계면 다시 그리지 않는다(진행 이벤트는 초에 수십 번 온다)
+export const setUploadProgress = (cardId, id, { pct = undefined, phase = undefined } = {}) => {
+  const row = (uploadingByCard.get(cardId) || []).find(p => p.id === id);
+  if (!row || row._failed) return;
+  const next = { ...row };
+  if (pct !== undefined) next._pct = pct;
+  if (phase !== undefined) next._phase = phase;
+  if (next._pct === row._pct && next._phase === row._phase) return;
+  put(cardId, [next]);
+};
+
+export const isUploadCancelled = (id) => cancelled.has(id);
+
+// 줄의 X — 위 머리말의 세 갈래. 못 올린 줄은 '목록에서 빼기'와 같다.
+export const cancelUpload = (cardId, id) => {
+  const row = (uploadingByCard.get(cardId) || []).find(p => p.id === id);
+  if (!row) return;
+  if (row._failed) { unstageUpload(cardId, id); return; }
+  cancelled.add(id);
+  const ctl = inflight.get(id);
+  if (!ctl) { unstageUpload(cardId, id); return; }                   // 아직 차례가 안 왔다
+  if (row._phase !== 'move') ctl.abort();                            // 바이트를 보내는 중 — 끊는다
+  put(cardId, [{ ...row, _cancel: true }]);                          // 다 보냈으면 올라오는 대로 거둔다 · 화면에서는 지금 빠진다
+};
+
 export const failedRow = (cardId, id) =>
   (uploadingByCard.get(cardId) || []).find(p => p.id === id && p._failed) || null;

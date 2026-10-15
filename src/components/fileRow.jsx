@@ -19,12 +19,26 @@ export const formatBytes = (b) => {
   return `${(b / 1024 / 1024).toFixed(1)} MB`;
 };
 
-export const fileKind = (name = '', mime = '') => {
+// size — 아이콘 크기(줄은 16 · 미리보기 실패 카드의 48px 칩은 22 · FilePreviewModal Fallback)
+export const fileKind = (name = '', mime = '', size = 16) => {
   const ext = (name.split('.').pop() || '').toLowerCase();
   const has = (m) => (mime || '').includes(m);
-  if (ext === 'pdf' || has('pdf')) return { chip: 'bg-tag-red text-tag-red-fg', icon: <FileText size={16} strokeWidth={1.75} /> };
-  if (['doc', 'docx'].includes(ext) || has('word')) return { chip: 'bg-tag-blue text-tag-blue-fg', icon: <FileText size={16} strokeWidth={1.75} /> };
-  if (['ppt', 'pptx'].includes(ext) || has('presentation')) return { chip: 'bg-tag-orange text-tag-orange-fg', icon: <Presentation size={16} strokeWidth={1.75} /> };
-  if (['xls', 'xlsx', 'csv'].includes(ext) || has('sheet') || has('excel') || has('csv')) return { chip: 'bg-tag-green text-tag-green-fg', icon: <FileSpreadsheet size={16} strokeWidth={1.75} /> };
-  return { chip: 'bg-tag-gray text-tag-gray-fg', icon: <File size={16} strokeWidth={1.75} /> };
+  if (ext === 'pdf' || has('pdf')) return { chip: 'bg-tag-red text-tag-red-fg', icon: <FileText size={size} strokeWidth={1.75} />, pdf: true };
+  if (['doc', 'docx'].includes(ext) || has('word')) return { chip: 'bg-tag-blue text-tag-blue-fg', icon: <FileText size={size} strokeWidth={1.75} /> };
+  if (['ppt', 'pptx'].includes(ext) || has('presentation')) return { chip: 'bg-tag-orange text-tag-orange-fg', icon: <Presentation size={size} strokeWidth={1.75} /> };
+  if (['xls', 'xlsx', 'csv'].includes(ext) || has('sheet') || has('excel') || has('csv')) return { chip: 'bg-tag-green text-tag-green-fg', icon: <FileSpreadsheet size={size} strokeWidth={1.75} /> };
+  return { chip: 'bg-tag-gray text-tag-gray-fg', icon: <File size={size} strokeWidth={1.75} /> };
 };
+
+// 올린 날 'M월 D일'(한국 날짜 · 모임 보고서 줄의 dayOf와 같은 모양)
+export const fileDay = (iso) => {
+  const t = Date.parse(iso || '');
+  if (!Number.isFinite(t)) return '';
+  const [, m, d] = new Date(t).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).split('-');
+  return `${+m}월 ${+d}일`;
+};
+
+// 첨부 줄의 메타 — '295 KB · 9월 18일 · 김윤주'(크기 · 올린 날 · 올린 사람 · 2026-10-15 시안 C5 '같은 이름 파일 가르기').
+// 같은 이름의 파일이 두 줄 서도 언제·누가 올린 것인지로 갈린다. 모르는 칸은 빠진다(이름을 못 찾으면 크기·날짜만).
+export const fileMeta = (row, nameOf = () => '') =>
+  [formatBytes(row?.size_bytes), fileDay(row?.created_at), nameOf(row?.uploaded_by) || ''].filter(Boolean).join(' · ');

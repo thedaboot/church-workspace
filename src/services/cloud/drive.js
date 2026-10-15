@@ -9,6 +9,9 @@ import { generateId } from '../../utils.js';
 // 어떤 파일에 구글 변환 사본을 만들지 — 표를 **여는 쪽과 한 벌**로 둔다(previewKind.js).
 // 두 벌이면 새 확장자를 붙일 때 한쪽만 고쳐져서 "사본은 있는데 안 열리는 파일"이 생긴다.
 import { previewCopyOf } from '../previewKind.js';
+// 올리는 진행·받는 진행(2026-10-15 · UX 다듬기 2차 C2·C4) — XHR·응답 스트림 한 벌(순수 · logcheck-task가 노드에서 본다)
+import { xhrSend, readBody, cancelledError } from '../transfer.js';
+import { SUPABASE_ANON_KEY } from '../supabaseClient.js';
 
 // ── files / 첨부 파일 (Supabase Storage: private 버킷 'attachments') ──────────
 export const ATTACH_BUCKET = 'attachments';
@@ -42,11 +45,27 @@ const IDEMPOTENT = new Set(['ensureFolder', 'renameFolder', 'trash', 'list']);
 const VERIFY_WAIT_MS = 4000;
 const RETRY_WAITS = [400, 1200];     // 두 번까지, 점점 길게 (sleep은 위 시계-오차 재시도가 이미 두었다)
 
-async function driveOnce(payload) {
+const noLogin = () => { const e = new Error('로그인이 필요해요'); e.human = '로그인이 풀렸어요\n새로고침하고 다시 로그인해주세요'; throw e; };
+
+// `net` — 올리기 한 건의 진행·멈춤(uploadQueue가 넘긴다 · 없으면 예전 fetch 그대로):
+//   onProgress(loaded, total) 보내는 바이트 · onSent() 다 보냄('드라이브로 옮기는 중') · signal 멈춤 · isCancelled() 멈춘 줄인가
+// 진행은 fetch가 주지 않아서 그때만 XHR로 보낸다(transfer.xhrSend — 돌려받는 모양은 fetch Response와 같다).
+const wantsXhr = (net) => !!(net && (net.onProgress || net.signal)) && typeof XMLHttpRequest !== 'undefined';
+
+async function driveOnce(payload, net = null) {
   // 토큰은 core.accessToken 한 벌로 꺼낸다 — `getSession()`의 모양 함정(§6-29)은 그 머리말에 있다.
-  const r = await authedPost('/api/drive', payload, {
-    noToken: () => { const e = new Error('로그인이 필요해요'); e.human = '로그인이 풀렸어요\n새로고침하고 다시 로그인해주세요'; throw e; },
-  });
+  let r;
+  if (wantsXhr(net)) {
+    const t = await accessToken();
+    if (!t) noLogin();
+    r = await xhrSend({
+      url: '/api/drive', body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+      onProgress: net.onProgress, onSent: net.onSent, signal: net.signal,
+    });
+  } else {
+    r = await authedPost('/api/drive', payload, { noToken: noLogin });
+  }
   const out = await r.json().catch(() => ({}));
   if (r.status === 501) { const e = new Error('드라이브 미설정'); e.notConfigured = true; throw e; }
   if (!r.ok) {
@@ -116,7 +135,9 @@ export const OFFICE_TYPE = {
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
-export async function fetchDriveFileBlob(fileId, { as = null } = {}) {
+// `onProgress(loaded, total)` — 받는 동안의 진행(미리보기의 '다운로드 중 N%' · C4). total이 0이면 길이를 모른다
+// (압축돼 온 응답은 중계가 길이를 안 싣는다 · 56-a) — 화면은 퍼센트를 안 세운다.
+export async function fetchDriveFileBlob(fileId, { as = null, onProgress = null } = {}) {
   const token = await accessToken();
   if (!token) throw new Error('로그인이 필요합니다.');
   const r = await fetch(`/api/drive-file?id=${encodeURIComponent(fileId)}${Object.keys(OFFICE_TYPE).includes(as) ? `&as=${as}` : ''}`, {
@@ -128,7 +149,7 @@ export async function fetchDriveFileBlob(fileId, { as = null } = {}) {
     e.human = out.error;
     throw e;
   }
-  return r.blob();
+  return readBody(r, onProgress);
 }
 
 // 업로드 한 번의 **멱등 열쇠**. 스크립트 v5가 이 값을 파일 설명에 적어 두고,
@@ -143,11 +164,12 @@ const newKey = generateId;
 //  · v5 스크립트: list로 열쇠를 찾아본다 → 있으면 그 파일을 그대로 쓴다
 //  · v4 스크립트: list가 'unknown action'으로 떨어진다 → 재시도하지 않고 실패를 알린다
 //    (모르면 안 하는 쪽이 낫다 — 중복 파일은 사람이 지워야 한다)
-async function uploadOnceOrFind(payload, folderHint) {
+async function uploadOnceOrFind(payload, folderHint, net = null) {
   try {
-    return await driveOnce(payload);
+    return await driveOnce(payload, net);
   } catch (e) {
-    if (e.notConfigured || !worthRetry(e)) throw e;
+    // 멈춘 올리기(바이트를 보내는 중에 X)는 확인·재시도 없이 그대로 — 끊긴 몸통은 서버가 받지 못했다
+    if (e.cancelled || e.notConfigured || !worthRetry(e)) throw e;
     // **끊긴 뒤에는 잠깐 기다렸다 확인한다.** 우리가 시간 예산으로 끊어도 스크립트는
     // 계속 돌아 파일을 다 쓴다. 곧바로 확인하면 아직 없어서 "안 올라갔다"로 보고
     // 다시 보내게 되고, 그러면 파일이 두 개가 된다. 열쇠 검사는 **이미 다 쓰인 뒤**만
@@ -168,8 +190,11 @@ async function uploadOnceOrFind(payload, folderHint) {
       console.warn('[drive] 타임아웃이었지만 파일은 올라가 있었다 — 그 파일을 쓴다:', found.name);
       return { id: found.id, url: found.url, folderId: folderHint.folderId || foundIn || undefined, existing: true };
     }
+    // 그 사이 멈췄으면 다시 보내지 않는다(올라간 파일이 있었다면 위 found가 받아 부르는 쪽이 휴지통으로 보낸다)
+    if (net?.isCancelled?.()) throw cancelledError();
     console.warn('[drive] 업로드가 정말 안 됐다 — 한 번 다시 보낸다');
-    return driveOnce({ ...payload, retry: true });
+    // 다시 보낼 때는 바이트 진행을 다시 세지 않는다 — 줄은 '드라이브로 옮기는 중' 그대로 둔다(진행이 0으로 되감기면 거짓말)
+    return driveOnce({ ...payload, retry: true }, net && { signal: net.signal, onSent: net.onSent });
   }
 }
 
@@ -194,14 +219,43 @@ const INLINE_MAX = 3 * 1024 * 1024;
 // 돌려주는 것: { drive } 또는 { storagePath } 중 하나.
 // `prefix`는 Storage에 둘 자리의 앞머리다 — 업무 첨부는 `<프로젝트>/<업무>`,
 // 주보 송폼은 `services/<주보>`(0047). 부르는 쪽이 정한다.
-async function uploadViaStorage(file, { prefix, key, folderHint, name = file.name }) {
+// Storage에 한 파일을 둔다. 진행을 원하면 **서명 올리기 주소**(createSignedUploadUrl)에 XHR로 — supabase-js의
+// upload/uploadToSignedUrl은 fetch라 진행을 안 준다. 몸통 모양(FormData: cacheControl + 빈 이름 칸의 파일)·머리줄(x-upsert)은
+// storage-js의 uploadToSignedUrl과 같다. 멈추면(X) 반쯤 들어간 것이 남지 않게 그 자리를 지운다(끝 바이트와 멈춤이 엇갈린 경우).
+async function putToStorage(c, path, file, net) {
+  if (!wantsXhr(net)) {
+    const put = await c.storage.from(ATTACH_BUCKET).upload(path, file, {
+      contentType: file.type || undefined, upsert: false, cacheControl: '2592000',
+    });
+    if (put.error) throw put.error;
+    return;
+  }
+  const { signedUrl } = unwrap(await c.storage.from(ATTACH_BUCKET).createSignedUploadUrl(path));
+  const form = new FormData();
+  form.append('cacheControl', '2592000');
+  form.append('', file);
+  const t = await accessToken();
+  try {
+    const r = await xhrSend({
+      url: signedUrl, method: 'PUT', body: form,
+      headers: { 'x-upsert': 'false', apikey: SUPABASE_ANON_KEY, ...(t ? { Authorization: `Bearer ${t}` } : {}) },
+      onProgress: net.onProgress, onSent: net.onSent, signal: net.signal,
+    });
+    if (!r.ok) {
+      const out = await r.json().catch(() => ({}));
+      throw Object.assign(new Error(out.message || out.error || `Storage ${r.status}`), { status: r.status });
+    }
+  } catch (e) {
+    if (e.cancelled) c.storage.from(ATTACH_BUCKET).remove([path]).catch(() => {});
+    throw e;
+  }
+}
+
+async function uploadViaStorage(file, { prefix, key, folderHint, name = file.name }, net = null) {
   const c = client();
   const safe = (name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${prefix}/${newKey()}-${safe}`;
-  const put = await c.storage.from(ATTACH_BUCKET).upload(path, file, {
-    contentType: file.type || undefined, upsert: false, cacheControl: '2592000',
-  });
-  if (put.error) throw put.error;
+  await putToStorage(c, path, file, net);
 
   let signed;
   try {
@@ -219,7 +273,7 @@ async function uploadViaStorage(file, { prefix, key, folderHint, name = file.nam
       key,
       url: signed,
       name, mimeType: file.type || undefined,
-    }, folderHint);
+    }, folderHint, net && { isCancelled: net.isCancelled });
     // 드라이브로 갔으니 옮겨 담는 자리는 치운다. 실패해도 던지지 않는다 —
     // 남은 사본은 용량만 차지하고, 그것 때문에 첨부가 막히면 안 된다.
     c.storage.from(ATTACH_BUCKET).remove([path])
@@ -313,7 +367,10 @@ export async function grantCopyEditors(row, emails = []) {
 // 행을 못 만들면 올린 파일 되돌리기 — 는 **두 갈래가 똑같아야 하는 것들**이라 여기
 // 한 벌로 둔다. 두 벌로 두면 고칠 때마다 한쪽만 고쳐진다(§6-29 머리말의 그 함정).
 // ============================================================================
-async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder, awaitCopy = false }) {
+//
+// `net`(세 번째 · 없어도 된다) — 업무 첨부의 올리는 중 줄이 넘긴다(uploadQueue · C2·C3): 진행·멈춤. 송폼·모임 보고서는 안 넘긴다.
+// **멈춘 줄이 다 올라와 버렸으면**(바이트를 다 넘긴 뒤 X — '올라가면 곧 지움') 행을 세우지 않고 실체를 되돌린다 — 사본도 만들지 않는다.
+async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder, awaitCopy = false }, net = null) {
   // 이름은 **NFC로 한 번 맞춘 것**을 이 흐름 전체가 쓴다. 맥(사파리·파인더)에서 고른 파일은
   // 한글이 자모로 풀린 NFD로 오는데, 그대로 저장하면 같은 글자를 쳐도 검색에 안 걸리고
   // 드라이브에서도 이름이 다른 파일로 보인다(라이브 15행 · 2026-09-24 · 0072가 옛 행을 맞춘다).
@@ -325,7 +382,7 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
   let storagePath = null; // Storage에 남긴 경우(스크립트가 v5거나 옮기기 실패)
   try {
     if ((file.size ?? 0) > INLINE_MAX) {
-      const out = await uploadViaStorage(file, { prefix, key, folderHint, name });
+      const out = await uploadViaStorage(file, { prefix, key, folderHint, name }, net);
       up = out.drive || null;
       storagePath = out.storagePath || null;
     } else {
@@ -335,13 +392,22 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
         key,
         name, mimeType: file.type || undefined,
         dataBase64: await fileToBase64(file),
-      }, folderHint);
+      }, folderHint, net);
     }
   } catch (e) {
     if (!e.notConfigured) throw e;
     // 드라이브가 없는 환경 — 예전 경로 그대로
     return uploadToStorageOnly(file, { owner, prefix, name });
   }
+
+  // 행을 못 세웠거나 멈춘 줄일 때 — 올린 실체를 도로 치운다(드라이브는 휴지통 · Storage는 지움)
+  const undoBody = async () => {
+    try {
+      if (up) await driveCall({ action: 'trash', fileId: up.id });
+      else if (storagePath) await c.storage.from(ATTACH_BUCKET).remove([storagePath]);
+    } catch (te) { console.error('[drive] 되돌리기도 실패 — 실체가 남는다:', te); }
+  };
+  if (net?.isCancelled?.()) { await undoBody(); throw cancelledError(); }
 
   let row;
   try {
@@ -363,10 +429,7 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
     // 보낸다** — 안 그러면 "드라이브에는 있는데 앱에는 없는" 파일이 영영 남고,
     // 그건 싱크가 아니라 유실이다(사용자가 짚은 바로 그 어긋남).
     console.error('[drive] 올라갔지만 files 행 생성 실패:', e);
-    try {
-      if (up) await driveCall({ action: 'trash', fileId: up.id });
-      else if (storagePath) await c.storage.from(ATTACH_BUCKET).remove([storagePath]);
-    } catch (te) { console.error('[drive] 되돌리기도 실패 — 실체가 남는다:', te); }
+    await undoBody();
     e.human = e.human || `파일을 목록에 넣지 못해 되돌렸어요\n${e.message || e}`;
     throw e;
   }
@@ -374,6 +437,12 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
   // 폴더를 이번에 처음 판 경우 id를 적어 둔다(다음 업로드부터 id로 넣는다).
   // 실패하면 **알린다** — 조용히 넘기면 다음 업로드가 같은 이름 폴더를 하나 더 만들고
   // 한 주인의 파일이 두 폴더로 갈라진다(드라이브는 같은 이름 형제를 허용한다).
+  // 행을 세우는 사이 멈췄으면 — 행과 실체를 같이 거둔다(사본은 아직 안 만들었다)
+  if (net?.isCancelled?.()) {
+    try { unwrap(await c.from('files').delete().eq('id', row.id)); } catch (de) { console.error('[drive] 멈춘 첨부의 행을 못 지웠다:', de); }
+    await undoBody();
+    throw cancelledError();
+  }
   if (up?.folderId && rememberFolder) {
     try { await rememberFolder(up.folderId); }
     catch (e) { console.error('[drive] 폴더 id 저장 실패 — 다음 업로드가 폴더를 또 만들 수 있다:', e); }
@@ -394,7 +463,7 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
   return Object.assign(row, { _driveFolderId: up?.folderId });
 }
 
-export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId, cardTitle, cardFolderId }) {
+export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId, cardTitle, cardFolderId }, net = null) {
   // 업무 폴더 id를 이미 알면 그것만 보낸다(cardTitle을 같이 보내면 그 안에 또
   // 같은 이름 폴더를 판다 — 0026). 폴더 만들기는 부르는 쪽이 미리 끝낸다.
   const folderHint = cardFolderId
@@ -405,7 +474,7 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
     owner: { project_id: projectId, card_id: cardId },
     prefix: `${projectId}/${cardId}`,
     rememberFolder: cardFolderId ? null : (folderId) => setCardFolder(cardId, folderId),
-  });
+  }, net);
 }
 
 // ── 주보에 붙는 파일 — 송폼 · 큐시트 (0047 · 갈래는 0054) ───────────────────

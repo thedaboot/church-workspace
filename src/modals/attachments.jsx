@@ -2,13 +2,15 @@ import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Paperclip, UploadCloud, Loader2, AlertTriangle, Eye, Trash2, X, Lock, LockOpen } from 'lucide-react';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 // 크기 표기·종류 칩은 주보 송폼(0047)과 **같은 한 벌**이다 — components/fileRow.jsx
-import { formatBytes, fileKind } from '../components/fileRow.jsx';
+import { formatBytes, fileKind, fileMeta } from '../components/fileRow.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, setFilePassword, checkFilePassword, driveImageUrl, setFileExcerpt, grantCopyEditors } from '../services/cloud.js';
 import { SmartImage, Skeleton } from '../components/media.jsx';
 import { useStore, store } from '../store/workspaceStore.js';
-import { selectProjectsMap } from '../store/selectors.js';
+import { selectProjectsMap, selectMembers } from '../store/selectors.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
+import { cancelledError } from '../services/transfer.js';
 import { ensureProjectFolder, ensureCardFolder } from '../services/cloudSync.js';
 import { downscaleImage, FILE_MAX_DIM } from '../services/image.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
@@ -17,7 +19,7 @@ import { sheetPreviewUrl } from '../utils.js';
 // 붙일 때 한쪽만 고쳐져서 "미리보기는 되는데 펼쳐지지 않는 파일"이 생긴다.
 import { SHEET_EXT, extOf } from '../services/previewKind.js';
 import { BTN } from '../components/buttons.js';
-import { uploadingByCard, uploadWatchers, notifyUploads, hasActiveUploads, stagedRow, runUploads, failedRow, unstageUpload } from './uploadQueue.js';
+import { uploadingByCard, uploadWatchers, notifyUploads, hasActiveUploads, stagedRow, runUploads, failedRow, unstageUpload, cancelUpload } from './uploadQueue.js';
 
 // 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
 const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
@@ -130,16 +132,23 @@ function sendRows({ task, project, rows, onFileActivity }) {
     // **동시 3개**(runUploads) — 폴더는 위에서 이미 확보했으므로 첫 파일을 혼자 보낼
     // 이유가 없다(예전에는 동시에 보내면 드라이브가 같은 이름 폴더를 여러 개 만들어서,
     // 첫 장을 따로 올려 폴더를 만들고 나머지를 병렬로 보냈다).
-    send: async (file) => {
+    // ctl — 진행(올리는 중 줄의 퍼센트·막대 · C2)과 멈춤(줄의 X · C3)을 드라이브 길까지 넘긴다(uploadQueue 머리말)
+    send: async (file, _ctx, ctl) => {
       // **보내기 직전에 사진을 줄인다.** 미리보기는 위에서 스테이징한 원본으로 이미
       // 뜨고 있으므로 여기서 줄여도 화면이 기다리지 않는다. 사진이 아니거나 이미
       // 작으면 원본 그대로 간다(services/image.js).
       const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
+      if (ctl?.isCancelled()) throw cancelledError();
       const row = await uploadAttachment(sending, {
         projectId: task.projectId, cardId: task.id,
         projectName: project?.name || project?.title, driveFolderId: folderId || project?.driveFolderId,
         cardTitle: task.title, cardFolderId,
-      });
+      }, ctl);
+      // 행이 선 뒤에 멈춘 줄('올라가면 곧 지움') — 목록에 넣지 않고 그 자리에서 거둔다(행 → 드라이브 휴지통 · 지우기와 같은 길)
+      if (ctl?.isCancelled()) {
+        deleteAttachment(row).catch(e => console.error('[cloud] 멈춘 첨부를 거두지 못했다:', e));
+        throw cancelledError();
+      }
       addUploaded(task.id, row);
       // 파일 안의 글자를 뽑아 붙인다(0030) — AI 요약과 검색이 읽는다. **기다리지 않는다.**
       // 파싱은 수백 ms 걸릴 수 있고, 이것 때문에 다음 파일 업로드가 밀리면 안 된다.
@@ -426,7 +435,18 @@ function InlineSheet({ row }) {
 }
 
 // thumb(서명 URL)은 상위에서 일괄 발급받아 주입 — 행마다 개별 요청하지 않는다
-const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, embedded, onToggleEmbed, locked, onToggleLockUI, canLock }) => {
+// 올리는 중 줄의 막대(2px · 바탕 --p-track · 채움 accent · 폭은 .42s quint로 따라간다 · 2026-10-15 시안 C2).
+// 바이트 진행을 알기 전(사진 줄이기·폴더 확보 중)에는 막대도 퍼센트도 없다 · 다 보낸 뒤('드라이브로 옮기는 중')는 가득 찬 채 퍼센트만 걷힌다.
+const UploadTrack = ({ pct }) => (
+  <span role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} data-upload-track
+    className="block rounded-full overflow-hidden" style={{ height: 2, marginTop: 5, background: 'var(--p-track)' }}>
+    <span className="block h-full rounded-full bg-accent motion-reduce:transition-none"
+      style={{ width: `${pct}%`, transition: 'width .42s var(--ease-out-quint)' }} />
+  </span>
+);
+
+// meta — 올라간 줄의 '크기 · 올린 날 · 올린 사람'(fileRow.fileMeta · C5) · onCancel — 올리는 중 줄의 X(C3 · 수정 화면만)
+const AttachmentRow = ({ row, meta, canDelete, thumb, thumbFailed, onOpen, onRemove, onCancel, embedded, onToggleEmbed, locked, onToggleLockUI, canLock }) => {
   // 이미지 썸네일 — 스토리지는 200px 서명 URL, 드라이브는 구글 이미지 CDN이
   // 줄여서 내준다(우리 대역폭 0). 주소 발급이 실패한 것은 아이콘으로 돌아간다:
   // 스켈레톤을 영원히 두면 "고장"으로 읽힌다.
@@ -446,6 +466,9 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
   const isImage = (row.mime_type || '').startsWith('image/') && !!src && !thumbFailed;
   const kind = fileKind(row.name, row.mime_type);
   const openTitle = locked ? '비밀번호를 넣어야 열려요' : '미리보기';
+  // 바이트 진행 — 보내는 중이면 퍼센트, 다 보냈으면 가득 찬 막대만('드라이브로 옮기는 중')
+  const moving = pending && row._phase === 'move';
+  const pct = moving ? 100 : (pending && Number.isFinite(row._pct) ? row._pct : null);
   const label = (
     <>
       {!isImage && <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>}
@@ -456,8 +479,10 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
             이게 없으면 새 탭 버튼이 왜 없는지 아무도 모른다. */}
         <span className="text-[10px] mt-0.5 flex items-center gap-1 text-fg-muted">
           {pending && <Loader2 size={10} className="animate-spin shrink-0" />}
-          {pending ? `드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}
+          <span className="truncate">{pending ? `${moving ? '드라이브로 옮기는 중' : '드라이브에 올리는 중'} · ${formatBytes(row.size_bytes)}` : (meta || formatBytes(row.size_bytes))}</span>
+          {pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">{pct}%</span>}
         </span>
+        {pct !== null && <UploadTrack pct={pct} />}
       </span>
     </>
   );
@@ -496,6 +521,11 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
       {!sheetPending && (
         <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title={openTitle}><Eye size={14} /></button>
       )}
+      {/* 올리기 멈춤 — 줄의 삭제 버튼과 같은 모양(누르면 빨강). 확인은 묻지 않는다: 잃는 것이 없다(고른 파일은 기기에 그대로다) */}
+      {pending && onCancel && (
+        <button type="button" onClick={onCancel} title="올리기 취소" aria-label="올리기 취소"
+          className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95"><X size={14} /></button>
+      )}
       {!pending && canDelete && (
         <ConfirmPopover message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
           <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>
@@ -528,6 +558,10 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 드라이브는 프로젝트 하나에 폴더 하나다. 이름이 아니라 **폴더 id**를 넘겨야
   // 프로젝트 이름을 바꿔도 예전 파일과 새 파일이 두 폴더로 갈라지지 않는다.
   const project = useStore(selectProjectsMap)[task.projectId];
+  // 올린 사람 이름(C5 메타 줄) — 스토어의 가입자 표시 이름. 환송·합친 계정이면 못 찾고 그 칸만 빠진다
+  const members = useStore(selectMembers);
+  const nameOf = (uid) => (uid && members.find(m => m.id === uid)?.name) || '';
+  const isMobile = useIsMobile();
   // 이미 받아둔 attachments를 먼저 그리고(즉시 표시) 백그라운드로 갱신.
   // **여기서도 방금 지운 것을 걸러야 한다.** 부르는 쪽이 넘기는 task는 스토어가 아니라
   // 업무 창의 폼 스냅샷(formData)이고, 첨부를 지워도 그 스냅샷은 안 바뀐다. 그래서
@@ -705,7 +739,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
 
   // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김 — 올라가는 중이거나
   // 아직 목록을 받는 중이면 자리를 남긴다
-  if (readOnly && items.length === 0 && !pendingRows && !pending.length) return null;
+  if (readOnly && items.length === 0 && !pendingRows && !pending.some(r => !r._cancel)) return null;
 
   return (
     <div className="mt-5">
@@ -716,12 +750,22 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           onDragLeave={() => setDragOver(false)}
           onDrop={e => { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); }}
           onClick={() => inputRef.current?.click()}
-          className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${dragOver ? 'border-accent bg-accent-weak/40' : 'border-line hover:bg-surface-2/50'}`}
+          className={`border-2 border-dashed rounded-lg ${isMobile ? 'p-3' : 'p-4'} text-center cursor-pointer transition-colors ${dragOver ? 'border-accent bg-accent-weak/40' : 'border-line hover:bg-surface-2/50'}`}
         >
           <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
-          <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
-          <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
-          <p className="text-[10px] text-fg-muted mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB</p>
+          {/* 폰에는 끌어다 놓기·붙여넣기가 없다 — 한 줄로 '눌러서 파일 선택'(2026-10-15 시안 C14 · 한쪽만 마운트 §6-3) */}
+          {isMobile ? (
+            <span data-drop-line className="flex items-center justify-center gap-1.5">
+              <UploadCloud size={16} strokeWidth={1.75} className="text-fg-faint shrink-0" />
+              <span className="text-[11px] text-fg-muted">눌러서 파일 선택 · 최대 {MAX_UPLOAD_MB}MB</span>
+            </span>
+          ) : (
+            <>
+              <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
+              <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
+              <p className="text-[10px] text-fg-muted mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB</p>
+            </>
+          )}
         </div>
       )}
       {!readOnly && rejected.length > 0 && (
@@ -734,7 +778,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
                 <li key={f.name} className="text-[10px] text-tag-red-fg/90 truncate">{f.name} · {formatBytes(f.size)}</li>
               ))}
             </ul>
-            <p className="text-[10px] text-tag-red-fg/80 mt-1">용량을 줄이거나 링크(리소스)로 공유해 주세요.</p>
+            <p className="text-[10px] text-tag-red-fg/80 mt-1">용량을 줄이거나 참고 링크로 공유해 주세요.</p>
           </div>
           <button type="button" onClick={() => setRejected([])} className="relative before:absolute before:-inset-2 p-0.5 rounded text-tag-red-fg/70 hover:text-tag-red-fg transition shrink-0" title="닫기"><X size={13} /></button>
         </div>
@@ -755,24 +799,26 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           ))}
         </div>
       )}
-      {(items.length > 0 || pending.length > 0) && (
+      {(items.length > 0 || pending.some(r => !r._cancel)) && (
         <div className="divide-y divide-line/60 mt-1">
           {/* 아직 올리는 중인 파일 — 진짜 행과 같은 자리·같은 모양이다. 다만 새 탭·
               내려받기·삭제·잠금은 없다(드라이브에 아직 없으니 줄 수 없는 것들이다).
               **엑셀은 미리보기·펼쳐보기도 없다** — 표는 구글이 그리고, 그 화면은
               드라이브에 변환 사본이 생긴 뒤에만 있다(2026-08-30). */}
-          {pending.map(row => (row._failed
+          {/* 멈춘 줄(_cancel — 다 보낸 뒤 X · 올라오는 대로 거둔다)은 그 순간 화면에서 빠진다 */}
+          {pending.filter(row => !row._cancel).map(row => (row._failed
             ? <FailedRow key={row.id} row={row} readOnly={readOnly}
                 onRetry={() => retryUpload({ task, project, id: row.id, onFileActivity })}
                 onDismiss={() => unstageUpload(task.id, row.id)} />
             : <div key={row.id}>
               {/* 엑셀은 펼쳐보기를 달지 않는다 — 위 sheetPending 주석 참고 */}
-              <AttachmentRow row={row} onOpen={() => openFile(row)} />
+              <AttachmentRow row={row} onOpen={() => openFile(row)}
+                onCancel={readOnly ? null : () => cancelUpload(task.id, row.id)} />
             </div>
           ))}
           {items.map(row => (
             <div key={row.id}>
-              <AttachmentRow row={row} thumb={thumbs[row.storage_path]} thumbFailed={!!thumbFailed[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)}
+              <AttachmentRow row={row} meta={fileMeta(row, nameOf)} thumb={thumbs[row.storage_path]} thumbFailed={!!thumbFailed[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)}
                 embedded={!!embedded[row.id]}
                 locked={isLocked(row)}
                 canLock={!readOnly && isSheetRow(row) && (isAdmin || row.uploaded_by === userId)}

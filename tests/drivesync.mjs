@@ -164,8 +164,11 @@ check('업로드 재시도는 먼저 확인하고 retry 표시를 붙인다', ()
 // ── 싱크 구멍 ───────────────────────────────────────────────────────────────
 check('행을 못 만들면 올린 파일을 되돌린다', () => {
   // 안 되돌리면 "드라이브에는 있는데 앱에는 없는" 파일이 영영 남는다 = 유실
+  // 되돌리기는 한 벌(undoBody)이다 — 행을 못 세운 때와 멈춘 줄(C3 · '올라가면 곧 지움')이 같이 쓴다(2026-10-15)
   const block = /files 행 생성 실패[\s\S]{0,400}/.exec(cloud)?.[0] || '';
-  assert.match(block, /action: 'trash'/, '고아 파일을 휴지통으로 보내지 않는다');
+  assert.match(block, /await undoBody\(\)/, '고아 파일을 되돌리지 않는다');
+  const undo = /const undoBody = async \(\) => \{[\s\S]{0,300}/.exec(cloud)?.[0] || '';
+  assert.match(undo, /action: 'trash'/, '고아 파일을 휴지통으로 보내지 않는다');
 });
 
 check('업무 폴더를 파일보다 먼저 확보한다', () => {
@@ -599,7 +602,7 @@ const mig = read('supabase/migrations/0047_service_files.sql');
 const migKind = read('supabase/migrations/0054_files_kind.sql');
 
 check('송폼이 업무 첨부와 같은 업로드 한 벌을 지난다', () => {
-  assert.match(cloud, /async function uploadOwnedFile\(file, \{ folderHint, owner, prefix, rememberFolder(, awaitCopy = false)? \}\)/,
+  assert.match(cloud, /async function uploadOwnedFile\(file, \{ folderHint, owner, prefix, rememberFolder(, awaitCopy = false)? \}(, net = null)?\)/,
     '공용 업로드 함수(uploadOwnedFile)가 없다');
   // 3MB 갈래를 판정하는 자리가 둘이면 한쪽만 고쳐진다
   const gates = [...cloud.matchAll(/> INLINE_MAX/g)].length;
@@ -1020,7 +1023,7 @@ check('틀로 그리는 갈래는 전부 시간 제한이 있다', () => {
   // 시간이 지나도 **틀은 그대로 둔다** — 늦게라도 뜨면 살아나야 한다(내용을 바꿔치면
   // 그 뒤에 온 onLoad가 갈 곳이 없다). 덮개만 '새 탭에서 열기'로 바뀐다.
   assert.ok(!/timedOut && !frameReady\) return <Fallback/.test(preview), '시간이 지나면 틀을 통째로 걷어낸다');
-  assert.match(preview, /function PreparingFrame\(\{ absolute = false, stalled = false, onOpen = null \}\)/,
+  assert.match(preview, /function PreparingFrame\(\{ absolute = false, stalled = false, onOpen = null(, pct = null)? \}\)/,
     '준비 중 자리가 나가는 길을 줄 수 없다');
   // 표에 사본이 없는 갈래도 같은 카드를 쓴다 — 예전에는 여기만 누를 것 없는 글자 두 줄이었다
   assert.match(preview, /<Fallback row=\{cur\} message="이 파일은 표로 볼 수 없어요\." onOpen=\{openExternal\} \/>/,
@@ -1660,6 +1663,57 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
     assert.match(sw, /go\(d\);/, '넘기기가 go를 안 지난다');
     assert.match(sw, /!prefersReducedMotion\(\)/, '움직임 줄이기에도 미끄러진다');
     assert.match(sw, /cubic-bezier\(\.16, 1, \.3, 1\)/, 'quint 곡선이 아니다');
+  });
+}
+
+// ── UX 다듬기 2차 (2026-10-15 · PITFALLS 60-a~d) — 올리는 중 진행 · 멈춤 · 받는 진행 · 첨부 메타 · 첨부 칸 문구 ──────────────
+// 첨부는 클라우드 전용이라 게스트 화면으로 못 본다 — 배선은 소스로 보고, 순수 부분(transfer · uploadQueue)은 logcheck-task가 노드에서 돌린다.
+// 되돌리기: AttachmentRow의 `{pct !== null && <UploadTrack` 줄을 지우면 C2가, uploadAttachment에 ctl을 안 넘기면 C2·C3 배선이,
+//           fetchDriveFileBlob이 `r.blob()`으로 돌아가면 C4가, `meta={fileMeta(row, nameOf)}`를 지우면 C5가 깨진다.
+{
+  const row = att.slice(att.indexOf('const AttachmentRow ='), att.indexOf('const FailedRow ='));
+  check('C2 올리는 중 진행 — 퍼센트(메타 줄 끝) · 2px 막대(--p-track · accent · .42s quint) · 다 보내면 드라이브로 옮기는 중', () => {
+    assert.match(row, /\{pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">\{pct\}%<\/span>\}/, '메타 줄 끝 퍼센트가 없다');
+    assert.match(row, /\{pct !== null && <UploadTrack pct=\{pct\} \/>\}/, '막대가 없다');
+    const track = /const UploadTrack = [\s\S]*?\n\);/.exec(att)?.[0] || '';
+    assert.ok(/height: 2/.test(track) && /background: 'var\(--p-track\)'/.test(track) && /bg-accent/.test(track) && /transition: 'width \.42s var\(--ease-out-quint\)'/.test(track), '막대 모양이 시안과 다르다');
+    assert.match(row, /moving \? '드라이브로 옮기는 중' : '드라이브에 올리는 중'/, '다 보낸 뒤의 단계 글자가 없다');
+    // 진행은 드라이브 길까지 이어진다 — 업무 첨부만 ctl을 넘기고, 송폼·모임 보고서는 예전 모양 그대로
+    assert.match(att, /send: async \(file, _ctx, ctl\) => \{[\s\S]{0,700}?\}, ctl\);/, '업무 첨부가 진행·멈춤(ctl)을 드라이브 길에 안 넘긴다');
+    assert.match(cloud, /export async function uploadAttachment\([^)]*\}, net = null\)/, 'uploadAttachment가 net을 안 받는다');
+    assert.ok(!/uploadServiceFile[\s\S]{0,700}\}, net\)/.test(cloud.slice(cloud.indexOf('export async function uploadServiceFile'), cloud.indexOf('export async function uploadServiceFile') + 700)), '송폼이 net을 넘긴다(바뀌면 안 된다)');
+    // 작은 파일(함수로 base64)과 큰 파일(Storage 서명 올리기 주소) 둘 다 XHR — fetch는 올리는 진행을 안 준다
+    assert.match(cloud, /if \(wantsXhr\(net\)\) \{[\s\S]{0,200}?r = await xhrSend\(\{\s*url: '\/api\/drive'/, '작은 파일 길이 XHR이 아니다');
+    assert.match(cloud, /createSignedUploadUrl\(path\)[\s\S]{0,500}?xhrSend\(\{\s*url: signedUrl, method: 'PUT', body: form/, '큰 파일(Storage) 길이 XHR이 아니다');
+    assert.match(cloud, /form\.append\('cacheControl', '2592000'\);\s*form\.append\('', file\);/, 'Storage 몸통이 storage-js uploadToSignedUrl과 다르다');
+  });
+  check('C3 올리기 멈춤 — X(삭제와 같은 모양 · 수정만) · 숨긴 줄 · 다 올라와 버리면 거둔다 · 멈춘 뒤엔 다시 보내지 않는다', () => {
+    assert.match(row, /\{pending && onCancel && \([\s\S]{0,200}?title="올리기 취소"[\s\S]{0,40}?className="p-1\.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95"><X size=\{14\} \/>/, 'X가 없거나 삭제 버튼과 모양이 다르다');
+    assert.match(att, /onCancel=\{readOnly \? null : \(\) => cancelUpload\(task\.id, row\.id\)\}/, '보기 화면에도 X가 있거나 X가 큐에 안 닿는다');
+    assert.match(att, /pending\.filter\(row => !row\._cancel\)/, '멈춘 줄(다 보낸 뒤)이 화면에 남는다');
+    assert.match(att, /if \(ctl\?\.isCancelled\(\)\) \{\s*deleteAttachment\(row\)/, '행이 선 뒤 멈춘 줄을 거두지 않는다');
+    assert.match(cloud, /if \(net\?\.isCancelled\?\.\(\)\) \{ await undoBody\(\); throw cancelledError\(\); \}/, '행을 세우기 전에 멈췄으면 실체를 되돌리지 않는다');
+    assert.match(cloud, /if \(e\.cancelled \|\| e\.notConfigured \|\| !worthRetry\(e\)\) throw e;/, '끊은 올리기를 확인·재시도한다');
+    assert.match(cloud, /if \(net\?\.isCancelled\?\.\(\)\) throw cancelledError\(\);\s*console\.warn\('\[drive\] 업로드가 정말 안 됐다/, '멈춘 뒤에도 다시 보낸다(시간 초과 → 확인 → 재시도 길)');
+  });
+  check('C4 미리보기 받는 중 — 응답 스트림 진행 · 준비 중 자리 아래 "다운로드 중 N%"(12px faint) · 길이 없으면 없음', () => {
+    assert.match(cloud, /return readBody\(r, onProgress\);/, 'fetchDriveFileBlob이 진행을 안 센다');
+    assert.ok((preview.match(/fetchDriveFileBlob\(cur\.drive_file_id, \{ onProgress: onDl \}\)/g) || []).length >= 3, 'PDF·문서·글이 받는 진행을 안 넘긴다');
+    assert.match(preview, /\{pct !== null && <span data-dl-pct className="text-\[12px\] text-fg-faint tabular-nums">다운로드 중 \{pct\}%<\/span>\}/, '다운로드 줄이 시안과 다르다');
+    assert.match(preview, /if \(!pdfSrc\) return <PreparingFrame pct=\{dlPct\} \/>;/, 'PDF 준비 중 자리에 진행이 없다');
+    assert.match(preview, /const dlPct = dl\?\.id === cur\.id \? dl\.pct : null;/, '넘긴 뒤 앞 파일의 진행이 선다');
+  });
+  check('C5 첨부 메타 — 크기 · 올린 날 · 올린 사람(모든 줄)', () => {
+    const fr = read('src/components/fileRow.jsx');
+    assert.match(fr, /export const fileMeta = \(row, nameOf = \(\) => ''\) =>\s*\[formatBytes\(row\?\.size_bytes\), fileDay\(row\?\.created_at\), nameOf\(row\?\.uploaded_by\) \|\| ''\]\.filter\(Boolean\)\.join\(' · '\);/, '메타 차례가 크기·날·사람이 아니다');
+    assert.match(fr, /toLocaleDateString\('sv-SE', \{ timeZone: 'Asia\/Seoul' \}\)[\s\S]{0,80}`\$\{\+m\}월 \$\{\+d\}일`/, "날짜가 'M월 D일'(한국 날짜)이 아니다");
+    assert.match(att, /<AttachmentRow row=\{row\} meta=\{fileMeta\(row, nameOf\)\}/, '올라간 줄이 메타를 안 쓴다');
+    assert.match(att, /const nameOf = \(uid\) => \(uid && members\.find\(m => m\.id === uid\)\?\.name\) \|\| '';/, '올린 사람 이름을 가입자 표시 이름으로 안 찾는다');
+  });
+  check("C14 첨부 칸 문구 — 폰은 한 줄 '눌러서 파일 선택 · 최대 25MB' · 용량 초과는 '참고 링크' · 데스크톱 그대로", () => {
+    assert.match(att, /\{isMobile \? \([\s\S]{0,300}?눌러서 파일 선택 · 최대 \{MAX_UPLOAD_MB\}MB[\s\S]{0,200}?\) : \([\s\S]{0,300}?파일을 끌어다 놓거나 클릭해서 선택하세요/, '폰 한 줄 / 데스크톱 두 줄 갈래가 없다');
+    assert.match(att, /용량을 줄이거나 참고 링크로 공유해 주세요\./, "'참고 링크'가 아니다");
+    assert.ok(!/링크\(리소스\)/.test(att), "옛 '링크(리소스)'가 남았다");
   });
 }
 

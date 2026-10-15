@@ -1130,4 +1130,97 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '업무 창 저장은 못 간 칸을 실패하기 전 값으로 견준다');
   assert.ok(/useSyncExternalStore\(failedComments\.subscribe, failedComments\.version\)/.test(comments), '댓글 목록이 못 보낸 댓글을 구독한다');
   console.log('PASS  UX 다듬기 2차 P1 — 못 간 칸 다시 보내기 · 못 보낸 댓글 · 담당 업무 댓글 알림으로 열기 · 배선');
+
+// ── UX 다듬기 2차 C2·C3·C4 (2026-10-15 · PITFALLS 60-a~d) — 올리는 진행 · 올리기 멈춤 · 받는 진행 ─────────────────
+// ① transfer.xhrSend — 올리는 바이트 진행 · 다 보냄(onSent) · fetch Response 모양 · 멈추면 cancelled · 끊김은 상태 없는 TypeError
+// ② transfer.readBody — Content-Length에 대한 받는 진행 · 길이 없으면 total 0 · Blob 그대로
+// ③ uploadQueue — 진행이 줄에 붙는다(_pct · _phase) · 차례 전 X는 목록에서 빼고 보내지 않는다 · 보내는 중 X는 끊고(abort) 조용히 빠진다 ·
+//    다 보낸 뒤 X는 _cancel(화면에서 빠짐)로 두고 올라와도 결과에 넣지 않는다 · 멈춘 줄은 토스트도 빨간 줄도 없다 · 송폼·모임 보고서 모양(send 둘째까지)은 그대로
+// 되돌리기: cancelUpload의 `ctl.abort()`를 지우면 ③의 '보내는 중 X'가, runUploads catch의 cancelled 갈래를 지우면 '조용히'가,
+//           readBody의 onProgress 호출을 지우면 ②가 깨진다.
+{
+  const T = await import(new URL('../src/services/transfer.js', import.meta.url).href);
+  assert.strictEqual(T.pctOf(40, 100), 40); assert.strictEqual(T.pctOf(5, 0), null); assert.strictEqual(T.pctOf(150, 100), 100);
+  // 가짜 XHR — 보내면 진행 두 번 → 다 보냄 → 응답
+  class FakeXHR {
+    constructor() { this.upload = {}; this.headers = {}; FakeXHR.last = this; }
+    open(m, u) { this.m = m; this.u = u; }
+    setRequestHeader(k, v) { this.headers[k] = v; }
+    send(body) {
+      this.body = body;
+      if (FakeXHR.mode === 'hang') return;
+      if (FakeXHR.mode === 'net') { queueMicrotask(() => this.onerror()); return; }
+      queueMicrotask(() => {
+        this.upload.onprogress({ loaded: 40, total: 100, lengthComputable: true });
+        this.upload.onprogress({ loaded: 100, total: 100, lengthComputable: true });
+        this.upload.onload();
+        this.status = 200; this.responseText = '{"id":"f1"}'; this.onload();
+      });
+    }
+    abort() { this.aborted = true; queueMicrotask(() => this.onabort()); }
+  }
+  const seen = []; let sent = 0;
+  FakeXHR.mode = 'ok';
+  const r = await T.xhrSend({ url: '/api/drive', headers: { A: 'b', Skip: null }, body: 'x', XHR: FakeXHR,
+    onProgress: (l, t) => seen.push([l, t]), onSent: () => sent++ });
+  assert.deepStrictEqual(seen, [[40, 100], [100, 100]], '올리는 바이트 진행을 그대로 알린다');
+  assert.strictEqual(sent, 1, '다 보냄은 한 번(upload.onload · onload가 또 불러도)');
+  assert.ok(r.ok && r.status === 200 && (await r.json()).id === 'f1', 'fetch Response 모양(ok·status·json)');
+  assert.deepStrictEqual(FakeXHR.last.headers, { A: 'b' }, '빈 머리줄은 싣지 않는다');
+  FakeXHR.mode = 'hang';
+  const ac = new AbortController();
+  const p = T.xhrSend({ url: '/x', body: 'x', XHR: FakeXHR, signal: ac.signal });
+  ac.abort();
+  await assert.rejects(p, (e) => e.cancelled === true, '멈추면 cancelled 표시가 붙은 오류');
+  assert.ok(FakeXHR.last.aborted, '멈추면 xhr.abort()');
+  FakeXHR.mode = 'net';
+  await assert.rejects(T.xhrSend({ url: '/x', body: 'x', XHR: FakeXHR }), (e) => e instanceof TypeError && !e.status, '끊김은 상태 없는 TypeError(driveOnce가 다시 해볼 만한 실패로 읽는다)');
+
+  const prog = [];
+  const body = new Blob([new Uint8Array(300)]);
+  const res = new Response(body.stream(), { headers: { 'content-length': '300', 'content-type': 'application/pdf' } });
+  const got = await T.readBody(res, (l, t) => prog.push([l, t]));
+  assert.ok(got.size === 300 && got.type === 'application/pdf', '받은 바이트를 Blob으로');
+  assert.ok(prog.length >= 2 && prog[0][0] === 0 && prog.at(-1)[0] === 300 && prog.every(x => x[1] === 300), `받는 진행 ${JSON.stringify(prog)}`);
+  const prog2 = [];
+  await T.readBody(new Response(new Blob(['abc']).stream()), (l, t) => prog2.push(t));
+  assert.ok(prog2.every(t => t === 0), '길이를 모르면 total 0(화면은 퍼센트를 안 세운다)');
+
+  const Q = await import(new URL('../src/modals/uploadQueue.js', import.meta.url).href);
+  const key = 'c-cancel';
+  const files = ['a.pdf', 'b.pdf', 'c.pdf', 'd.pdf'].map(n => new File(['x'], n));
+  const rows = files.map(Q.stagedRow);
+  const gates = {}; const errors = []; const sentNames = [];
+  const send = (f, _ctx, ctl) => new Promise((resolve, reject) => {
+    sentNames.push(f.name);
+    ctl.onProgress(30, 100);
+    ctl.signal.addEventListener('abort', () => reject(Object.assign(new Error('abort'), { cancelled: true })));
+    gates[f.name] = { ok: () => { ctl.onSent(); resolve({ id: `row:${f.name}`, name: f.name }); }, ctl };
+  });
+  const run = Q.runUploads({ cardId: key, rows, send, onError: (f) => errors.push(f.name) });
+  await new Promise(r => setTimeout(r, 0));
+  const byName = (n) => (Q.uploadingByCard.get(key) || []).find(x => x.name === n);
+  assert.deepStrictEqual(sentNames, ['a.pdf', 'b.pdf', 'c.pdf'], '동시 셋');
+  assert.ok(byName('a.pdf')._pct === 30 && byName('a.pdf')._phase === 'send', `진행이 줄에 붙는다 ${JSON.stringify(byName('a.pdf'))}`);
+  // 차례 전 X — 목록에서 빠지고 보내지 않는다
+  Q.cancelUpload(key, rows[3].id);
+  assert.ok(!byName('d.pdf'), '차례가 안 온 줄은 X로 곧바로 빠진다');
+  // 보내는 중 X — 끊는다
+  Q.cancelUpload(key, rows[0].id);
+  // 다 보낸 뒤 X — 숨기고(_cancel) 올라오면 결과에서 뺀다
+  gates['b.pdf'].ctl.onSent();
+  assert.strictEqual(byName('b.pdf')._phase, 'move', "다 보내면 '드라이브로 옮기는 중'");
+  Q.cancelUpload(key, rows[1].id);
+  assert.ok(byName('b.pdf')?._cancel === true, '다 보낸 줄은 _cancel로 남는다(화면에서는 빠진다)');
+  assert.ok(Q.hasActiveUploads(key), '거둘 때까지는 올리는 중(탭 닫기 경고)');
+  assert.ok(gates['b.pdf'].ctl.isCancelled(), '드라이브 길이 멈춤을 안다(올라오면 거둔다)');
+  gates['b.pdf'].ok(); gates['c.pdf'].ok();
+  let tm;
+  const done = await Promise.race([run, new Promise((_, rej) => { tm = setTimeout(() => rej(new Error('보내는 중 X가 끊지 않아 올리기가 끝나지 않는다')), 2000); })]);
+  clearTimeout(tm);
+  assert.deepStrictEqual(done.map(x => x.name), ['c.pdf'], '멈춘 줄은 결과에 없다');
+  assert.ok(!sentNames.includes('d.pdf'), '차례 전에 멈춘 줄은 보내지 않는다');
+  assert.deepStrictEqual(errors, [], '멈춘 줄은 실패 토스트가 없다');
+  assert.strictEqual(Q.uploadingByCard.has(key), false, '빨간 줄도 남지 않는다');
+  console.log('PASS  올리는 진행 · 올리기 멈춤 · 받는 진행(transfer · uploadQueue) 22가지');
 }
