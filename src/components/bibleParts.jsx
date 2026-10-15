@@ -251,7 +251,7 @@ function VerseTool({ label, current, lit, onPaint, onErase }) {
     // `pr-2`·`ml-1`이 칩 오른쪽 여백이다(사용자 지적 2026-09-03 — 칩이 테두리에 붙어 있었다)
     <span
       data-verse-tool={label} role="group" aria-label={`${label} 형광펜`}
-      className="inline-flex items-center gap-1 p-1 pr-2 rounded-lg bg-surface border border-line shadow-soft animate-in fade-in duration-150"
+      className="inline-flex items-center gap-1 p-1 pr-2 rounded-lg bg-surface border border-line shadow-soft dc-pop [--pop-origin:0_0]"
     >
       <Highlighter size={13} className="shrink-0 mx-1 text-fg-faint" />
       {HL_COLORS.map(([c, ko]) => (

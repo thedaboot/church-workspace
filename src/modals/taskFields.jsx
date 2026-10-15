@@ -7,7 +7,7 @@ import { useStore } from '../store/workspaceStore.js';
 import { namesLabel } from '../services/actionItems.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
-import { useAnchoredPos } from '../components/ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from '../components/ConfirmPopover.jsx';
 import { useDismiss } from '../hooks/useDismiss.js';
 
 // ============================================================================
@@ -181,13 +181,13 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
       {/* 찾는 이름이 목록에 없을 때 — 왜 안 들어가는지 알려준다.
           아무 안내 없이 Enter가 먹히지 않으면 입력이 씹힌 것처럼 보인다. */}
       {open && input.trim() && suggestions.length === 0 && createPortal(
-        <p ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
-          className="z-[90] px-2.5 py-2 text-[11px] text-fg-muted bg-surface border border-line rounded-lg shadow-elevated">
+        <p ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, ...popMotion(pos) }}
+          className="z-[90] transition-none dc-pop px-2.5 py-2 text-[11px] text-fg-muted bg-surface border border-line rounded-lg shadow-elevated">
           등록된 멤버에 없는 이름이에요
         </p>, document.body)}
       {open && suggestions.length > 0 && createPortal(
-        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
-          className="z-[90] w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
+        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, ...popMotion(pos) }}
+          className="z-[90] w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none dc-pop">
           {suggestions.map((name, i) => (
             <button key={name} type="button" onMouseDown={e => { e.preventDefault(); add(name); }}
               // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게
@@ -223,8 +223,8 @@ export function OwnerPicker({ names = [], members = [], onChange }) {
   );
 
   const pop = open ? createPortal(
-    <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 210 }}
-      className="z-[90] max-h-60 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
+    <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 210, ...popMotion(pos) }}
+      className="z-[90] max-h-60 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none dc-pop">
       {list.map(n => (
         <button key={n} type="button" onClick={() => toggle(n)}
           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-[12.5px] transition-colors ${names.includes(n) ? 'bg-accent-weak text-accent-text font-semibold' : 'text-fg-muted hover:bg-surface-hover'}`}>

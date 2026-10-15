@@ -5,7 +5,7 @@ import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsList, selectProjectsMap, selectTasksList, selectTasks } from '../store/selectors.js';
 import { imeComposing } from '../utils.js';
 import { isCardClosed } from '../services/cardLock.js';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { useDismiss } from '../hooks/useDismiss.js';
 import { useReducedMotion } from '../hooks/useReducedMotion.js';
 import { Skeleton } from './media.jsx';
@@ -359,8 +359,8 @@ export function SearchBox({ onSearchSelect, variant = 'inline' }) {
             안에 둔 z-50 판이 하단 탭바(z-40)보다 아래에 깔렸다. 탭바가 어둡게 덮이지 않고 눌렸고,
             가로 폰에서는 마지막 결과가 탭바 밑에 가렸다(tests/mobbits). */}
         {mobileOpen && createPortal(
-          <div className="fixed inset-0 z-50 bg-black/50 animate-in fade-in duration-150" onClick={closeMobile}>
-            <div className="absolute inset-x-0 top-0 bg-surface border-b border-line shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 bg-black/50 dc-scrim" onClick={closeMobile}>
+            <div className="absolute inset-x-0 top-0 bg-surface border-b border-line shadow-elevated p-3 dc-pop [--pop-origin:50%_0]" onClick={e => e.stopPropagation()}>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1 min-w-0">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint" />
@@ -405,8 +405,8 @@ export function SearchBox({ onSearchSelect, variant = 'inline' }) {
       />
       <SearchHint show={!query} left="2rem" size="text-[12.5px]" tone="text-fg-muted" />
       {listOpen && createPortal(
-        <div ref={listRef} onKeyDown={onListKey} style={{ position: 'fixed', left: listPos.left, top: listPos.top, width: listPos.width }}
-          className="z-[80] max-h-[360px] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150">
+        <div ref={listRef} onKeyDown={onListKey} style={{ position: 'fixed', left: listPos.left, top: listPos.top, width: listPos.width, ...popMotion(listPos) }}
+          className="z-[80] max-h-[360px] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none dc-pop">
           <SearchResults query={query} onPick={pick} />
         </div>, document.body)}
     </div>

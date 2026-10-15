@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { usePresence } from '../hooks/useExit.js';
 
 // ============================================================================
 // 삭제 확인 팝오버 (프로젝트·업무·댓글·첨부 공용)
@@ -90,9 +91,11 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
     // 고른 쪽이 그래도 모자랄 수 있다(첫 배치 때는 팝오버 높이를 아직 재지 못한다).
     // 가로는 이미 minLeft·maxLeft로 가두고 있었는데 세로만 빠져 있었다.
     top = Math.min(Math.max(top, oy + gap), Math.max(oy + gap, oy + vh - hh - gap));
+    // 등장 모션의 원점(popMotion) — 위로 떴는가 · 판 왼쪽에서 앵커 가운데까지의 x(판 안으로 가둔다).
+    const ax = Math.round(Math.min(Math.max(r.left + r.width / 2 - left, 12), Math.max(12, w - 12)));
     // 같은 자리면 상태를 바꾸지 않는다 — 아래 rAF 고리가 헛되이 다시 그리지 않게.
-    setPos(p => ((p.left === left && p.top === top && p.width === w && p.maxHeight === maxHeight) ? p
-      : { left, top, width: w, maxHeight }));
+    setPos(p => ((p.left === left && p.top === top && p.width === w && p.maxHeight === maxHeight && p.up === up && p.ax === ax) ? p
+      : { left, top, width: w, maxHeight, up, ax }));
   }, [triggerRef, width, estHeight, gap, measuredRef, matchWidth, minWidth, fitHeight, alignStart, preferAbove]);
 
   // useLayoutEffect: 브라우저가 그리기 전에 위치를 확정한다.
@@ -128,6 +131,14 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
   }, [open, place, triggerRef]);
 
   return [pos, place];
+}
+
+// 앵커에 붙은 판의 등장 모션(.dc-pop · index.css '떠 있는 것 모션')이 **앵커 쪽에서** 자라게 하는 인라인 변수 —
+// 아래에 뜬 판은 위 가장자리·앵커 x에서 4px 내려오며, 위로 뒤집힌 판은 아래 가장자리에서 4px 올라오며 커진다.
+// `style={{ position: 'fixed', left: pos.left, top: pos.top, ...popMotion(pos) }}`. 자리를 아직 안 잰 판(ax 없음)은 CSS 기본(위 오른쪽).
+export function popMotion(pos) {
+  if (!pos || pos.ax == null) return null;
+  return { '--pop-dy': pos.up ? '4px' : '-4px', '--pop-origin': `${pos.ax}px ${pos.up ? '100%' : '0'}` };
 }
 
 // tone: 'danger'(기본, 삭제) | 'ok'(완료·되돌리기처럼 잃는 게 없는 확인)
@@ -186,12 +197,15 @@ export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel =
   // 포털로 body에 띄운다 — 트리거가 hover에서만 보이는 영역(댓글의 수정·삭제 아이콘)
   // 안에 있으면, 마우스가 벗어날 때 부모의 opacity-0이 팝오버까지 같이 숨겨서
   // 확인창이 사라졌다 나타났다 했다.
-  const popover = open ? createPortal(
+  // 닫혀도 걷히는 동안(EXIT_MS)은 그려 둔다 — 누름은 바로 놓는다(.dc-out · hooks/useExit.js).
+  const { shown, leaving } = usePresence(open);
+  const popover = shown ? createPortal(
     <div
       ref={popRef}
       onClick={e => e.stopPropagation()}
-      style={{ position: 'fixed', left: pos.left, top: pos.top, width: W }}
-      className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-3 transition-none animate-in fade-in zoom-in-95 duration-150"
+      style={{ position: 'fixed', left: pos.left, top: pos.top, width: W, ...popMotion(pos) }}
+      className={`z-[90] bg-surface border border-line rounded-lg shadow-elevated p-3 transition-none dc-pop ${leaving ? 'dc-out' : ''}`}
+      aria-hidden={leaving || undefined}
     >
       <p className={`text-xs leading-relaxed whitespace-pre-line break-words ${stacked ? 'font-bold text-fg mb-2.5' : 'text-fg-secondary mb-2.5'}`}>{message}</p>
       {stacked ? (

@@ -5,7 +5,7 @@ import { loadBibleIndex, loadBook, loadPassage } from '../services/bible.js';
 import { parseRef, formatRef } from '../services/bibleRef.js';
 import { PassageSkeleton } from './wordBible.jsx';
 import { loadFontStep } from '../services/word.js';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { keepVisible, imeComposing } from '../utils.js';
 // 바깥 클릭·Esc로 닫는다. 팝오버가 body 포털로 나가 있으므로 바깥 판정에 팝오버 자신도 넣는다.
 import { useDismiss } from '../hooks/useDismiss.js';
@@ -35,7 +35,7 @@ import { useDismiss } from '../hooks/useDismiss.js';
 // 트리거 버튼 — 날짜 픽커의 그 모양이다(같은 자리에 서는 칸이라 톤을 맞춘다)
 const TRIGGER = 'inline-flex items-center gap-1 border border-line rounded-xs bg-surface px-2 py-1.5 text-[13px] text-fg tabular-nums hover:bg-surface-hover focus:border-accent outline-none transition-all';
 const BOX = 'flex items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1 focus-within:border-accent focus-within:shadow-soft transition-all';
-const LIST = 'z-[90] bg-surface border border-line rounded-lg shadow-elevated animate-in fade-in zoom-in-95 duration-150';
+const LIST = 'z-[90] bg-surface border border-line rounded-lg shadow-elevated dc-pop';
 const NUM_W = 216;      // 여섯 칸 그리드 + 좌우 여백
 const NUM_EST_H = 210;
 
@@ -80,7 +80,7 @@ function NumberPicker({ label, value, suffix, options, onPick, className = '' })
       </span>
       {open && createPortal(
         <div ref={popRef}
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: NUM_W, visibility: placed ? undefined : 'hidden' }}
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: NUM_W, visibility: placed ? undefined : 'hidden', ...popMotion(pos) }}
           className={`worship-num-pop ${LIST} transition-none p-2 max-h-64 overflow-y-auto`}>
           <div className="grid grid-cols-6 gap-0.5">
             {options.map(n => (

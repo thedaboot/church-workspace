@@ -11,7 +11,7 @@ import { useSeenBase, useOpenedProjects, markProjectOpened } from '../services/s
 import { freshProjectIds } from '../services/traces.js';
 import * as cloudSync from '../services/cloudSync.js';
 import { showToast } from './Toast.jsx';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { usePopover } from '../hooks/usePopover.js';
 import { TabLock } from './leaderOnly.jsx';
 
@@ -69,7 +69,7 @@ export function useFreshProjects(activeMenu, isProject) {
 //   · 데스크톱은 앞 칸 탭 hover에도 첫 말풍선 — **한 번이라도 본 브라우저에서는 hover로는 안 뜬다**
 //     (브라우저 한 칸 `front_nudge_seen`). 끌 때는 언제나 뜬다.
 // 2.5초 뒤 사라지고, 떠 있는 동안 세로선이 accent다. 늘 붙어 있는 안내 줄은 두지 않는다(CLAUDE.md).
-// 떠 있는 것 규칙(§8): body 포털 + useAnchoredPos(가로·세로 가두기) · animate-in에는 transition-none.
+// 떠 있는 것 규칙(§8): body 포털 + useAnchoredPos(가로·세로 가두기) · 등장은 .dc-pop(+ transition-none · 17-b).
 // 앞 칸 탭은 draggable이 아니라 dragstart가 없다 — '끌려는 것'을 잡는 법은 PITFALLS 12-h, 폰은 12-g.
 const NUDGE_MS = 2500;
 const NUDGE_SEEN_KEY = 'front_nudge_seen';
@@ -103,8 +103,8 @@ export function FrontNudge({ nudge }) {
   if (!nudge) return null;
   return createPortal(
     <div ref={boxRef} role="status" data-front-nudge={nudge.kind}
-      style={{ position: 'fixed', left: pos.left, top: pos.top }}
-      className="z-[90] w-max max-w-[260px] bg-surface border border-line rounded-lg shadow-elevated px-2.5 py-2 text-[12px] leading-[1.45] text-fg-secondary pointer-events-none transition-none animate-in fade-in duration-150">
+      style={{ position: 'fixed', left: pos.left, top: pos.top, ...popMotion(pos) }}
+      className="z-[90] w-max max-w-[260px] bg-surface border border-line rounded-lg shadow-elevated px-2.5 py-2 text-[12px] leading-[1.45] text-fg-secondary pointer-events-none transition-none dc-pop">
       {nudge.kind === 'front' ? (
         <>
           <b className="block font-bold text-fg">최근 활발한 프로젝트</b>

@@ -14,7 +14,7 @@ import { CardLockMark } from './cardLock.jsx';
 import { STATUS_BAR, STATUS_DOT_VAR, byDue } from '../views/dashboardParts.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { isOverdue, todayIso } from '../services/taskCounts.js';
 
@@ -172,8 +172,8 @@ function StatusMoveButton({ task, onStatusChange }) {
       {open && createPortal(
         <div
           ref={popRef}
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 150 }}
-          className="dc-pop z-[90] bg-surface border border-line rounded-md shadow-soft p-[5px]"
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 150, ...popMotion(pos) }}
+          className="dc-pop transition-none z-[90] bg-surface border border-line rounded-md shadow-soft p-[5px]"
         >
           {/* 상시도 고를 수 있다(맨 아래 · config STATUS_PICK) — 칸이 아니라 보드 위 줄로 간다 */}
           {CONFIG.STATUS_PICK.map(s => (

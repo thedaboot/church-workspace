@@ -12,7 +12,7 @@ import { mdToDoc, docToMd } from '../services/markdown.js';
 import { uploadContentImage } from '../services/cloud.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { isMobileViewport, keepVisible, imeComposing } from '../utils.js';
 import { downscaleImage, BODY_MAX_DIM } from '../services/image.js';
 import { Extension } from '@tiptap/core';
@@ -581,8 +581,8 @@ export function MarkdownEditor({
       {mentionOpen && (
         <div
           ref={mentionPopRef}
-          style={{ position: 'fixed', left: mentionPos.left, top: mentionPos.top }}
-          className="z-[80] w-max min-w-[9rem] max-w-[min(16rem,calc(100vw-2rem))] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150"
+          style={{ position: 'fixed', left: mentionPos.left, top: mentionPos.top, ...popMotion(mentionPos) }}
+          className="z-[80] w-max min-w-[9rem] max-w-[min(16rem,calc(100vw-2rem))] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none dc-pop"
         >
           {suggestions.map((name, i) => (
             <button
@@ -754,8 +754,8 @@ function Toolbar({
           </span>
           {linkOpen && (
             <div
-              style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }}
-              className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-2.5 transition-none animate-in fade-in zoom-in-95 duration-150"
+              style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256, ...popMotion(linkPos) }}
+              className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-2.5 transition-none dc-pop"
             >
               {/* 무엇에 링크가 걸리는지 먼저 말한다 — 고른 것이 없으면 주소가 그대로 글자가
                   된다는 것도 알려 준다(예전에는 눌러 봐야 알았다) */}

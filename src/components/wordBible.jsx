@@ -19,7 +19,7 @@ import { SectionHead, Card } from '../views/dashboardParts.jsx';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { SearchHint } from './layout.jsx';
 import { Skeleton } from './media.jsx';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { coarsePointer } from '../utils.js';
 import {
   Swap, PassageText, PassageSkeleton, EmptyBookMark, FontSteps, ShareSwitch, hlColor,
@@ -707,9 +707,9 @@ export function BibleTab({ initialRef = '' }) {
           {recentOpen && createPortal(
             <div
               ref={recentRef} data-recent="" onMouseDown={e => e.preventDefault()}
-              style={{ position: 'fixed', left: recentPos.left, top: recentPos.top, width: recentPos.width,
+              style={{ position: 'fixed', left: recentPos.left, top: recentPos.top, width: recentPos.width, ...popMotion(recentPos),
                 maxHeight: Math.min(RECENT_MAX_H, recentPos.maxHeight ?? RECENT_MAX_H) }}
-              className="z-[90] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150"
+              className="z-[90] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none dc-pop"
             >
               {moodsOn && <MoodChips order={moodOrder} width={recentPos.width} onPick={pickMood} onFit={onMoodFit} />}
               {moodsOn && recent.length > 0 && <hr className="border-0 h-px bg-line mx-1.5 mb-1.5" />}

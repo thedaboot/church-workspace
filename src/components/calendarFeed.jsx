@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { CalendarPlus, Link as LinkIcon, X } from 'lucide-react';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useDismiss } from '../hooks/useDismiss.js';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { showToast } from './Toast.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
@@ -166,14 +166,14 @@ export function MyCalendarButton({ projectId, tasks }) {
       </button>
       {open && !isMobile && createPortal(
         <div ref={popRef} role="dialog" aria-label="내 달력에 연결" data-feed-panel=""
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: POP_W }}
-          className="z-[90] flex flex-col gap-3 px-4 pt-4 pb-3.5 rounded-xl bg-surface border border-line shadow-elevated transition-none animate-in fade-in zoom-in-95 duration-150">
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: POP_W, ...popMotion(pos) }}
+          className="z-[90] flex flex-col gap-3 px-4 pt-4 pb-3.5 rounded-xl bg-surface border border-line shadow-elevated transition-none dc-pop">
           {body}
         </div>, document.body)}
       {open && isMobile && createPortal(
-        <div className="fixed inset-0 z-[95] flex items-end bg-black/50 transition-none animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-[95] flex items-end bg-black/50 dc-scrim">
           <div ref={sheetRef} role="dialog" aria-label="내 달력에 연결" data-feed-panel=""
-            className="w-full max-h-[92dvh] overflow-y-auto flex flex-col gap-3.5 px-5 pt-2.5 rounded-t-2xl bg-surface transition-none animate-in fade-in slide-in-from-bottom-4 duration-150"
+            className="w-full max-h-[92dvh] overflow-y-auto flex flex-col gap-3.5 px-5 pt-2.5 rounded-t-2xl bg-surface dc-sheet-up"
             style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
             <span className="self-center w-9 h-1 rounded-full bg-line" />
             {body}

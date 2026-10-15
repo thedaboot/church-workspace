@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Plus, ChevronUp, ChevronDown, ListMusic, Loader2, X, FilePen } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Avatar } from './Avatar.jsx';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { keepVisible, stableRowKeys, imeComposing } from '../utils.js';
 import { useDismiss } from '../hooks/useDismiss.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
@@ -244,8 +244,8 @@ function PersonNameInput({ row, people, onPick, seeded = false }) {
         />
       </div>
       {listOpen && createPortal(
-        <div ref={listRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
-          className="worship-person-list z-[90] w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
+        <div ref={listRef} style={{ position: 'fixed', left: pos.left, top: pos.top, ...popMotion(pos) }}
+          className="worship-person-list z-[90] w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none dc-pop">
           {suggestions.map((p, i) => (
             <button key={p.id} type="button" onMouseDown={e => { e.preventDefault(); choose(p); }}
               ref={i === activeIdx ? keepVisible : null}

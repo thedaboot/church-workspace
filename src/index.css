@@ -162,13 +162,12 @@
 @keyframes dc-screen-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes dc-row-in    { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 @keyframes dc-card-in   { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
-@keyframes dc-pop-in    { from { opacity: 0; transform: scale(.97) translateY(-3px); } to { opacity: 1; transform: none; } }
 
 .dc-screen { animation: dc-screen-in .26s var(--ease-out-quint) both; }
 .dc-row    { animation: dc-row-in .3s var(--ease-out-quint) both; }
 .dc-card   { animation: dc-card-in .28s var(--ease-out-quint) both; }
 .dc-kpi    { animation: dc-card-in .32s var(--ease-out-quint) both; }
-.dc-pop    { animation: dc-pop-in .16s var(--ease-out-quint) both; transform-origin: top right; }
+/* 떠 있는 판(.dc-pop · .dc-dialog …)은 아래 '떠 있는 것 모션' 한 벌이다(2026-10-15). */
 
 /* 대시보드 2열 — KPI 줄과 본문 줄이 같은 정의를 써야 좌우 경계가 정확히 맞는다.
    모바일은 1열. (Tailwind 임의값으로 두 군데에 흩뿌리면 어긋나기 쉬워 클래스로 못 박는다) */
@@ -434,7 +433,7 @@
    우리 애니메이션을 걸 자리가 없다. */
 
 @media (prefers-reduced-motion: reduce) {
-  .dc-screen, .dc-row, .dc-card, .dc-kpi, .dc-pop { animation: none !important; }
+  .dc-screen, .dc-row, .dc-card, .dc-kpi { animation: none !important; }
   .animate-in, .animate-out { animation: none !important; }   /* tw-animate-css 등장(팝오버·경고·토스트 57곳)·퇴장도 같이 끈다(2026-10-09 · 퇴장 2026-10-14) */
   .dc-bar-fill, .dc-press { transition: none !important; }
 }
@@ -841,6 +840,53 @@ svg.lucide { stroke-width: 1.4px; }
    그 유틸리티의 기본 이징은 `ease`라 quint와 두 벌이었다. `--tw-ease`는 tw-animate가 이징 자리에 읽는 값이다.
    움직임 줄이기는 위 업무 잠금 블록 옆에서 끈다. */
 .animate-in, .animate-out { --tw-ease: var(--ease-out-quint); }
+
+/* ── 떠 있는 것 모션 (2026-10-15 · 사용자 지적 "딱딱하게 뜬다" · PITFALLS 57) ───────────────
+   메뉴·확인·달력·목록 · 가운데 대화창 · 폰 아래 시트 · 폰 업무 창 · 뒤판 · 토스트가 이 한 벌을 탄다.
+   이징은 quint 하나(§4.2)이고 **길이는 quint에 맞춘다** — quint는 앞에 몰려 있어서 길이의 1/3이면 90%를 와 버린다.
+   예전 tw-animate `duration-150`은 그래서 3프레임(50ms) 만에 다 떠 '뚝' 나타났다(10/14에 이징을 quint로 바꾼 뒤 · 57-a).
+   아래 길이에서 90%에 닿는 때: 판 80ms · 대화창 100ms · 시트 120ms — 빠르게 오고 천천히 내려앉는다.
+     .dc-pop     앵커에 붙은 판 — 앵커 쪽에서 4px · scale .96 · 원점은 앵커(`popMotion(pos)`가 --pop-dy·--pop-origin을 준다)
+     .dc-dialog  가운데 대화창 — 8px 아래에서 · scale .97
+     .dc-sheet-up 폰 아래 시트 — 화면 아래에서 통째로 · `.dc-sheet-dialog`는 폰 시트 / 768부터 가운데 대화창
+     .dc-rise    폰 전면 창(업무 창) — 28px 아래에서 떠오른다(뒤판이 없어 통째로 밀어 올리면 맨 화면이 비친다)
+     .dc-scrim   뒤판(검정 50 · 80%) — opacity만
+     .dc-toast   토스트 — 10px 아래에서 · scale .96
+   닫힘은 같은 모양을 거꾸로 짧게(`-out` · --dur-exit) — 닫힘을 미루는 것은 hooks/useExit.js(EXIT_MS가 이 값과 같다).
+   fill은 등장 backwards(끝나면 transform을 남기지 않는다 — fixed 자손의 기준 박스가 바뀌지 않게 · §6-1) · 퇴장 forwards.
+   자리를 state(left/top)로 잡는 판에는 여전히 `transition-none`을 같이 둔다(PITFALLS 17-b). */
+:root { --dur-pop: .26s; --dur-dialog: .32s; --dur-sheet: .38s; --dur-scrim: .26s; --dur-toast: .32s; --dur-exit: .18s; }
+@keyframes dc-pop-in     { from { opacity: 0; transform: translate3d(0, var(--pop-dy, -4px), 0) scale(.96); } }
+@keyframes dc-pop-out    { to   { opacity: 0; transform: translate3d(0, var(--pop-dy, -4px), 0) scale(.97); } }
+@keyframes dc-dialog-in  { from { opacity: 0; transform: translate3d(0, 8px, 0) scale(.97); } }
+@keyframes dc-dialog-out { to   { opacity: 0; transform: translate3d(0, 4px, 0) scale(.98); } }
+@keyframes dc-sheet-in   { from { transform: translate3d(0, 100%, 0); } }
+@keyframes dc-sheet-out  { to   { transform: translate3d(0, 100%, 0); } }
+@keyframes dc-rise-in    { from { opacity: 0; transform: translate3d(0, 28px, 0); } }
+@keyframes dc-rise-out   { to   { opacity: 0; transform: translate3d(0, 20px, 0); } }
+@keyframes dc-scrim-in   { from { opacity: 0; } }
+@keyframes dc-scrim-out  { to   { opacity: 0; } }
+@keyframes dc-toast-in   { from { opacity: 0; transform: translate3d(0, 10px, 0) scale(.96); } }
+@keyframes dc-toast-out  { to   { opacity: 0; transform: translate3d(0, 6px, 0) scale(.98); } }
+.dc-pop      { animation: dc-pop-in var(--dur-pop) var(--ease-out-quint) backwards; transform-origin: var(--pop-origin, top right); }
+.dc-dialog   { animation: dc-dialog-in var(--dur-dialog) var(--ease-out-quint) backwards; }
+.dc-sheet-up { animation: dc-sheet-in var(--dur-sheet) var(--ease-out-quint) backwards; }
+.dc-sheet-dialog { animation: dc-sheet-in var(--dur-sheet) var(--ease-out-quint) backwards; }
+@media (min-width: 768px) { .dc-sheet-dialog { animation: dc-dialog-in var(--dur-dialog) var(--ease-out-quint) backwards; } }
+.dc-rise     { animation: dc-rise-in var(--dur-sheet) var(--ease-out-quint) backwards; }
+.dc-scrim    { animation: dc-scrim-in var(--dur-scrim) var(--ease-out-quint) backwards; }
+.dc-toast    { animation: dc-toast-in var(--dur-toast) var(--ease-out-quint) backwards; }
+/* 퇴장 — 누르는 것을 바로 놓는다(사라지는 판이 다음 누름을 먹지 않게) */
+.dc-pop.dc-out      { animation: dc-pop-out var(--dur-exit) var(--ease-out-quint) forwards; pointer-events: none; }
+.dc-dialog.dc-out   { animation: dc-dialog-out var(--dur-exit) var(--ease-out-quint) forwards; pointer-events: none; }
+.dc-sheet-up.dc-out, .dc-sheet-dialog.dc-out { animation: dc-sheet-out var(--dur-exit) var(--ease-out-quint) forwards; pointer-events: none; }
+@media (min-width: 768px) { .dc-sheet-dialog.dc-out { animation-name: dc-dialog-out; } }
+.dc-rise.dc-out     { animation: dc-rise-out var(--dur-exit) var(--ease-out-quint) forwards; pointer-events: none; }
+.dc-scrim.dc-out    { animation: dc-scrim-out var(--dur-exit) var(--ease-out-quint) forwards; }
+.dc-toast.dc-out    { animation: dc-toast-out var(--dur-exit) var(--ease-out-quint) forwards; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .dc-pop, .dc-dialog, .dc-sheet-up, .dc-sheet-dialog, .dc-rise, .dc-scrim, .dc-toast { animation: none !important; }
+}
 
 /* ── 다붓이 · 위키 (0088 · 16차 · 목업 v12) ───────────────────────────────────
    입구 셋(상단 알약 · 폰 얼굴 · 위키 안 물어보기 칸)은 **갸웃** — 얼굴이 5초에 한 번 고개를 기울인다.

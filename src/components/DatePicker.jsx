@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // 노션 톤 커스텀 데이트피커
@@ -132,13 +132,11 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
     setView({ y, m: y === today.getFullYear() ? today.getMonth() : 0 });
   };
 
-  // 커지는 기준점을 버튼 쪽 모서리에 둔다 — 가운데서 커지면 몇 px 옆에서 들어오는 것처럼 보인다.
-  // 위로 뒤집혀 섰으면 아래 모서리다.
-  const flipped = open && pos.top < (triggerRef.current?.getBoundingClientRect().top ?? 0);
+  // 커지는 기준점은 버튼 쪽이다(popMotion — 위로 뒤집혀 섰으면 아래 가장자리) — 가운데서 커지면 몇 px 옆에서 들어오는 것처럼 보인다.
   const pop = open ? createPortal(
     <div ref={popRef} data-datepicker="" role="dialog" aria-label={ariaLabel}
-      style={{ position: 'fixed', left: pos.left, top: pos.top, transformOrigin: flipped ? 'bottom left' : 'top left' }}
-      className="z-[90] w-max bg-surface border border-line rounded-lg shadow-elevated p-3 transition-none animate-in fade-in zoom-in-95 duration-150">
+      style={{ position: 'fixed', left: pos.left, top: pos.top, ...popMotion(pos) }}
+      className="z-[90] w-max bg-surface border border-line rounded-lg shadow-elevated p-3 transition-none dc-pop">
 
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={goPrev} disabled={!canPrev} aria-label="이전 달" className={`relative before:absolute before:-inset-2 p-1 rounded-md text-fg-muted transition active:scale-95 ${canPrev ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronLeft size={16} /></button>

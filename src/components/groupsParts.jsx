@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { byName } from '../services/groups.js';
 import { isMobileViewport, keepVisible, imeComposing } from '../utils.js';
 import { useDismiss } from '../hooks/useDismiss.js';
@@ -174,8 +174,9 @@ const MENU_EST_W = 176;  // MenuPick 첫 배치용 추정 폭(내용 폭을 잰 
 // **`transition-duration`을 같이** 놓는다. CSS에서 `transition-property`의 초깃값은
 // `all`이라 아무 transition 클래스가 없어도 **위치까지 전이 대상**이 된다 —
 // 첫 배치의 top이 0 → 제자리로 150ms에 걸쳐 미끄러졌다(실측: 2 → 33 → 104 → 305 → 307px).
-// `animate-in`의 기본 길이가 그대로 .15s라 클래스만 빼면 등장 인상은 같다.
-const MENU_LOOK = 'max-h-52 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95';
+// 등장은 앱의 '떠 있는 것 모션' `.dc-pop`이다(2026-10-15 · index.css) — 길이를 그 클래스가 animation으로 정하고
+// transition은 건드리지 않는다. `transition-none`은 누가 transition 클래스를 더해도 미끄러지지 않게 둔다.
+const MENU_LOOK = 'max-h-52 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none dc-pop';
 const MENU_BOX = `z-[90] ${MENU_LOOK}`;   // 포털(데스크톱) — fixed로 띄운다
 // 인라인(터치·좁은 화면) — 뜨지 않으므로 `z-[90]`도 필요 없다. 칸과의 사이는 포털이
 // 잡던 것과 같은 4px(useAnchoredPos의 `r.bottom + 4`)이다 — 0으로 붙이면 칸의 아래
@@ -285,7 +286,7 @@ export function PersonPick({
   // 데스크톱이면 body 포털 + fixed(§6-1).
   const menu = (
     <div ref={menuRef}
-      style={flow ? undefined : { position: 'fixed', left: pos.left, top: pos.top, width: pos.width }}
+      style={flow ? { '--pop-origin': '50% 0' } : { position: 'fixed', left: pos.left, top: pos.top, width: pos.width, ...popMotion(pos) }}
       className={`person-pick-menu ${flow ? `w-full ${MENU_FLOW}` : MENU_BOX}`}>
       {hits.map((p, i) => (
         <button key={p.id} type="button"
@@ -356,7 +357,7 @@ export function MenuPick({ items = [], onPick, label, empty, children, className
     setOpen(true);
   };
   const menu = (
-    <div ref={menuRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
+    <div ref={menuRef} style={{ position: 'fixed', left: pos.left, top: pos.top, ...popMotion(pos) }}
       className={`menu-pick-menu w-max min-w-[7rem] max-w-[min(14rem,80vw)] ${MENU_BOX}`}>
       {items.map(it => (
         <button key={it.id} type="button" onClick={() => { setOpen(false); onPick(it.id); }}

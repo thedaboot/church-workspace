@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { keepVisible, imeComposing } from '../utils.js';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 
 // ============================================================================
 // @멘션 자동완성 입력 (textarea / input 공용)
@@ -108,8 +108,8 @@ export function MentionInput({
         {...rest}
       />
       {showPopover && createPortal(
-        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
-          className="z-[90] w-max min-w-[9rem] max-w-[min(16rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
+        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, ...popMotion(pos) }}
+          className="z-[90] w-max min-w-[9rem] max-w-[min(16rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none dc-pop">
           {filtered.map((name, i) => (
             <button
               key={name} type="button"

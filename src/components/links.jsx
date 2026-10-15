@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Lock, LockOpen, X } from 'lucide-react';
 import { generateId, imeComposing } from '../utils.js';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { LinkIcon } from './linkIcons.jsx';
 import { docEmbedKind, DocEmbedModal, DocKindIcon, PwPrompt } from './DocEmbed.jsx';
 import { isLocked, verifyViewPw } from '../services/viewPw.js';
@@ -150,8 +150,8 @@ export function PinnedLinkChip({ link, canLock, onRemove, onSetPw }) {
           그 절반만, 세로로 넉넉히 — 옆 버튼·다음 칩의 자리를 빼앗지 않게. */}
       <button onClick={onRemove} className="relative before:absolute before:-inset-y-2 before:-inset-x-0.5 pointer-fine:md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
       {pane && createPortal(
-        <div ref={bodyRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: LINK_POP_W }}
-          className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
+        <div ref={bodyRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: LINK_POP_W, ...popMotion(pos) }}
+          className="dc-pop transition-none bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
           {pane === 'ask' ? (
             <PwPrompt className="flex-wrap" onCancel={() => setPane(null)} onOk={acc.tryPw} />
           ) : (
@@ -208,8 +208,8 @@ export function LinkAddPopover({ onAdd }) {
           style={{ border: '1px dashed var(--app-line)' }}>+ 참고 링크</button>
       </span>
       {open && createPortal(
-        <div ref={bodyRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 256 }}
-          className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
+        <div ref={bodyRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 256, ...popMotion(pos) }}
+          className="dc-pop transition-none bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
           <div className="space-y-2">
             <input autoFocus value={draft.title} onChange={e => setDraft(p => ({ ...p, title: e.target.value }))}
               placeholder="이름" aria-label="이름" className={FIELD_CLS} />
