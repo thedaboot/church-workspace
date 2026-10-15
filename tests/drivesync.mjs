@@ -1503,5 +1503,64 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
     '발췌와 미리보기가 다른 워커를 가리킨다');
 });
 
+// ── 첨부 중계는 흘려보낸다 (2026-10-15 · PITFALLS 56-a) ─────────────────────────
+// Vercel 함수는 한 번에 보낸(버퍼) 응답 몸통이 4.5MB를 넘으면 끊는다 — 7MB 첨부가 미리보기에 안 떴다.
+// 소스 글자가 아니라 **핸들러를 노드에서 직접 돌려** 본다: 인증 머리만 가짜로 바꾸고, 가짜 드라이브가
+// 6MB를 64KB씩 주면 응답이 여러 번 나뉘어 써지고 send(통째)는 한 번도 안 불려야 한다.
+{
+  const { Writable } = await import('node:stream');
+  const { loadSource } = await import('./_load.mjs');
+  const src = filesvc.replace(/^import \{ requireApprovedUser \} from '\.\/_lib\.js';\r?$/m,
+    "const requireApprovedUser = async () => ({ id: 'u1' });");
+  const { default: handler } = await loadSource('api/drive-file.js', { src });
+  class FakeRes extends Writable {
+    constructor() { super(); this.code = 0; this.h = {}; this.writes = 0; this.bytes = 0; this.sent = false; }
+    _write(chunk, _e, cb) { this.writes++; this.bytes += chunk.length; cb(); }
+    status(c) { this.code = c; return this; }
+    setHeader(k, v) { this.h[k.toLowerCase()] = v; }
+    get headersSent() { return this.writes > 0; }
+    json() { this.end(); return this; }
+    send(b) { this.sent = true; this.bytes += b.length; this.end(); return this; }
+  }
+  const fakeDrive = (total, headers = {}) => {
+    let left = total;
+    const body = new ReadableStream({ pull(c) { if (left <= 0) return c.close(); const n = Math.min(65536, left); left -= n; c.enqueue(new Uint8Array(n)); } });
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="a.pdf"', ...headers } });
+  };
+  const run = async (resp) => {
+    const realFetch = globalThis.fetch, realErr = console.error, realLog = console.log;
+    globalThis.fetch = async () => resp; console.error = () => {}; console.log = () => {};
+    const res = new FakeRes();
+    try { await handler({ method: 'GET', query: { id: 'abcdefghijklmnop' }, headers: {} }, res); }
+    finally { globalThis.fetch = realFetch; console.error = realErr; console.log = realLog; }
+    return res;
+  };
+  const acheck = async (name, fn) => {
+    try { await fn(); console.log(`PASS  ${name}`); }
+    catch (e) { fails++; console.log(`FAIL  ${name}\n      ${e.message}`); }
+  };
+  const MB = 1024 * 1024;
+  await acheck('첨부 중계가 4.5MB 넘는 파일을 통째로 보내지 않고 흘려보낸다 (56-a)', async () => {
+    const res = await run(fakeDrive(6 * MB));
+    assert.strictEqual(res.code, 200, `상태가 ${res.code}`);
+    assert.ok(!res.sent, 'res.send(버퍼)로 보냈다 — Vercel이 4.5MB에서 끊는다');
+    assert.strictEqual(res.bytes, 6 * MB, `보낸 바이트가 ${res.bytes}`);
+    assert.ok(res.writes > 1, `한 번에 썼다(${res.writes}번)`);
+    assert.strictEqual(res.h['x-content-type-options'], 'nosniff');
+    assert.match(String(res.h['cache-control']), /private, max-age=2592000, immutable/);
+  });
+  await acheck('첨부 중계 상한 — 머리줄 길이가 넘으면 413 · 길이가 없으면 흘리다 끊는다 (56-a)', async () => {
+    const a = await run(fakeDrive(1024, { 'content-length': String(26 * MB) }));
+    assert.strictEqual(a.code, 413, `머리줄 26MB인데 ${a.code}`);
+    const b = await run(fakeDrive(26 * MB));
+    assert.ok(b.bytes <= 25 * MB, `상한을 넘겨 ${b.bytes}바이트를 보냈다`);
+    assert.ok(b.destroyed, '넘친 응답을 끊지 않았다');
+  });
+  await acheck('첨부 중계 — 드라이브 경고 HTML은 여전히 502', async () => {
+    const r = await run(new Response('<html>warn</html>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }));
+    assert.strictEqual(r.code, 502);
+  });
+}
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);

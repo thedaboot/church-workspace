@@ -1,3 +1,5 @@
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { requireApprovedUser } from './_lib.js';
 
 // ============================================================================
@@ -53,8 +55,12 @@ export default async function handler(req, res) {
     // 경고 페이지는 그 머리줄이 없다. 종류(text/html)만 보고 끊으면 HTML 첨부가 전부 막힌다.
     const disposition = r.headers.get('content-disposition') || '';
     if (type.startsWith('text/html') && !/attachment/i.test(disposition)) { res.status(502).json({ error: '파일이 커서 드라이브가 바로 주지 않아요. 새 탭에서 열어주세요.' }); return; }
-    const buf = Buffer.from(await r.arrayBuffer());
-    if (buf.length > MAX_BYTES) { res.status(413).json({ error: '파일이 너무 큽니다. 새 탭에서 열어주세요.' }); return; }
+    // **통째로 받아 한 번에 보내지 않는다** — Vercel 함수는 버퍼로 보낸 응답 몸통이 4.5MB를 넘으면
+    // 끊는다(스트림이면 그 한도가 없다 · 요청 쪽 4.5MB는 §6-29-n). 7MB 첨부가 미리보기에서 실패했다
+    // (2026-10-15 · PITFALLS 56-a). 그래서 드라이브가 주는 대로 흘려보내고, 상한은 두 번 본다:
+    // 머리줄의 길이로 먼저(압축돼 왔으면 실제보다 작으니 아래쪽 한계일 뿐) · 흘리면서 센 바이트로 끝까지.
+    const declared = Number(r.headers.get('content-length') || 0);
+    if (declared > MAX_BYTES) { r.body?.cancel?.().catch(() => {}); res.status(413).json({ error: '파일이 너무 큽니다. 새 탭에서 열어주세요.' }); return; }
     res.setHeader('Content-Type', type);
     // 종류는 드라이브가 준 값 그대로다 — 브라우저가 내용을 보고 다른 종류로 **짐작하면**(MIME
     // 스니핑) 글자 파일이 HTML로 읽혀 우리 출처에서 돌 수 있다. vercel.json의 전역 헤더와 같은
@@ -66,10 +72,25 @@ export default async function handler(req, res) {
     // public이 아니라 private인 이유: 이 경로는 승인된 사용자 검사를 지나므로
     // CDN(공유 캐시)에 앉히면 그 검사가 비켜진다 — 브라우저 캐시에만 앉힌다.
     res.setHeader('Cache-Control', asDocx ? 'private, no-store' : 'private, max-age=2592000, immutable');
-    console.log(`[drive-file] ${id} ${Math.round(buf.length / 1024)}KB → 성공 (${Date.now() - t0}ms)`);
-    res.status(200).send(buf);
+    // 길이를 아는 날것(압축 안 된) 응답이면 그대로 싣는다 — 중간에 끊겨도 브라우저가 '덜 받았다'를 안다.
+    // 압축돼 왔으면 fetch가 풀어서 주므로 그 길이는 맞지 않는다(싣지 않으면 chunked).
+    if (declared && !r.headers.get('content-encoding')) res.setHeader('Content-Length', String(declared));
+    res.status(200);
+    let total = 0;
+    const cap = new Transform({
+      transform(chunk, _enc, done) {
+        total += chunk.length;
+        // 머리줄이 없거나 거짓이었다 — 이미 200을 보냈으니 413은 못 준다. 끊어서 '덜 받은' 응답으로 남긴다.
+        if (total > MAX_BYTES) done(new Error('too-large'));
+        else done(null, chunk);
+      },
+    });
+    await pipeline(Readable.fromWeb(r.body), cap, res);
+    console.log(`[drive-file] ${id} ${Math.round(total / 1024)}KB → 성공 (${Date.now() - t0}ms)`);
   } catch (e) {
-    console.error('[drive-file] 중계 실패:', id, e);
-    res.status(502).json({ error: '드라이브에서 파일을 받아오지 못했습니다.' });
+    console.error('[drive-file] 중계 실패:', id, `${Date.now() - t0}ms`, e);
+    // 흘리는 도중에 끊겼으면 머리줄은 이미 나갔다 — pipeline이 응답을 닫았으므로 더 쓰지 않는다
+    if (!res.headersSent) res.status(502).json({ error: '드라이브에서 파일을 받아오지 못했습니다.' });
+    else res.destroy?.();
   }
 }
