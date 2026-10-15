@@ -642,7 +642,7 @@ check('초기 로드가 주보 송폼까지 끌어오지 않는다', () => {
     'listAllFiles가 service_id로 안 거른다');
   assert.match(sync, /if \(!f\.card_id\) return;/, 'filesByCard가 card_id 없는 행을 안 거른다');
   // 실시간도 같다 — 송폼 한 장에 접속자 전원이 열어 둔 업무를 다시 읽으면 안 된다
-  assert.match(sync, /if \(row\.service_id\) return;/, 'files 실시간이 주보 갈래를 안 가른다');
+  assert.match(sync, /if \(row\.service_id(?: \|\| row\.meeting_id)?\) return;/, 'files 실시간이 주보 갈래를 안 가른다');
 });
 
 // ── 동아리 모임 활동 보고서 (0093 · 20차 묶음 ④) ─────────────────────────────
