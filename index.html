@@ -58,9 +58,22 @@
         document.documentElement.dataset.theme = t;
       })();
     </script>
+    <!-- 첫 페인트의 로고(2026-10-15 · App.jsx CloudSplash와 같은 자리·크기·숨쉬기). 예전에는 빈 바탕 → 로고 → 앱으로
+         두 번 바뀌었다. React가 #root를 처음 그릴 때 이 마크업을 걷고, 같은 자리에 CloudSplash가 같은 박자로 선다
+         (박자는 App.jsx splashDelay가 이 그림의 애니메이션 시각을 이어받는다). 값을 바꾸면 CloudSplash도 같이 —
+         번들 CSS가 오기 전(개발 서버)에도 같은 모양이어야 해서 Tailwind 클래스가 아니라 여기 값으로 둔다. -->
+    <style>
+      body { margin: 0; }
+      .boot-splash { height: 100vh; height: 100dvh; display: flex; align-items: center; justify-content: center; background: #f6f5f7; }
+      [data-theme='dark'] .boot-splash { background: #191919; }
+      .boot-splash img { height: 3rem; width: auto; animation: boot-pulse 2s cubic-bezier(.4, 0, .6, 1) infinite; }
+      .boot-splash .boot-dark, [data-theme='dark'] .boot-splash .boot-light { display: none; }
+      [data-theme='dark'] .boot-splash .boot-dark { display: block; }
+      @keyframes boot-pulse { 50% { opacity: .5; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot-splash"><img class="boot-light" src="/src/assets/logo-light.webp" alt="더다붓" /><img class="boot-dark" src="/src/assets/logo-dark.webp" alt="더다붓" /></div></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

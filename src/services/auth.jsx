@@ -3,7 +3,7 @@ import { supabase, resetMyUid } from './supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
 import { isKakaoInApp, returnToOf, authErrorInUrl } from '../utils.js';
 import { setEntryQuery } from './entryQuery.js';
-import { APPROVAL_POLL_MS, permFromRpc, shouldWatchApproval, approvalRowPassed } from './approvalWatch.js';
+import { APPROVAL_POLL_MS, PERM_RETRY_MS, permFromRpc, shouldWatchApproval, shouldRetryPerm, approvalRowPassed } from './approvalWatch.js';
 
 // ============================================================================
 // 인증 컨텍스트 (Supabase OAuth: 구글 / 카카오)
@@ -87,6 +87,7 @@ export function AuthProvider({ children }) {
   // 필요했고 DB의 admins 표와 어긋나기도 했다(§4.5의 '둘 중 하나만 넣으면 어긋난다').
   // null = 아직 모름 — 이때 승인 화면을 띄우면 로그인 직후 한 번 번쩍인다.
   const [perm, setPerm] = useState({ isAdmin: null, isMaster: null, approved: null });
+  const [permStuck, setPermStuck] = useState(false);   // 첫 물음이 두 번 다 실패했다 — 아래 '다시 묻기'
 
   useEffect(() => {
     if (!enabled) return;
@@ -119,7 +120,7 @@ export function AuthProvider({ children }) {
     // 세션이 바뀌면 '내 id'를 다시 묻는다 — 안 버리면 다른 사람으로 로그인했는데
     // 앞사람의 id가 남는다(0061 effective_uid의 캐시).
     resetMyUid();
-    if (!session) { setPerm({ isAdmin: null, isMaster: null, approved: null }); return; }
+    if (!session) { setPerm({ isAdmin: null, isMaster: null, approved: null }); setPermStuck(false); return; }
     let alive = true;
     (async () => {
       // **못 물어본 것을 '아니오'로 바꾸지 않는다**(2026-09-22 신고 · 조해리·노준석).
@@ -135,14 +136,45 @@ export function AuthProvider({ children }) {
       if (!alive) return;
       if (!res) {
         // 두 번 다 실패 — 아는 것을 지우지 않는다. 처음이라면 null(아직 모름)로 남고,
-        // AuthGate는 그때 승인 대기가 아니라 빈 화면을 보여 준다.
+        // 아래 '다시 묻기'가 답을 받을 때까지 묻는다(permStuck).
         console.error('[auth] 자격을 확인하지 못했어요 — 알던 값을 그대로 둡니다');
+        setPermStuck(true);
         return;
       }
+      setPermStuck(false);
       setPerm(res);
     })();
     return () => { alive = false; };
   }, [enabled, session]);
+
+  // **처음 물음이 두 번 다 실패하면 답을 받을 때까지 다시 묻는다**(2026-10-15). 예전에는 다음 토큰 갱신(약 한 시간)까지
+  // 자격이 '모름'(null)으로 남았다 — 화면은 들어가지만(아래 approved는 모름을 승인으로 본다) 마스터·관리자의 도구가
+  // 그동안 숨었다. 신호가 돌아오는 순간들(다시 보일 때 · 창에 초점 · online)과 PERM_RETRY_MS 주기. 판정은 approvalWatch.
+  const retrying = shouldRetryPerm({ enabled, hasSession: !!session, approved: perm.approved, stuck: permStuck });
+  useEffect(() => {
+    if (!retrying) return undefined;
+    let alive = true;
+    let busy = false;
+    const again = async () => {
+      if (busy || document.visibilityState === 'hidden') return;
+      busy = true;
+      const res = await askPerm();
+      busy = false;
+      if (alive && res) { setPermStuck(false); setPerm(res); }
+    };
+    const timer = setInterval(again, PERM_RETRY_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') again(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', again);
+    window.addEventListener('online', again);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', again);
+      window.removeEventListener('online', again);
+    };
+  }, [retrying]);
 
   // **승인 대기 화면이 떠 있는 동안은 승인을 지켜본다**(2026-09-25). 위 물음은 세션이 바뀔
   // 때만(토큰 갱신 · 약 한 시간) 돌아서, 관리자가 수락해도 새로고침하거나 한 시간을 기다려야

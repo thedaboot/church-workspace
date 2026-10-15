@@ -716,3 +716,29 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.ok(/export \{ YearPicker \} from '\.\/navParts\.jsx';/.test(nav.layout) && /export \{ SearchHint \} from '\.\/searchBox\.jsx';/.test(nav.layout), '재수출');
   console.log('PASS  내비 부품 한 벌(모션 최소화 판정 · 팝오버 껍데기 · 17-b 훑기 · 고른 해의 탭)');
 }
+
+// ── UX 다듬기 β (2026-10-15) — 첫 페인트 로고 하나 ────────────────────────────────────────────
+// 앱을 열면 빈 바탕 → 로고 → 앱으로 두 번 바뀌었다. 지금은 index.html의 #root 안에 CloudSplash와 같은 모양이 먼저 서고,
+// 인증을 기다리는 동안도 CloudSplash다(App.jsx AuthGate). 바탕색·크기는 index.css·CloudSplash와 같은 값이어야 한다.
+// 되돌리기: AuthGate의 `if (loading) return <CloudSplash />`를 빈 div로 돌리거나 index.html의 #root를 비우면 깨진다.
+{
+  const html = readSrc('index.html');
+  const css = readSrc('src/index.css');
+  const app = readSrc('src/App.jsx');
+  const root = /<div id="root">([\s\S]*?)<\/div>\s*<script/.exec(html)?.[1] || '';
+  assert.ok(/class="boot-splash"/.test(root), '#root 안에 첫 페인트 로고가 있다');
+  assert.ok(/src="\/src\/assets\/logo-light\.webp" alt="더다붓"/.test(root) && /src="\/src\/assets\/logo-dark\.webp" alt="더다붓"/.test(root), '라이트·다크 로고 둘(CloudSplash와 같은 그림)');
+  const light = /:root\s*\{[\s\S]*?--app-canvas:\s*(#[0-9a-f]+)/i.exec(css)?.[1];
+  const dark = /\[data-theme='dark'\]\s*\{[\s\S]*?--app-canvas:\s*(#[0-9a-f]+)/i.exec(css)?.[1];
+  assert.ok(light && html.includes(`.boot-splash { height: 100vh; height: 100dvh; display: flex; align-items: center; justify-content: center; background: ${light}; }`), `라이트 바탕 = --app-canvas(${light})`);
+  assert.ok(dark && html.includes(`[data-theme='dark'] .boot-splash { background: ${dark}; }`), `다크 바탕 = --app-canvas(${dark})`);
+  const splash = /function CloudSplash\(\) \{[\s\S]*?\n\}/.exec(app)?.[0] || '';
+  assert.ok(/h-dvh bg-canvas flex items-center justify-center/.test(splash) && (splash.match(/h-12 w-auto animate-pulse/g) || []).length === 2,
+    'CloudSplash는 h-dvh 가운데 · 로고 h-12(= 3rem) · animate-pulse');
+  assert.ok(html.includes('.boot-splash img { height: 3rem; width: auto; animation: boot-pulse 2s cubic-bezier(.4, 0, .6, 1) infinite; }'), '첫 그림도 3rem · 같은 숨쉬기(2s)');
+  const gate = /function AuthGate\(\) \{[\s\S]*?\n\}/.exec(app)?.[0] || '';
+  assert.ok(/if \(loading\) return <CloudSplash \/>;/.test(gate), '인증을 기다리는 동안도 로고');
+  assert.ok(!/<div className="h-dvh bg-canvas" \/>/.test(gate), 'AuthGate에 빈 바탕이 남지 않았다');
+  assert.ok(/animationDelay: splashDelay\(\)/.test(splash) && /getAnimations/.test(app), '다시 마운트돼도 숨쉬기 박자를 잇는다');
+  console.log('PASS  첫 페인트 로고 하나(index.html · AuthGate · 같은 바탕·크기·박자)');
+}

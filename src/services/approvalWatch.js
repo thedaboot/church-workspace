@@ -13,6 +13,10 @@
 
 export const APPROVAL_POLL_MS = 30000;
 
+// 첫 물음이 두 번 다 실패했을 때(신호가 끊긴 채 앱을 열었다) 다시 묻는 간격 — 2026-10-15.
+// 예전에는 다음 토큰 갱신(약 한 시간)까지 자격이 '모름'으로 남아, 마스터·관리자의 도구가 그동안 숨었다.
+export const PERM_RETRY_MS = 4000;
+
 // rpc 세 개의 결과 → 자격. **하나라도 실패면 null**(모름)이다 — 못 물어본 것을 '아니오'로
 // 바꾸면 신호가 잠깐 끊긴 사람이 승인 대기 화면으로 떨어진다(2026-09-22 신고).
 export function permFromRpc(results) {
@@ -26,6 +30,12 @@ export function permFromRpc(results) {
 // 아직 모름(null)이면 지켜보지 않는다(첫 물음이 아직 돌고 있다).
 export function shouldWatchApproval({ enabled, hasSession, approved }) {
   return !!enabled && !!hasSession && approved === false;
+}
+
+// 자격을 아직 못 물었는가 — 클라우드 · 로그인 · 첫 물음이 두 번 다 실패했고(stuck) 아직 모름(null)일 때만.
+// 그동안 다시 보일 때 · 창에 초점이 올 때 · 다시 연결될 때 · PERM_RETRY_MS마다 묻는다(auth.jsx). 답을 받으면 그친다.
+export function shouldRetryPerm({ enabled, hasSession, approved, stuck }) {
+  return !!enabled && !!hasSession && !!stuck && approved === null;
 }
 
 // 실시간으로 받은 내 profiles 행이 다시 물을 이유인가. 이름·사진을 채우는 쓰기(ensureMyProfile)도

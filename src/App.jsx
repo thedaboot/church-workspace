@@ -146,11 +146,25 @@ const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule', 'members', 'home', 'wo
 const CHURCH_ORDER = CHURCH_MENUS;
 
 // 클라우드 초기 로드 중 미니멀 스플래시 (로고 + 살짝 pulse)
+// **첫 페인트부터 앱까지 이 로고 하나다**(2026-10-15) — index.html의 `#root` 안에 같은 모양(.boot-splash)이 먼저 서 있고,
+// 인증을 기다리는 동안·승인을 묻는 동안·첫 로드 동안 모두 이것을 그린다(예전에는 빈 바탕 → 로고 → 앱).
+// 마운트가 바뀔 때마다(index.html → AuthGate → WorkspaceShell) 숨쉬기가 처음부터 다시 돌면 투명도가 툭 뛴다 —
+// 첫 그림의 애니메이션 시각을 붙잡아 두고 모두 그 박자에 맞춘다(2s = animate-pulse 한 바퀴).
+const PULSE_MS = 2000;
+let splashT0 = null;
+function splashDelay() {
+  if (splashT0 === null) {
+    const boot = [...document.querySelectorAll('.boot-splash img')].flatMap(i => i.getAnimations?.() || [])[0];
+    splashT0 = performance.now() - (Number(boot?.currentTime) || 0);
+  }
+  return `${-((performance.now() - splashT0) % PULSE_MS)}ms`;
+}
 function CloudSplash() {
+  const delay = { animationDelay: splashDelay() };
   return (
     <div className="h-dvh bg-canvas flex items-center justify-center">
-      <img src={logoLight} alt="더다붓" className="h-12 w-auto animate-pulse dark:hidden" />
-      <img src={logoDark} alt="더다붓" className="h-12 w-auto animate-pulse hidden dark:block" />
+      <img src={logoLight} alt="더다붓" style={delay} className="h-12 w-auto animate-pulse dark:hidden" />
+      <img src={logoDark} alt="더다붓" style={delay} className="h-12 w-auto animate-pulse hidden dark:block" />
     </div>
   );
 }
@@ -193,13 +207,13 @@ function AuthGate() {
   const { enabled, session, loading, approved } = useAuth();
   // 화면 데이터 캐시는 사용자별이다(services/cache.js) — 계정이 바뀌면 남의 값이 보이면 안 된다.
   useEffect(() => { setCacheScope(session?.user?.id); }, [session?.user?.id]);
-  if (loading) return <div className="h-dvh bg-canvas" />;
+  if (loading) return <CloudSplash />;
   if (enabled && !session) return <LoginScreen />;
   // **아직 모르는 것(null)과 아닌 것(false)을 가른다**(2026-09-22 신고 — "가끔 승인
   // 기다려주세요가 뜬다"). 예전에는 `!approved` 하나로 봐서, 물어보기 전(null)에도
   // 승인 대기 화면이 떴다. 토큰은 한 시간마다 갱신되고 그때마다 이 물음을 다시
   // 던지므로, 폰에서 잠깐 신호가 끊기면 멀쩡히 쓰던 사람이 그 화면으로 떨어졌다.
-  if (enabled && approved === null) return <div className="h-dvh bg-canvas" />;
+  if (enabled && approved === null) return <CloudSplash />;
   // 승인 전에는 워크스페이스를 아예 마운트하지 않는다 — DB도 막혀 있어서(0022)
   // 들여보내 봐야 빈 화면에 오류만 뜬다. 무엇을 기다리는지 말해 주는 편이 맞다.
   if (enabled && !approved) return <LoginScreen waiting />;

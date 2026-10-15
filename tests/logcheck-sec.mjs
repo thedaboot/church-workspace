@@ -420,8 +420,9 @@ import { loadSource, readSplit } from './_load.mjs';
 // 실패 시 조기 반환을 지우면 셋째가 깨진다.
 {
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.ok(/approved === null\) return <div className="h-dvh bg-canvas"/.test(app),
-    '아직 모르는 동안에는 승인 대기가 아니라 빈 화면이다');
+  // 2026-10-15부터 빈 바탕 대신 첫 페인트와 같은 로고(CloudSplash · logcheck '첫 페인트 로고 하나')
+  assert.ok(/approved === null\) return <CloudSplash \/>/.test(app),
+    '아직 모르는 동안에는 승인 대기가 아니라 로고 화면이다');
   assert.ok(app.indexOf('approved === null') < app.indexOf('enabled && !approved'),
     '모름 판정이 먼저다 — 뒤에 두면 !approved가 null을 먼저 삼킨다');
 
@@ -661,6 +662,18 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.ok(/setInterval\(recheck, APPROVAL_POLL_MS\)/.test(authSrc) && /visibilitychange/.test(authSrc), '주기 + 다시 보일 때');
   assert.ok(/supabase\.removeChannel\(channel\)/.test(authSrc), '떠날 때 채널을 걷는다');
   assert.strictEqual((authSrc.match(/permFromRpc\(/g) || []).length, 1, '처음 물음과 다시 묻기가 askPerm 한 벌');
+  // 첫 물음이 두 번 다 실패하면 답을 받을 때까지 다시 묻는다(2026-10-15 · PITFALLS 55-b) — 예전에는 토큰 갱신(한 시간)까지 '모름'.
+  // 되돌리기: auth.jsx의 setPermStuck(true)를 지우면 다시 묻기가 영영 안 켜진다(아래 배선 단정이 깨진다).
+  const R = (o) => W.shouldRetryPerm({ enabled: true, hasSession: true, approved: null, stuck: true, ...o });
+  assert.ok(R({}), '두 번 다 실패하고 아직 모르면 다시 묻는다');
+  assert.ok(!R({ stuck: false }), '첫 물음이 도는 동안은 겹쳐 묻지 않는다');
+  assert.ok(!R({ approved: true }) && !R({ approved: false }), '답을 받으면 그친다(대기는 shouldWatchApproval 몫)');
+  assert.ok(!R({ hasSession: false }) && !R({ enabled: false }), '로그인 전·게스트는 해당 없음');
+  assert.ok(W.PERM_RETRY_MS >= 2000 && W.PERM_RETRY_MS <= 10000, '몇 초 간격');
+  assert.ok(/setPermStuck\(true\);\s*return;/.test(authSrc), '두 번 다 실패하면 stuck을 세운다');
+  assert.ok(/shouldRetryPerm\(\{ enabled, hasSession: !!session, approved: perm\.approved, stuck: permStuck \}\)/.test(authSrc), '판정은 shouldRetryPerm 한 벌');
+  assert.ok(/setInterval\(again, PERM_RETRY_MS\)/.test(authSrc) && /addEventListener\('focus', again\)/.test(authSrc)
+    && /addEventListener\('online', again\)/.test(authSrc), '주기 + 초점 + online(+ 다시 보일 때)');
 
   // 승인 알림 — 시스템 갈래 문구 · 관리자 수락에서 보낸다 · 체크 제약과 INSERT 정책을 같이(관리자만)
   const N = await import(new URL('../src/services/notifyText.js', import.meta.url).href);
