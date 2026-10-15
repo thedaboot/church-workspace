@@ -5,8 +5,9 @@ import { TaskService, CONTENT_LOG, contentDiffers } from '../services/domain.js'
 import { generateId, taskChangedKeys } from '../utils.js';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
-import { showToast } from '../components/Toast.jsx';
+import { showToast, HOLD_MS_ACTION } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
+import { rollbackPatch, createDeleteHold } from '../services/optimistic.js';
 
 // 클라우드 쓰기 실패 공통 처리.
 // 화면에는 사람이 읽을 두 도막(`무엇을 못했다 · 무엇을 하면 된다`)만, 원문은 콘솔에만.
@@ -16,6 +17,12 @@ const reportCloudError = (what) => (err) => {
   console.error(`[cloud] ${what}:`, cloudSync.formatCloudError(err), err);
   showToast(failText(what, err));
 };
+
+// ── 업무 삭제 되돌리기 (UX 다듬기 α · 2026-10-15 · PITFALLS 54-b) ─────────────────────────────
+// 지우면 화면에서는 바로 빠지고 '되돌리기' 토스트가 뜬다. **클라우드의 서버 삭제는 그 토스트가 걷힐 때까지 붙든다** —
+// 되돌리면 아무것도 보내지 않은 셈이다. 붙든 동안 실시간 재조회가 그 업무를 되살리지 않게 하는 것·페이지를 떠날 때 바로 보내는 것은
+// services/optimistic.js createDeleteHold. 서버 삭제가 실패하면 지우기 전 모습(댓글·활동·첨부까지)으로 되살리고 토스트로 말한다.
+const deleteHold = createDeleteHold({ store, ms: HOLD_MS_ACTION + 300 });   // 토스트가 걷힌 뒤에 보낸다
 
 // ============================================================================
 // 8. Controllers (비즈니스 로직 훅)
@@ -98,15 +105,25 @@ export const useWorkspaceController = () => {
       }
       // **바뀐 칸만** 보낸다(utils.taskChangedKeys) — 수정 모드 동안 멈춰 있던 스토어 값으로 남이 바꾼
       // 칸을 되돌리지 않게. 견주는 것은 부르는 쪽이 준 이전 카드(oldData)다.
+      // 카드 쓰기 자체가 실패했을 때만 화면을 되돌린다(cardOk) — 뒤따르는 활동·알림이 실패한 것은 카드가 이미 저장된 것이다.
+      // 되돌리는 칸은 상태·순서뿐이다(services/optimistic.js 머리말 — 제목·본문은 창의 초안이 원본).
+      let cardOk = false;
       cloudSync.cardUpsertCloud(task, isNew, { changed: taskChangedKeys(task, oldData), base: oldData })
-        .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
+        .then(() => { cardOk = true; return addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id); })
         .then(() => mentionIds.length && cloudSync.notifyMentions(task.content, {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId, recipientIds: mentionIds,
         }))
         .then(() => assignIds.length && cloudSync.notifyAssignees(assignIds, {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId, preview: task.title,
         }))
-        .then(() => onSettled?.(true), (e) => { onSettled?.(false); reportCloudError('업무를 저장하지 못했어요')(e); });
+        .then(() => onSettled?.(true), (e) => {
+          onSettled?.(false);
+          if (!cardOk && !isNew) {
+            const back = rollbackPatch({ wrote: task, prev: oldData, live: store.getState().tasks.byId[task.id] });
+            if (back) store.dispatch({ type: 'SYNC_TASK', payload: back });
+          }
+          reportCloudError('업무를 저장하지 못했어요')(e);
+        });
     } else {
       onSettled?.(true);
     }
@@ -189,22 +206,52 @@ export const useWorkspaceController = () => {
     return updated;
   }, [currentUser.name, cloudOn]);
 
+  // 지우기 — 화면에서 바로 빼고 '되돌리기' 토스트(머리의 '업무 삭제 되돌리기'). 게스트는 서버가 없어 되살리기만 한다.
   const handleDeleteTask = useCallback((task) => {
     if (!task?.id) return;
-    store.dispatch({ type: 'DELETE_TASK', payload: task.id });
-    if (cloudOn) cloudSync.cardDeleteCloud(task.id).catch(reportCloudError('업무를 삭제하지 못했어요'));
+    const id = task.id;
+    // 되살릴 모습은 스토어의 지금 카드다 — 창을 연 뒤에 채워진 댓글·활동·첨부까지(§6-22)
+    const snap = store.getState().tasks.byId[id] || task;
+    store.dispatch({ type: 'DELETE_TASK', payload: id });
+    const restore = () => { if (!store.getState().tasks.byId[id]) store.dispatch({ type: 'UPSERT_TASK', payload: snap }); };
+    if (cloudOn) {
+      deleteHold.hold(id, () => cloudSync.cardDeleteCloud(id).catch((e) => { restore(); reportCloudError('업무를 삭제하지 못했어요')(e); }));
+    }
+    showToast(`'${snap.title}'을(를) 삭제했어요`, {
+      label: '되돌리기',
+      onAction: () => {
+        if (cloudOn) {
+          if (!deleteHold.cancel(id)) { showToast('이미 삭제되어 되돌릴 수 없어요'); return; }
+          restore();
+          // 붙든 동안 남이 바꾼 칸이 있으면 받아 온다(그동안 온 실시간은 deleteHold가 버렸다)
+          cloudSync.loadCardPatch(id).then(p => p && store.dispatch({ type: 'SYNC_TASK', payload: p }))
+            .catch(e => console.warn('[cloud] 되살린 업무 다시 읽기 실패:', e));
+          return;
+        }
+        restore();
+      },
+    });
   }, [cloudOn]);
 
   // 보드 컬럼 안 순서(0024). 바뀐 카드만 넘어온다 — 화면은 바로 바꾸고 클라우드는 뒤따른다.
   // SYNC_TASK로 병합한다(UPSERT_TASK로 바꾸면 담아둔 댓글·활동·첨부가 날아간다 — §6-22).
+  // 실패하면 그 사이 다시 옮기지 않은 카드만 옛 자리로(services/optimistic.js).
   const handleReorderTasks = useCallback((orders) => {
+    const byId = store.getState().tasks.byId;
     const changed = orders.filter(({ id, position }) => {
-      const t = store.getState().tasks.byId[id];
+      const t = byId[id];
       return t && (t.position ?? 0) !== position;
     });
     if (!changed.length) return;
+    const before = changed.map(({ id }) => ({ id, position: byId[id].position }));
     changed.forEach(({ id, position }) => store.dispatch({ type: 'SYNC_TASK', payload: { id, position } }));
-    if (cloudOn) cloudSync.cardOrderCloud(changed).catch(reportCloudError('업무 순서를 저장하지 못했어요'));
+    if (cloudOn) cloudSync.cardOrderCloud(changed).catch((e) => {
+      changed.forEach((wrote, i) => {
+        const back = rollbackPatch({ wrote, prev: before[i], live: store.getState().tasks.byId[wrote.id], keys: ['position'] });
+        if (back) store.dispatch({ type: 'SYNC_TASK', payload: back });
+      });
+      reportCloudError('업무 순서를 저장하지 못했어요')(e);
+    });
   }, [cloudOn]);
 
   const handleAddProject = useCallback((title, year) => {
@@ -219,7 +266,11 @@ export const useWorkspaceController = () => {
       year: year || new Date().getFullYear(),
     };
     store.dispatch({ type: 'ADD_PROJECT', payload: newProject });
-    if (cloudOn) cloudSync.projectCreateCloud(newProject).catch(reportCloudError('프로젝트를 만들지 못했어요'));
+    // 못 만들었으면 스토어에서도 뺀다 — 그 화면(ProjectView)은 프로젝트가 없어지면 대시보드로 나간다
+    if (cloudOn) cloudSync.projectCreateCloud(newProject).catch((e) => {
+      store.dispatch({ type: 'DELETE_PROJECT', payload: newProject.id });
+      reportCloudError('프로젝트를 만들지 못했어요')(e);
+    });
     return newProject.id;
   }, [cloudOn]);
 
@@ -235,7 +286,11 @@ export const useWorkspaceController = () => {
   // 안에 있는 업무는 그대로 남고 검색·보관함으로 계속 닿는다.
   const handleArchiveProject = useCallback((id, archived) => {
     store.dispatch({ type: 'UPDATE_PROJECT', payload: { id, archived } });
-    if (cloudOn) cloudSync.projectArchiveCloud(id, archived).catch(reportCloudError(archived ? '프로젝트를 보관하지 못했어요' : '보관을 풀지 못했어요'));
+    // 실패하면 그 사이 다시 누르지 않았을 때만 되돌린다
+    if (cloudOn) cloudSync.projectArchiveCloud(id, archived).catch((e) => {
+      if (!!store.getState().projects.byId[id]?.archived === !!archived) store.dispatch({ type: 'UPDATE_PROJECT', payload: { id, archived: !archived } });
+      reportCloudError(archived ? '프로젝트를 보관하지 못했어요' : '보관을 풀지 못했어요')(e);
+    });
   }, [cloudOn]);
 
   const handleUpdateUser = useCallback((profile) => {
