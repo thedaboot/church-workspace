@@ -627,6 +627,44 @@ function WorkspaceShell() {
     if (p && (GLOBAL_MENUS.includes(p) || store.getState().projects.byId[p])) setActiveMenu(p);
   }, []);
 
+  // **앱이 떠 있는 동안 누른 푸시는 제자리에서 연다**(2026-10-15 · public/sw.js openInPlace) — 예전에는 서비스 워커가
+  // 탭을 navigate해 앱을 통째로 다시 불러왔다. 워커가 { open: 주소 }를 보내면 알림 종에서 누른 것과 같은 길(업무는
+  // handleSearchSelect · 예배·모임 딥링크는 handleOpenLink)로 열고 { ok }로 답한다. 못 여는 주소(우리 앱 첫 화면 주소가
+  // 아닌 것 · 아직 스토어에 없는 업무 · 모르는 프로젝트)는 ok:false — 워커가 예전처럼 navigate한다.
+  // 새 업무를 쓰는 중이면 그 창을 지킨다(덮으면 적던 것이 묻지도 않고 사라진다) — 알림은 종에 그대로 있다.
+  const openPushUrl = useCallback((href) => {
+    let u;
+    try { u = new URL(href, window.location.origin); } catch { return false; }
+    if (u.origin !== window.location.origin || u.pathname !== '/') return false;
+    if (modalOpenRef.current && newFormRef.current) return true;
+    const s = store.getState();
+    const tid = u.searchParams.get('t');
+    if (tid) {
+      const task = s.tasks.byId[tid];
+      if (!task) return false;
+      handleSearchSelect('task', task);
+      return true;
+    }
+    const p = u.searchParams.get('p');
+    if (!p) { setActiveMenu('home'); return true; }
+    if (!(GLOBAL_MENUS.includes(p) || s.projects.byId[p])) return false;
+    handleOpenLink(`${u.pathname}${u.search}`);
+    return true;
+  }, [handleSearchSelect, handleOpenLink]);
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw) return undefined;
+    const onMsg = (e) => {
+      const href = e.data?.open;
+      if (typeof href !== 'string') return;
+      const ok = openPushUrl(href);
+      e.ports?.[0]?.postMessage({ ok });
+    };
+    sw.addEventListener('message', onMsg);
+    sw.startMessages?.();
+    return () => sw.removeEventListener('message', onMsg);
+  }, [openPushUrl]);
+
   // 문자열이라 값 비교 → memo에 안전
   const teamName = activeMenu.startsWith('team:') ? activeMenu.split(':')[1] : '';
   const isProjectScreen = !GLOBAL_MENUS.includes(activeMenu) && !activeMenu.startsWith('team:');

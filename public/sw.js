@@ -64,8 +64,13 @@ self.addEventListener('notificationclick', (event) => {
     const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     // 이미 열려 있는 탭을 재사용한다. 매번 새 창을 열면 아이폰에서 PWA가 여러 개
     // 쌓인 것처럼 보인다. navigate가 막히는 경우(다른 출처)만 새로 연다.
+    // **앱이 떠 있으면 새로 불러오지 않는다**(2026-10-15) — 예전에는 navigate로 앱을 통째로 다시 불러 보던 자리·쓰던 글이
+    // 사라졌다. 먼저 앞으로 불러오고(focus — 누른 직후라야 허락된다) 그 탭에 주소를 건넨다. 앱(App.jsx)이 제자리에서
+    // 열었다고 답하면 끝, 못 연다고 답하거나 1초 안에 답이 없으면(로그인 화면·옛 판) 예전처럼 navigate한다.
     for (const c of clientList) {
       try {
+        const shown = await c.focus().catch(() => c);
+        if (await openInPlace(shown || c, url)) return shown;
         await c.navigate(url);
         return await c.focus();
       } catch { /* 다음 후보로 */ }
@@ -73,3 +78,14 @@ self.addEventListener('notificationclick', (event) => {
     return self.clients.openWindow(url);
   })());
 });
+
+// 탭에 { open: 주소 }를 보내고 답(MessageChannel)을 기다린다 — { ok: true }면 앱이 제자리에서 열었다.
+function openInPlace(client, url) {
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    const done = (ok) => { clearTimeout(timer); ch.port1.close(); resolve(ok); };
+    const timer = setTimeout(() => done(false), 1000);
+    ch.port1.onmessage = (e) => done(!!e.data?.ok);
+    try { client.postMessage({ open: url }, [ch.port2]); } catch { done(false); }
+  });
+}

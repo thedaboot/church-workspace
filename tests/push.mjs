@@ -684,6 +684,43 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
     assert.equal(await clickOpens(b), 'https://church-workspace.vercel.app/', `알림 클릭이 남의 출처를 연다: ${JSON.stringify(b)}`);
   }
   assert.equal(await clickOpens('/?p=worship&s=abc'), 'https://church-workspace.vercel.app/?p=worship&s=abc', '우리 딥링크가 안 열린다');
+
+  // 앱이 떠 있으면 새로 불러오지 않고 제자리에서 연다(2026-10-15 · PITFALLS 55-e) — 워커가 탭을 앞으로 부르고 { open }을 보낸다.
+  // 앱이 { ok: true }로 답하면 navigate하지 않는다 · ok:false거나 1초 안에 답이 없으면 예전처럼 navigate.
+  // 되돌리기: sw.js의 `if (await openInPlace(...)) return shown;` 줄을 지우면 첫 단정이(늘 navigate) 깨진다.
+  const clickWithTab = async (url, reply) => {
+    const handlers = {};
+    const log = [];
+    const client = {
+      focus: async () => { log.push('focus'); return client; },
+      navigate: async (u) => { log.push(`navigate ${new URL(u).search}`); return client; },
+      postMessage: (msg, ports) => { log.push(`message ${new URL(msg.open).search}`); if (reply !== undefined) setTimeout(() => ports[0].postMessage(reply), 20); },
+    };
+    const self = {
+      location: { origin: 'https://church-workspace.vercel.app' },
+      addEventListener: (t, fn) => { handlers[t] = fn; },
+      skipWaiting() {}, registration: { showNotification: async () => {} },
+      clients: { claim: async () => {}, matchAll: async () => [client], openWindow: async (u) => { log.push(`open ${u}`); } },
+    };
+    new Function('self', 'navigator', sw)(self, {});
+    let wait;
+    const t0 = Date.now();
+    handlers.notificationclick({ notification: { close() {}, data: { url } }, waitUntil: (p) => { wait = p; } });
+    await wait;
+    return { log, ms: Date.now() - t0 };
+  };
+  const inPlace = await clickWithTab('/?p=p1&t=t2', { ok: true });
+  assert.deepStrictEqual(inPlace.log, ['focus', 'message ?p=p1&t=t2'], `앱이 열었다고 답하면 navigate하지 않는다: ${JSON.stringify(inPlace)}`);
+  const refused = await clickWithTab('/?p=p1&t=gone', { ok: false });
+  assert.deepStrictEqual(refused.log, ['focus', 'message ?p=p1&t=gone', 'navigate ?p=p1&t=gone', 'focus'], `못 연다고 답하면 곧바로 navigate: ${JSON.stringify(refused)}`);
+  assert.ok(refused.ms < 600, `못 연다는 답은 1초를 기다리지 않는다(${refused.ms}ms)`);
+  const silent = await clickWithTab('/?p=worship&s=abc');
+  assert.deepStrictEqual(silent.log, ['focus', 'message ?p=worship&s=abc', 'navigate ?p=worship&s=abc', 'focus'], `답이 없으면(로그인 화면·옛 판) navigate: ${JSON.stringify(silent)}`);
+  assert.ok(silent.ms >= 950 && silent.ms < 2000, `답을 1초 기다린다(${silent.ms}ms)`);
+  // 앱 쪽 배선 — 받은 주소를 알림 종과 같은 길로 열고 MessageChannel로 답한다
+  const appSrc = readFileSync(join(ROOT, 'src', 'App.jsx'), 'utf8');
+  assert.ok(/sw\.addEventListener\('message', onMsg\)/.test(appSrc) && /e\.ports\?\.\[0\]\?\.postMessage\(\{ ok \}\)/.test(appSrc), '앱이 워커 메시지를 받고 답한다');
+  assert.ok(/handleSearchSelect\('task', task\);\s*return true;/.test(appSrc) && /handleOpenLink\(`\$\{u\.pathname\}\$\{u\.search\}`\);\s*return true;/.test(appSrc), '업무·딥링크는 알림 종과 같은 길');
 }
 
 // ── /api/ai의 임베딩 갈래 (배치 E3 · 0073) ─────────────────────────────────────
