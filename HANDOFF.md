@@ -270,6 +270,8 @@ src/hooks/useEnterStagger.js  순차 등장은 첫 마운트만(§4.2)
 src/hooks/useDismiss.js       바깥 누름·Esc 닫기 한 벌 — 포털로 나간 목록도 refs에 넣는다(navParts·groupsParts·worshipPassage·taskFields)
 src/hooks/usePopover.js       떠 있는 판 껍데기 한 벌(자리·바깥 닫기·포털·transition-none · §6-17·17-b·17-d) — 내비 넷이 쓴다 · 새 팝오버는 이걸로
 src/hooks/useReducedMotion.js 모션 최소화 판정 한 벌(useReducedMotion 훅 + prefersReducedMotion) — 사본을 다시 만들지 않는다
+src/hooks/scrollGlide.js      스크롤 통을 앱 quint로 옮기는 한 벌(glideTo · 움직임 줄이기면 즉시) — `behavior:'smooth'` 대신(§56-g)
+src/hooks/useScrollMemory.js  목록 → 상세 → 목록의 main 자리(주보·동아리·폰 위키 · §56-h)
 src/hooks/useNoteDraft.js     노트 초안 브라우저 저장 한 벌(늦은 쓰기 · 떠날 때 쓰기 · §6-24-d) — 예배 노트·QT 묵상
 src/hooks/useProjectYear.js   고른 연도 모듈 스토어 — 지도·프로젝트 진행·탭 줄이 같은 값을 본다(§4.9)
 src/hooks/useSheetShare.jsx   종이를 미리 구워 두는 훅 + 마지막 갈래 overlay(§6-32-g·32-s·32-m)
