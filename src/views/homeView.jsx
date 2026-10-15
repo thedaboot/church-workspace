@@ -5,7 +5,8 @@ import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectMyTasks, selectTasksList, selectProjectsList } from '../store/selectors.js';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { Skeleton } from '../components/media.jsx';
-import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
+import { CARD, CARD_STYLE, Empty, BTN } from '../components/groupsParts.jsx';
+import { errorReason } from '../services/errorText.js';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
 import { isOpen, isOverdue } from '../services/taskCounts.js';
 import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry, countSharedEntries, shiftDay } from '../services/word.js';
@@ -42,6 +43,7 @@ import logoDark from '../assets/logo-dark.webp';
 //
 // **카드는 있는 것만 선다.** 게스트 모드(클라우드 없음)에서는 세 서비스가 전부 빈 값을
 // 주므로 카드가 하나도 없을 수 있고, 그때는 인사말 + 빈 자리 한 줄이다.
+// **못 읽은 카드는 빠지지 않는다**(시안 B4 · 2026-10-15) — 같은 크기로 남아 실패를 말한다(FailCard).
 //
 // 오늘의 기준이 둘인 이유: QT·예배는 **한국 시간**(services/word.js kstToday), 업무
 // 마감은 업무 화면과 같은 브라우저 로컬(dashboardParts.ISO_TODAY)이다. 각 카드가
@@ -544,14 +546,51 @@ function CardSkeleton({ slot, delay, enter = 'dc-card', wide = false }) {
   );
 }
 
+// ── 못 읽은 자리의 카드 (시안 B4 · 사용자 승인 2026-10-15) ───────────────────────
+// 캐시 없는 첫 읽기가 실패하면 그 자리에 **같은 크기의 카드**가 선다 — 머리 줄(아이콘 · 라벨)은 그대로,
+// 화살표 자리에 '다시 시도'(작은 단 BTN · 머리 줄 높이를 늘리지 않게 -my), 본문은 초점·메타 두 줄 자리에
+// 제목(무엇을 못 받았는지)과 이유(errorReason)다. 예배·모임 화면의 실패 자리와 같은 두 줄이다(§8 · D2).
+// 통짜 버튼이 아니다(안에 버튼이 있다) — 눌리지 않는 카드는 떠오르지 않는다(LinkCard 주석).
+// 다시 시도는 **그 갈래만** 다시 읽는다(useCached.refresh). 읽는 동안 버튼만 잠근다.
+function FailCard({ slot, label, icon: Icon, title, reason, onRetry, delay, enter = 'dc-card' }) {
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    try { await onRetry(); } finally { setBusy(false); }
+  };
+  return (
+    <div data-slot={slot} data-state="fail" role="alert"
+      className={`home-card home-${slot} load-failed ${enter} flex flex-col items-stretch justify-start w-full text-left p-4 md:p-[18px] ${CARD}`}
+      style={{ ...CARD_STYLE, animationDelay: `${delay}ms` }}>
+      <span className="home-card-head flex items-center justify-between gap-1.5 h-[18px] mb-2">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <Icon size={13} className="text-fg-faint shrink-0" />
+          <span className="text-[11.5px] font-semibold text-fg-muted truncate">{label}</span>
+        </span>
+        <button type="button" onClick={retry} disabled={busy} className={`load-fail-retry shrink-0 -my-1.5 -mr-1 ${BTN}`}>다시 시도</button>
+      </span>
+      {/* 줄 높이는 LinkCard의 초점(15px 줄)·메타(12px × 1.45) 자리와 같게 — 카드가 실패로 바뀌어도 격자가 흔들리지 않는다 */}
+      <span className="home-card-body block">
+        <span className={`load-fail-title block text-[13.5px] leading-[22.5px] font-semibold text-fg ${ONE_LINE}`}>{title}</span>
+        <span className={`load-fail-reason block mt-1 text-[12px] leading-[1.45] text-fg-muted ${ONE_LINE}`} title={reason}>{reason}</span>
+      </span>
+    </div>
+  );
+}
+
 // ── 카드 자리 넷의 차례 ─────────────────────────────────────────────────────
 // 순서는 docs/V2.md §3 그대로 고정이다 — 오늘의 QT · 예배 · 내 업무 · 내 순.
 // 갈래마다 상태가 셋이다:
 //   · 'wait'  — 아직 안 왔다(캐시도 없다)  → 그 자리에 스켈레톤 카드
 //   · 'ready' — 와서 보여줄 것이 있다        → 내용
 //   · 'none'  — 와서 보니 보여줄 것이 없다    → 그때 자리를 뺀다
+//   · 'fail'  — 캐시 없는 첫 읽기가 실패했다   → 같은 크기의 실패 카드(제목 · 이유 · 다시 시도)
 // 'none'만 목록에서 빠지므로 남은 카드가 격자의 빈 칸을 차례로 메운다(1열 · md 2열).
 // **'wait'을 빼면 안 된다** — 그게 예전의 버그다(늦은 갈래가 나중에 끼어들어 자리가 밀렸다).
+// **'fail'을 'none'으로 떨어뜨리면 안 된다**(시안 B4 · 2026-10-15) — 예전에는 못 읽은 카드가 통째로 빠져서
+// 실패가 '없음'으로 읽혔고, 셋 다 못 읽으면 '아직 올라오지 않았어요'가 거짓으로 섰다(§8 읽기 실패 자리).
+// 'fail'은 'ready'보다 먼저 본다 — 주일 모드는 지난 날 캐시(svcHint)로도 켜지는데, 예배 목록을 못 읽은 채
+// 'ready'로 서면 오늘 주보 없이 오늘의 예배 카드를 그리려 든다.
 const SLOT_ORDER = ['qt', 'worship', 'tasks', 'sun'];
 // **예배 날(주일 모드)에는** 예배가 맨 앞에서 두 칸을 차지하고 내 순은 그 카드의 출석 칸으로 들어간다
 // (사용자 결정 2026-09-25) — 격자에는 오늘의 QT · 내 업무 한 쌍이 남는다(짝이 홀수로 남지 않게).
@@ -560,7 +599,7 @@ export function orderedSlots(branch = {}, { sunday = false } = {}) {
   return (sunday ? SUNDAY_ORDER : SLOT_ORDER)
     .map((key) => {
       const b = branch[key] || {};
-      return { key, state: b.loading ? 'wait' : (b.has ? 'ready' : 'none') };
+      return { key, state: b.loading ? 'wait' : b.failed ? 'fail' : (b.has ? 'ready' : 'none') };
     })
     .filter(s => s.state !== 'none');
 }
@@ -788,12 +827,20 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     }).catch(() => {});
     return () => { off = true; };
   }, [leaderRaw, year]);
+  // 못 읽음 = 에러가 났고 **보여 줄 지난 값도 없다**(캐시가 있으면 그 값을 둔 채 조용히 넘어간다 — 홈은 토스트가 없다)
+  const failedOf = (q) => !!q.error && q.data === undefined;
   const slots = orderedSlots({
-    qt: { loading: qtQ.loading, has: !!church.qt },
-    worship: { loading: svcQ.loading, has: sunday || !!church.service },
+    qt: { loading: qtQ.loading, failed: failedOf(qtQ), has: !!church.qt },
+    worship: { loading: svcQ.loading, failed: failedOf(svcQ), has: sunday || !!church.service },
     tasks: { loading: false, has: myTasks.length > 0 },
-    sun: { loading: sunQ.loading, has: !!church.sun },
+    sun: { loading: sunQ.loading, failed: failedOf(sunQ), has: !!church.sun },
   }, { sunday });
+  // 실패 카드 한 장의 재료 — 제목은 무엇을 못 받았는지, 이유는 errorReason, 다시 시도는 그 갈래만 다시 읽는다
+  const FAIL = {
+    qt: { q: qtQ, label: '오늘의 QT', icon: BookOpen, title: '오늘 본문을 받지 못했어요' },
+    worship: { q: svcQ, label: '예배', icon: Church, title: '예배 소식을 받지 못했어요' },
+    sun: { q: sunQ, label: '내 순', icon: Users, title: '내 순 소식을 받지 못했어요' },
+  };
 
   // 등장 방식은 **처음 그려질 때 한 번만** 정해지고 그 뒤로 바뀌지 않는다 — 클래스가
   // 바뀌면 애니메이션이 처음부터 다시 돌아서, 가만히 있던 카드가 이유 없이 한 번 더
@@ -974,9 +1021,14 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
               키를 자리 이름으로 두는 것이 핵심이다 — 번호로 주면 앞 카드가 빠질 때
               뒤 카드들이 통째로 다시 마운트되며 등장 연출이 또 돈다. */}
           {slots.map(({ key, state }, i) => {
-            const kind = state === 'wait' ? 'skel' : 'card';
+            const kind = state === 'wait' ? 'skel' : state === 'fail' ? 'fail' : 'card';
             const enter = enterOf(kind, key);
             const delay = enter === 'dc-card' ? i * 40 : 0;
+            if (state === 'fail') {
+              const f = FAIL[key];
+              return <FailCard key={key} slot={key} enter={enter} delay={delay} label={f.label} icon={f.icon}
+                title={f.title} reason={errorReason(f.q.error)} onRetry={f.q.refresh} />;
+            }
             return state === 'wait'
               ? <CardSkeleton key={key} slot={key} enter={enter} delay={delay} wide={sunday && key === 'worship'} />
               : <React.Fragment key={key}>{cards[key](delay, enter)}</React.Fragment>;

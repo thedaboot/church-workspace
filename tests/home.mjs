@@ -1420,6 +1420,51 @@ check("'홈으로'로 돌아온다", await ev(`!!document.querySelector('.home-c
 await enter({ app: FOOT_APP, bible: FOOT_BIBLE, now: '2027-01-07 10:00:00' });
 check('1월 7일부터는 발자취 입구가 없다', await ev(`!document.querySelector('[data-footprint]')`));
 
+// ── 카드 읽기 실패(시안 B4 · 사용자 승인 2026-10-15) ─────────────────────────────
+// 캐시 없는 첫 읽기가 실패하면 그 카드가 빠지지 않고 **같은 크기로** 남아 제목 · 이유 · '다시 시도'(머리 줄의
+// 화살표 자리)를 세운다. 셋 다 못 읽으면 '아직 올라오지 않았어요'가 아니라 실패 카드들이다.
+// 실패는 게스트 저장 자리를 망가뜨려 만든다(PITFALLS 42-h — 예배 services: 1 · 모임 people: 1).
+// **되돌리기**: orderedSlots의 `b.failed ? 'fail'`을 지우면 실패 카드가 빠지고 빈 줄이 선다(아래 넷이 다 깨진다).
+{
+  const logsBefore = logs.length;
+  const pureFail = await ev(`(async () => { const m = await import('/src/views/homeView.jsx');
+    return m.orderedSlots({ qt: { has: true }, worship: { failed: true }, tasks: {}, sun: { failed: true } }).map(s => s.key + ':' + s.state).join(','); })()`, true);
+  check("못 읽은 갈래는 'none'이 아니라 'fail'로 자리를 지킨다(순수)", pureFail === 'qt:ready,worship:fail,sun:fail', pureFail);
+  await send('Emulation.setDeviceMetricsOverride', { width: 393, height: 852, deviceScaleFactor: 1, mobile: true });
+  await enter({ worship: { services: 1 } });
+  const one = await ev(`(() => {
+    const cells = [...document.querySelectorAll('.home-cards [data-slot]')];
+    const f = document.querySelector('.home-cards [data-slot="worship"][data-state="fail"]');
+    const qt = document.querySelector('.home-cards [data-slot="qt"]');
+    const btn = f?.querySelector('.home-card-head .load-fail-retry');
+    return { order: cells.map(c => c.dataset.slot + ':' + c.dataset.state).join(','),
+      title: f?.querySelector('.load-fail-title')?.textContent || '', reason: f?.querySelector('.load-fail-reason')?.textContent || '',
+      btn: btn?.textContent || '', btnRight: btn && Math.round(f.getBoundingClientRect().right - btn.getBoundingClientRect().right),
+      headH: f ? Math.round(f.querySelector('.home-card-head').getBoundingClientRect().height) : 0,
+      h: f ? Math.round(f.getBoundingClientRect().height) : 0, qtH: qt ? Math.round(qt.getBoundingClientRect().height) : 0,
+      role: f?.getAttribute('role') };
+  })()`);
+  check('예배 목록을 못 읽으면 예배 카드가 그 자리에 실패로 남는다 — 제목 · 이유 · 머리 줄 오른쪽 다시 시도',
+    one.order.startsWith('qt:ready,worship:fail') && one.title === '예배 소식을 받지 못했어요' && one.reason.length > 0
+    && one.btn === '다시 시도' && one.btnRight >= 0 && one.btnRight <= 20 && one.headH === 18 && one.role === 'alert', JSON.stringify(one));
+  check('실패 카드는 보통 카드와 같은 높이다(격자가 흔들리지 않는다)', one.h > 0 && Math.abs(one.h - one.qtH) <= 1, `${one.h} / ${one.qtH}`);
+  // 다시 시도 — 저장 자리를 되살리고 누르면 그 갈래만 다시 읽어 카드가 선다
+  await ev(`localStorage.setItem('church_worship_v1', JSON.stringify(${JSON.stringify(WORSHIP)}))`);
+  await ev(`document.querySelector('[data-slot="worship"] .load-fail-retry')?.click()`);
+  let back = null;
+  for (let i = 0; i < 30; i++) { back = await ev(`document.querySelector('.home-cards [data-slot="worship"]')?.dataset.state || ''`); if (back === 'ready') break; await sleep(150); }
+  check('다시 시도를 누르면 예배 카드가 다시 선다', back === 'ready' && await text('.home-worship-title') === '흔들리지 않는 기쁨', String(back));
+  // 받을 수 있는 것이 다 실패 — 거짓 '아직 올라오지 않았어요' 대신 실패 카드들
+  await enter({ app: APP_NO_TASKS, qt: null, entries: null, worship: { services: 1 }, groups: { people: 1, groups: 1, group_members: 1 } });
+  const all = await ev(`({ empty: !!document.querySelector('.home-empty'),
+    fails: [...document.querySelectorAll('.home-cards [data-state="fail"]')].map(c => c.dataset.slot + ':' + c.querySelector('.load-fail-title').textContent) })`);
+  check("못 읽은 것만 남으면 '아직 올라오지 않았어요'가 서지 않고 실패 카드가 선다",
+    !all.empty && all.fails.join('|') === 'worship:예배 소식을 받지 못했어요|sun:내 순 소식을 받지 못했어요', JSON.stringify(all));
+  // 일부러 낸 실패의 콘솔 줄은 이 검사의 몫이다
+  const mine = logs.splice(logsBefore).filter(l => !/\[home\] (예배 목록|내 순)을 받지 못했어요/.test(l));
+  logs.push(...mine);
+}
+
 await send('Emulation.clearDeviceMetricsOverride');
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
