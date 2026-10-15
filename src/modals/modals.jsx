@@ -40,6 +40,7 @@ import { failText } from '../services/errorText.js';
 import { CardLockButton, LockedPanel, LockGate } from '../components/cardLock.jsx';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useLeave } from '../hooks/useExit.js';
 import { showToast } from '../components/Toast.jsx';
 import { trackEditing } from '../services/presence.js';
 import { LeaderChip } from '../components/leaderOnly.jsx';
@@ -275,7 +276,15 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
     window.addEventListener('pagehide', flushAll);
     return () => window.removeEventListener('pagehide', flushAll);
   }, [flushAll]);
-  const close = useCallback(() => { flushAll(); onClose(); }, [flushAll, onClose]);
+  // 닫기는 창이 걷히는 것(.dc-out · EXIT_MS)을 그린 뒤 부른다(hooks/useExit.js) — 밀린 쓰기는 **먼저** 흘린다.
+  // 걷히는 사이 다른 카드로 바뀌었으면(같은 창이 새 카드를 받는다 · App은 key를 주지 않는다) 그 카드는 닫지 않는다.
+  // 폰 뒤로가기는 App이 곧바로 내린다(걷는 모션 없음).
+  const [leaving, leave] = useLeave();
+  const idRef = useRef(task.id);
+  idRef.current = task.id;
+  const shut = useCallback(() => { const id = idRef.current; leave(() => { if (idRef.current === id) onClose(); }); }, [leave, onClose]);
+  const close = useCallback(() => { flushAll(); shut(); }, [flushAll, shut]);
+  const out = leaving ? ' dc-out' : '';
 
   // ── 닫은 뒤 초점 · 보기 화면의 Esc (2026-10-14 점검 · PITFALLS 47-d) ──────────────
   // 창을 연 것(보드 카드·버튼)을 첫 렌더에서 잡아 두었다가, 창이 내려간 뒤 초점을 그리로 돌린다 — 키보드로 쓰는 사람이
@@ -502,7 +511,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
     <ConfirmPopover
       message="저장하지 않은 내용이 있어요"
       altLabel="만들고 닫기" onAlt={() => handleCreate()}
-      confirmLabel="무시하고 닫기" onConfirm={onClose}
+      confirmLabel="무시하고 닫기" onConfirm={shut}
       cancelLabel="돌아가기"
       className={className}>
       {children}
@@ -550,7 +559,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       <div className="flex gap-2 shrink-0">
         <button type="button" onClick={handleCreate} className="flex-1 sm:flex-none bg-accent hover:bg-accent-strong text-white px-6 py-2 rounded-md text-xs font-semibold transition active:scale-95">만들기</button>
         {dirty ? confirmClose(<button type="button" className={`w-full ${closeBtnCls}`}>닫기</button>, 'flex-1 sm:flex-none')
-          : <button type="button" onClick={onClose} className={`flex-1 sm:flex-none ${closeBtnCls}`}>닫기</button>}
+          : <button type="button" onClick={shut} className={`flex-1 sm:flex-none ${closeBtnCls}`}>닫기</button>}
       </div>
     </>
   ) : (
@@ -615,7 +624,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
          `fixed`는 **레이아웃 뷰포트**에 붙으므로, 키보드가 올라와 앱 뿌리가 줄어도
          이 창의 바닥은 그대로 화면 밖(키보드 밑)에 남는다. 뿌리와 같은 높이를 쓰면
          댓글 입력칸과 아래 도구 줄이 키보드 바로 위에 선다(App.jsx의 --app-vh 주석). */
-      <div className="fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-50 bg-surface flex flex-col animate-in slide-in-from-bottom-4 duration-150">
+      <div className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-50 bg-surface flex flex-col dc-rise${out}`}>
         <div className="shrink-0 px-4 py-3 border-b border-line flex justify-between items-center gap-2 bg-surface">{headerInner}</div>
         {!isNew && !closed && (
           <div className="flex border-b border-line bg-surface shrink-0">
@@ -664,11 +673,11 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       }}
       // 높이는 보이는 창(--app-vh · inset-0과 같이 두면 height가 이긴다 — 여러 검사가 .fixed.inset-0.z-50으로 찾는다) — 아이패드는 이 넓은 창을 쓰는데 키보드가 레이아웃 뷰포트를 줄이지 않아
       // 창 아래의 댓글 칸이 키보드 밑에 남았다(사용자 지적 2026-10-05 · 폰 창의 2026-09-22 고침과 같은 길 · PITFALLS 33-v)
-      className={`fixed inset-0 h-[var(--app-vh,100dvh)] bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-150 ${expanded ? 'p-0' : 'p-2 md:p-4'}`}
+      className={`fixed inset-0 h-[var(--app-vh,100dvh)] bg-black/50 flex items-center justify-center z-50 dc-scrim${out} duration-150 ${expanded ? 'p-0' : 'p-2 md:p-4'}`}
     >
       {/* 전체 화면이면 창이 뷰포트를 다 쓴다 — 딤·모서리·최대 폭이 전부 사라져야
           "확대된 창"이 아니라 "전체 화면"으로 읽힌다. 복귀 버튼은 헤더의 같은 자리. */}
-      <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[min(85dvh,calc(var(--app-vh,100dvh)-2rem))] rounded-lg'}`}>
+      <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden dc-dialog${out} duration-150 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[min(85dvh,calc(var(--app-vh,100dvh)-2rem))] rounded-lg'}`}>
         {/* 스크롤 막대 자리를 늘 잡아 둔다 — 보기(짧다)와 수정(길다)을 오갈 때 막대가 생겼다 없어지며 닫기·본문이 옆으로 뛰었다 */}
         <div className="flex-1 min-w-0 flex flex-col border-r-0 md:border-r border-line overflow-y-auto [scrollbar-gutter:stable]">
           {/* sticky 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을

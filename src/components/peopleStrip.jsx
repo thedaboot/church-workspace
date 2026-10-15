@@ -121,9 +121,9 @@ export function MembersModal({ members, myName, onClose }) {
   // 조상 containing block이 되어, 그냥 fixed로 두면 뷰포트가 아니라 그 안쪽을 기준으로
   // 박힌다 — 실제로 창이 화면 아래쪽에 나타나 하단 탭바에 잘렸다.
   return createPortal(
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-150"
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 dc-scrim"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[80dvh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[80dvh] flex flex-col dc-dialog">
         <div className="px-5 pt-5 pb-3 shrink-0">
           <h3 className="font-bold text-fg tracking-[-0.25px]">가입한 사람 {ordered.length}명</h3>
         </div>

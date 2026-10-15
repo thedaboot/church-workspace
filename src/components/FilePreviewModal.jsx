@@ -1054,7 +1054,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // **공통 조상**(이 딤)에서 나서 창이 제멋대로 닫혔다(업무 창과 같은 판정).
       onMouseDown={(e) => { downOnDim.current = e.target === dimRef.current; }}
       onClick={(e) => { if (e.target === dimRef.current && downOnDim.current) onClose(); }}
-      className={`fixed inset-0 z-[100] bg-black/80 flex items-center justify-center animate-in fade-in duration-150 ${wide ? 'p-0' : 'p-0 md:p-6'}`}>
+      className={`fixed inset-0 z-[100] bg-black/80 flex items-center justify-center dc-scrim ${wide ? 'p-0' : 'p-0 md:p-6'}`}>
       <div
         onClick={e => e.stopPropagation()}
         // 높이를 확정해 둔다 — max-h만 주면 안쪽 h-full(미리보기 영역)이 기준을 못 잡아
@@ -1065,7 +1065,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
         // `tap-zoom-lock` — 더블탭으로 **브라우저가 페이지를 확대하는 것**을 끊는다(§6-29-z-14).
         // 사진을 두 번 눌러 확대하는 자리라 이게 없으면 우리 배율과 브라우저 배율이 함께
         // 걸리고, 되돌려도 창이 보이는 영역 밖에 남아 "버튼이 안 눌린다"가 된다.
-        className={`tap-zoom-lock bg-canvas border border-line shadow-elevated flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 transition-[max-width,height,border-radius] ${isMobile
+        className={`tap-zoom-lock bg-canvas border border-line shadow-elevated flex flex-col overflow-hidden dc-dialog transition-[max-width,height,border-radius] ${isMobile
           ? 'w-full h-full'
           : wide ? 'w-full max-w-[100vw] h-[100dvh]' : 'w-full max-w-5xl h-[88dvh] rounded-lg'}`}
         style={{ transitionDuration: '220ms', transitionTimingFunction: 'var(--ease-out-quint)' }}

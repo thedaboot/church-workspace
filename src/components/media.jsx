@@ -123,11 +123,11 @@ export function ImageLightbox({ src, alt = '', onClose }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
   return createPortal(
-    <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-150" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 dc-scrim" onClick={onClose}>
       <button type="button" onClick={onClose} className="absolute top-3 right-3 p-2 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition" title="닫기"><X size={20} /></button>
       <SmartImage
         src={src} alt={alt}
-        wrapperClassName="w-full h-full flex items-center justify-center"
+        wrapperClassName="w-full h-full flex items-center justify-center dc-dialog"
         className="max-w-full max-h-[88dvh] object-contain rounded-md"
         skeletonClassName="w-64 h-64"
       />

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { usePresence } from '../hooks/useExit.js';
 
 // ============================================================================
 // 초경량 토스트 — 전역 showToast(message)로 호출
@@ -52,7 +53,6 @@ export function ToastHost() {
     return () => { emit = null; };
   }, [setAct, setPlain]);
 
-  if (!act && !plain) return null;
   // 모바일 하단 탭바(약 4.5rem + safe-area) 위로 띄운다 — 그냥 bottom-6이면
   // 되돌리기 버튼이 탭바에 가려 눌리지 않는다.
   // z는 body 포털 창들(첨부 미리보기·문서 창 z-100 · 공유 시트 z-120)보다 위다 — 이 토스트는
@@ -60,20 +60,31 @@ export function ToastHost() {
   // 둘이 함께면 세로로 쌓는다 — 묶음의 아래끝이 그대로라 동작 토스트(아래)는 자리를 지킨다.
   return (
     <div className="fixed left-1/2 -translate-x-1/2 z-[130] pointer-events-none px-4 w-full flex flex-col items-center gap-2 bottom-[calc(6rem+env(safe-area-inset-bottom))] md:bottom-6">
-      {plain && <ToastBox key={plain.id} toast={plain} />}
-      {act && <ToastBox key={act.id} toast={act} onAction={() => { const fn = act.action.onAction; setAct(null); fn(); }} />}
+      <ToastSlot toast={plain} />
+      <ToastSlot toast={act} onAction={() => { const fn = act.action.onAction; setAct(null); fn(); }} />
     </div>
   );
 }
 
-function ToastBox({ toast, onAction }) {
+// 한 자리 — 사라질 때도 걷히는 것을 그린다(.dc-toast.dc-out · hooks/useExit.js). 그동안 마지막 토스트를 그대로 든다.
+// 새 토스트는 key가 바뀌어 처음부터 다시 들어온다.
+function ToastSlot({ toast, onAction }) {
+  const lastRef = useRef(null);
+  if (toast) lastRef.current = toast;
+  const { shown, leaving } = usePresence(!!toast);
+  const t = toast || lastRef.current;
+  if (!shown || !t) return null;
+  return <ToastBox key={t.id} toast={t} leaving={leaving} onAction={toast ? onAction : undefined} />;
+}
+
+function ToastBox({ toast, leaving, onAction }) {
   return (
     <div
       role="status" data-toast={toast.action ? 'action' : ''}
       // 폭을 묶는다 — max-w를 화면 폭으로 두면 데스크톱에서 긴 문구가 한 줄로
       // 화면을 가로질러 한눈에 안 들어온다(사용자 지적). 28rem에서 접히고,
       // 모바일에서는 화면 폭이 먼저 걸린다.
-      className={`bg-fg text-canvas rounded-lg shadow-elevated px-4 py-2.5 text-xs max-w-[min(28rem,calc(100vw-2rem))] leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-200 ${toast.action ? 'pointer-events-auto flex items-center gap-3 text-left' : 'text-center'}`}
+      className={`bg-fg text-canvas rounded-lg shadow-elevated px-4 py-2.5 text-xs max-w-[min(28rem,calc(100vw-2rem))] leading-relaxed dc-toast${leaving ? ' dc-out' : ''} ${toast.action ? 'pointer-events-auto flex items-center gap-3 text-left' : 'text-center'}`}
     >
       {/* 문구에 든 줄바꿈을 그대로 그린다 — 두 마디짜리 안내를 한 줄로 붙여 놓으면
           길어져서 읽히지 않는다(failText가 긴 것만 줄을 나눈다) */}

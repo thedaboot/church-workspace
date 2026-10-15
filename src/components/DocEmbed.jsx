@@ -101,7 +101,7 @@ export function DocEmbedModal({ url, title = '', onClose }) {
   const label = DOC_KIND_LABEL[kind] || '문서';
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] bg-black/80 animate-in fade-in duration-150" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] bg-black/80 dc-scrim" onClick={onClose}>
       {/* 모바일은 화면을 다 쓴다(100dvh — 주소 줄이 접혔다 펴져도 창이 흔들리지 않는다).
           데스크톱은 가장자리를 남긴 둥근 카드다: 뒤가 보여야 이 창이 앱 위에 떠 있는 것으로 읽힌다. */}
       <div
@@ -109,7 +109,7 @@ export function DocEmbedModal({ url, title = '', onClose }) {
         role="dialog" aria-modal="true" aria-label={title || label} data-doc-embed={kind || 'link'}
         // 넓히면 가장자리를 지운다. 크기가 바뀌는 전환이라 §4.2의 "transform/opacity만"에서
         // 한 칸 비켜나는데, 첨부 미리보기 창이 이미 같은 예외를 쓰고 있어 같은 이징을 쓴다.
-        className={`absolute flex flex-col overflow-hidden bg-canvas shadow-elevated animate-in fade-in zoom-in-95 duration-150 transition-[inset,border-radius] ${wide
+        className={`absolute flex flex-col overflow-hidden bg-canvas shadow-elevated dc-dialog duration-150 transition-[inset,border-radius] ${wide
           ? 'inset-0 h-[100dvh]'
           : 'inset-0 h-[100dvh] md:inset-4 md:h-auto lg:inset-8 md:border md:border-line md:rounded-lg'}`}
         style={{ transitionDuration: '220ms', transitionTimingFunction: 'var(--ease-out-quint)' }}

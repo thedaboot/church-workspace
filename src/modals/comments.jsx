@@ -131,9 +131,9 @@ function ReactionPeopleModal({ kind, people, onClose }) {
   }, [onClose]);
   return createPortal(
     // 업무 창이 z-50이라 그 위로 올린다
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-150"
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 dc-scrim"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-xs max-h-[80dvh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-xs max-h-[80dvh] flex flex-col dc-dialog">
         <div className="px-5 pt-5 pb-3 shrink-0 flex items-center gap-2">
           <span className={`inline-flex w-6 h-6 rounded-full border items-center justify-center shrink-0 ${on}`}>
             <Icon size={12} {...(fill ? { fill: 'currentColor' } : {})} />

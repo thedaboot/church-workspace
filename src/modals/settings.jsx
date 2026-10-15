@@ -11,6 +11,7 @@ import { showToast } from '../components/Toast.jsx';
 import { failText, linkErrorReason } from '../services/errorText.js';
 import { imeComposing } from '../utils.js';
 import { BTN_CONFIRM, BTN_CONFIRM_QUIET } from '../components/buttons.js';
+import { useLeave } from '../hooks/useExit.js';
 
 // ============================================================================
 // 설정 창 — 내 정보(사진·이름·소속·연결된 계정) / 프로젝트 만들기·이름 수정
@@ -118,11 +119,15 @@ export function ProfileModal({ onClose, onSave }) {
   const onboarding = !user.name || !(user.teams?.length || user.team);
   const canSave = name.trim().length > 0 && teams.length > 0;
   // 온보딩 중에는 바깥을 눌러도 안 닫힌다 — 취소 버튼도 그때는 없다(위 주석)
-  const dismiss = useDismissModal(onClose, !onboarding);
+  // 닫기는 걷히는 것(.dc-out · EXIT_MS)을 그린 뒤 부른다 — 취소·바깥·Esc·저장 모두(hooks/useExit.js)
+  const [leaving, leave] = useLeave();
+  const close = React.useCallback(() => leave(onClose), [leave, onClose]);
+  const dismiss = useDismissModal(close, !onboarding);
+  const out = leaving ? ' dc-out' : '';
 
   return (
-    <div {...dismiss} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
-      <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[90dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+    <div {...dismiss} className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 dc-scrim${out}`}>
+      <div className={`bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[90dvh] overflow-y-auto dc-dialog${out}`}>
         <h3 className="font-bold text-fg mb-1 tracking-[-0.25px]">{onboarding ? '반가워요! 먼저 알려주세요' : '내 정보'}</h3>
         <p className="text-xs text-fg-muted mb-4 leading-relaxed">
           {onboarding
@@ -210,7 +215,7 @@ export function ProfileModal({ onClose, onSave }) {
 
         <div className="flex gap-2">
           {/* 첫 로그인에는 취소가 없다 — 이름·팀 없이 들어가면 멘션·팀 보드가 빈다 */}
-          {!onboarding && <button onClick={onClose} className={`flex-1 ${BTN_CONFIRM_QUIET}`}>취소</button>}
+          {!onboarding && <button onClick={close} className={`flex-1 ${BTN_CONFIRM_QUIET}`}>취소</button>}
           <button
             onClick={() => {
               if (!canSave) return;
@@ -219,7 +224,7 @@ export function ProfileModal({ onClose, onSave }) {
               const payload = { name: name.trim(), team: teams[0], teams };
               if (avatarUrl !== undefined) payload.avatarUrl = avatarUrl;
               onSave(payload);
-              onClose();
+              close();
             }}
             disabled={!canSave || uploading}
             className={`flex-1 ${BTN_CONFIRM}`}
@@ -265,11 +270,14 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
   // 다만 **이미 그 해로 정해진 프로젝트를 고칠 때는 그 해도 남긴다** — 안 그러면
   // 이름만 고치려고 열었다가 연도가 조용히 올해로 바뀐다.
   const YEARS = [...new Set([thisYear, thisYear + 1, thisYear + 2, year])].sort((a, b) => a - b);
-  const dismiss = useDismissModal(onClose);
+  const [leaving, leave] = useLeave();
+  const close = React.useCallback(() => leave(onClose), [leave, onClose]);
+  const dismiss = useDismissModal(close);
+  const out = leaving ? ' dc-out' : '';
 
   return (
-    <div {...dismiss} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
-      <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-150">
+    <div {...dismiss} className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 dc-scrim${out}`}>
+      <div className={`bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm dc-dialog${out}`}>
         <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} className="text-accent"/> {renaming ? '프로젝트 이름 수정' : '새 프로젝트 생성'}</h3>
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>
         <input
@@ -299,7 +307,7 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
         {renaming && onArchive && (
           <div className="-mt-3 mb-5 pb-5 border-b border-line">
             <button
-              onClick={() => { onArchive(project.id, !archived); onClose(); }}
+              onClick={() => { onArchive(project.id, !archived); close(); }}
               className="w-full flex items-center gap-3 px-3 py-3 rounded-md border border-line bg-surface hover:bg-surface-hover transition-colors text-left active:scale-[0.99]"
             >
               <span className="w-7 h-7 rounded-md bg-tag-yellow text-tag-yellow-fg flex items-center justify-center shrink-0">
@@ -318,7 +326,7 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
           </div>
         )}
         <div className="flex gap-2">
-          <button onClick={onClose} className={`flex-1 ${BTN_CONFIRM_QUIET}`}>취소</button>
+          <button onClick={close} className={`flex-1 ${BTN_CONFIRM_QUIET}`}>취소</button>
           <button onClick={submit} disabled={!clean || unchanged} className={`flex-1 ${BTN_CONFIRM}`}>{renaming ? '저장' : '생성하기'}</button>
         </div>
       </div>

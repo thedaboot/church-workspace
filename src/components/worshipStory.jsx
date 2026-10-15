@@ -323,7 +323,7 @@ export function ServiceStory({ service, verses = [], nameOf, realName, namesRead
   };
 
   return createPortal(
-    <div className="worship-story fixed inset-0 z-[100] bg-black/80 motion-safe:animate-in motion-safe:fade-in duration-150 transition-none"
+    <div className="worship-story fixed inset-0 z-[100] bg-black/80 dc-scrim"
       role="dialog" aria-modal="true" aria-label="넘기면서 보기">
       <div ref={rootRef} tabIndex={-1} data-page={page?.kind} data-index={at}
         className={`story-root absolute inset-0 overflow-hidden outline-none select-none bg-surface text-fg ${rootClassName}`}

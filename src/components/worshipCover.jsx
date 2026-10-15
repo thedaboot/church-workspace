@@ -103,10 +103,10 @@ export function CoverDialog({ src, focus = 0.5, title = '', dateLabel = '', kind
 
   const cover = { _src: src };
   return createPortal(
-    <div className="worship-cover-back fixed inset-0 z-[95] flex items-end md:items-center justify-center md:p-4 bg-black/50 motion-safe:animate-in motion-safe:fade-in duration-150 transition-none"
+    <div className="worship-cover-back fixed inset-0 z-[95] flex items-end md:items-center justify-center md:p-4 bg-black/50 dc-scrim"
       role="dialog" aria-modal="true" aria-label="표지 위치"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div className="worship-cover-dialog w-full md:max-w-[35rem] max-h-[92dvh] overflow-y-auto p-3.5 md:p-4 rounded-t-2xl md:rounded-xl shadow-elevated motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-4 md:motion-safe:slide-in-from-bottom-0 md:motion-safe:zoom-in-95 duration-150 transition-none"
+      <div className="worship-cover-dialog w-full md:max-w-[35rem] max-h-[92dvh] overflow-y-auto p-3.5 md:p-4 rounded-t-2xl md:rounded-xl shadow-elevated dc-sheet-dialog"
         style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         <div className="flex items-center gap-2 mb-2.5">
           <b className="flex-1 text-[14px] font-extrabold tracking-[-0.2px] text-fg">표지 위치</b>
