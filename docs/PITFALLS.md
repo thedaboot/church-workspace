@@ -1301,7 +1301,7 @@ online을 기다렸다 한 번 새로 고친다(`main.jsx` — 10초 고리 판�
     업무 창 판·뒤판 · 파일 미리보기 · 문서 창에 남은 `duration-150`·`transition-[…]`은 **넓히기 전이**용이다(애니메이션 길이가 아니다 · 지우면 전체 화면 전환이 뚝 바뀐다).
 57-d. **닫힘은 `hooks/useExit.js`** — 팝오버·토스트는 `usePresence(open)`, 스스로 닫는 창은 `useLeave()`(설정·프로젝트 창 · 업무 창). 걷히는 동안 판은 누름을 놓고(`.dc-out`) 뒤판은 막는다.
     업무 창은 App이 key 없이 같은 창에 새 카드를 넣으므로 걷히는 사이 카드가 바뀌면 닫지 않는다(id 대조). 움직임 줄이기면 기다리지 않는다(CSS가 animation: none이라 기다리면 판이 멈춰 선다).
-    폰 뒤로가기(App.jsx popstate)는 걷는 모션 없이 곧바로 내린다.
+    폰 뒤로가기(App.jsx popstate)도 같은 길로 걷힌다(60-g — 처음에는 곧바로 내렸다).
 57-e. **검사는 열자마자 rect를 재면 등장 transform 중이다**(최대 380ms · scale .96부터) — `offsetWidth`·계산값 top으로 재거나 그 뒤에 잰다. 닫은 판은 180ms 동안 DOM에 남는다(`aria-hidden`) —
     '닫혔나'는 `:not([aria-hidden="true"])`로 보고, 닫을 때 붙는 저장(본문 활동 한 줄 등)은 그만큼 늦게 온다(`tests/modalclose` ⑥ · `tests/roster` 환송).
 
@@ -1351,3 +1351,41 @@ oEmbed)로 받는다 — 받는 동안 제목 자리에 막대, 못 받으면(�
 본인은 auth id로 빼고 **이름으로도 한 번 더** 뺀다 — 합친 계정은 세션 id와 이름이 가리키는 남긴 계정 id가 달라 id만으로는 내가 맡은 업무에 내가 단 댓글이 나에게 왔다(멘션의 excludeName과 같은 까닭).
 새 종류는 **CHECK와 INSERT 정책을 같이** 넓혔다(0103 · 정책은 alter만 · 0101의 `(select …)` 꼴 그대로) — 넓히기만이라 마이그레이션이 먼저 나가도 라이브 앱은 그대로다.
 알림을 누르면 그 댓글로 연다(taskFocus `FOCUS_KINDS` · 답글처럼 보낸 사람의 댓글을 먼저 고른다).
+
+### UX 다듬기 2차 P2 (2026-10-15)
+
+**60-a.** **올리는 진행은 fetch로 못 받는다 — XHR `upload.onprogress`**(`services/transfer.xhrSend` · `cloud/drive.js`). 진행·멈춤(`net`)을 넘긴 올리기만 XHR이고
+(업무 첨부 — 송폼·모임 보고서는 안 넘겨 예전 fetch 그대로) 돌려받는 값은 fetch Response 모양이라 `driveOnce`가 같은 줄로 읽는다. 끊긴 연결은 **상태 없는 TypeError**로
+던진다 — `worthRetry`가 그것을 '다시 해볼 만한 실패'로 읽어 확인(list) → 재시도 길이 그대로 산다. 3MB 넘는 파일은 Storage를 거치는데 supabase-js `upload`·`uploadToSignedUrl`도
+fetch라 진행이 없다 — `createSignedUploadUrl` 주소에 XHR `PUT`(몸통은 storage-js와 같은 FormData: `cacheControl` + 빈 이름 칸의 파일 · `x-upsert: false`).
+작은 파일의 진행은 base64 JSON 몸통의 바이트다(실제 파일보다 4/3 크다 — 퍼센트는 몸통 기준이라 그대로 맞다).
+**60-b.** **바이트를 다 보낸 뒤가 더 길 수 있다 — '드라이브로 옮기는 중'**(`_phase: 'move'`). 함수가 Apps Script로 넘기거나(작은 파일) 스크립트가 Storage 주소를 받아 가는(큰 파일)
+시간이다. `upload.onload`에서 단계를 바꾸고 퍼센트는 걷되 막대는 가득 찬 채 둔다. 시간 초과 → 확인 → **재시도는 진행을 다시 세지 않는다**(0으로 되감기면 거짓말).
+막대는 2px `--p-track` 위 accent · 폭 `.42s quint`(`motion-reduce` 즉시) · 바이트 진행을 알기 전(사진 줄이기·폴더 확보)에는 막대도 퍼센트도 없다.
+**60-c.** **올리기 멈춤(X)은 세 갈래다**(`uploadQueue.cancelUpload`): 차례 전 → 목록에서 빼고 보내지 않는다 · 바이트를 보내는 중 → `abort`(끊긴 몸통은 서버가 못 받는다) ·
+다 보낸 뒤 → **끊지 않는다**(함수·스크립트는 계속 돌아 파일을 만든다 — 끊으면 드라이브에 고아가 남는다). `_cancel`로 표시해 화면에서 곧바로 빼고, 올라오면 거둔다 —
+행을 세우기 전이면 `uploadOwnedFile`이 실체를 되돌리고(`undoBody` · 행을 못 세운 때와 한 벌), 선 뒤면 `deleteAttachment`. 멈춘 줄의 실패는 실패가 아니다(토스트·빨간 줄 없음).
+`_cancel` 줄은 거둘 때까지 **올리는 중으로 센다**(탭 닫기 경고 — 닫으면 거두는 일이 사라진다). 멱등 열쇠·시간 초과 확인 길은 그대로다: 끝나고 보니 올라가 있었으면(`found`) 그 파일을
+돌려받아 위 갈래가 거두고, 멈춘 뒤 '정말 안 됐다'면 다시 보내지 않는다. 남는 틈 하나 — 마지막 바이트와 `upload.onload` 사이에 X가 끼면 끊어도 서버가 이미 다 받았을 수 있다(드라이브 고아 ·
+`scripts/drive_check.mjs`가 찾는다).
+**60-d.** **미리보기 '다시 시도'는 받기 실패에만**(`FilePreviewModal` · 시안 C9). 실패 상태가 `{ msg, retry }`다 — 받기(`failFetch` · `previewFail`)는 참, 그리기(`failDraw` · pdf.js·문서 파서)는
+거짓(같은 바이트를 다시 그려도 같다). 다시 시도는 실패를 걷고 `attempt`를 올린다 — 받는 효과 넷(주소·글·문서·PDF·영상)의 의존성에 들어 있다. 실패 카드 그림은 종류 표시:
+PDF는 다붓이 파일 카드(`dabooti.jsx` `EXT_PAINT`)의 'PDF' 글자 칩 색(#c4302b)을 48px로(그 파일을 import하지 않으려고 값만 옮겼다 — 바꾸면 둘 다) · 그 밖은 첨부 줄 칩(`fileKind(…, 22)`).
+받는 진행 '다운로드 중 N%'는 `readBody`가 `Content-Length`로 센다 — 중계가 압축돼 온 응답에는 길이를 안 싣는다(56-a)라 그때는 줄이 없다. 진행은 **파일 id와 같이** 든다(넘긴 뒤 앞 파일의 값이 서지 않게).
+**60-e.** **PDF는 화면 가까운 쪽만 그린다 — 50쪽 상한을 걷었다**(`PdfView`). 쪽마다 **자리(빈 div · 그 쪽의 비율)** 를 먼저 다 깔아 스크롤 높이가 처음부터 맞고(그래서 `keepScroll`도 한 번),
+IntersectionObserver(`root: host · rootMargin 150%`) 안의 자리만 캔버스로 바꾸며, 범위를 나간 캔버스는 같은 크기의 자리로 돌린다(메모리). 자리와 캔버스는 **같은 dataset**(`cssw`·`z`·`ratio`·`page`)이라
+손짓 중 CSS 확대(layout effect — 높이는 `dataset.ratio`로 · 빈 div는 `width`가 없다)와 제자리 교체(`layer.children[n - 1]`)가 둘을 가리지 않는다. 배율이 바뀌면 범위 안의 옛 배율 캔버스만 다시 그린다.
+처음 '준비 중'을 걷는 것은 **관찰자의 첫 답이 온 뒤** 범위 안을 다 그렸을 때다(첫 답 전에는 범위가 비어 있어 곧바로 걷힌다). 같은 문서를 배율만 바꿔 다시 열 때 쪽 비율은 다시 묻지 않는다(`ratiosRef`).
+'3 / 7' 알약은 보이는 곳 세로 가운데의 쪽 — 자리의 `offsetTop`은 스크롤 내용 안의 값이라 반으로 갈라 찾는다 · 바닥 24px · 멎고 1.2초 뒤 `.42s quint`로 걷힘 · `pointer-events-none` · 한 쪽짜리에는 없다.
+**60-f.** **참고 링크 이름 받기는 서버가 아무 주소나 받으러 가는 자리다 — SSRF를 두 겹으로**(`api/link-title.js` · 순수 판정 `services/linkTitle.js`). ① 주소 글자: http/https · 기본 포트 · 계정 정보 없음 ·
+localhost·`.internal` 같은 내부 이름·사설 IP 글자 금지 ② **연결할 IP**: fetch는 DNS를 갈아 끼울 수 없어서 `node:http(s)`에 `lookup`을 주고 그 답이 하나라도 안쪽(사설·루프백·링크 로컬
+169.254 메타데이터·CGNAT·IPv6 ULA/링크 로컬·v4 매핑)이면 연결하지 않는다 — 글자만 보면 공개 이름이 127.0.0.1로 풀리는 경우(재바인딩 포함)를 못 막는다 ③ 넘겨주기는 직접 따라간다(셋까지 · 매번 ①②)
+④ 4초 · 512KB(풀린 뒤 2MB) · 제목 글자만 돌려준다. 유튜브는 oEmbed(재생목록도 된다 — `api/yt.js`는 영상 id만 받는다). 구글 문서는 공개가 아니면 로그인 화면 제목('Google Docs: Sign-in')이
+와서 그때는 빈 값 → 앱이 '도메인 · 마지막 경로 한 토막'(`fallbackTitle` — `/edit`·긴 id는 건너뛴다). 이름은 **받은 뒤 한 번 저장한다**(onAdd · 다시 받지 않는다 · 이름 있는 옛 링크는 그대로).
+받는 동안의 옅은 칸(500 muted — 시안은 faint였지만 11px라 D9 규칙대로 muted · `tests/handoff`가 막는다)은 `LinkAddPopover`가 '+ 참고 링크' 앞에 세운다(projectView를 고치지 않으려고 — 진짜 칩은 링크 줄 끝, 같은 자리에 들어온다) · 받는 사이 화면을 옮겨도 마지막 `onAdd`(ref)로 저장된다.
+게스트는 받으러 가지 않아 옅은 칸이 한 프레임도 안 설 수 있다(같은 틱에 칩으로) — `tests/three`는 섰으면 모양을, 소스로도 본다. Vercel Hobby 함수는 12개까지다(이것으로 9개).
+**60-g.** **폰 뒤로가기도 걷히며 닫힌다**(`App.jsx` `onPop` · 57-d의 '곧바로 내린다'를 바꿨다). 창이 스스로 닫는 길을 같이 쓴다 — `[data-task-modal]`의 ✕를 누르면 밀린 쓰기를 흘리고 `.dc-out`을
+그린 뒤 `onClose`(closeTaskModal). `modalHistRef`를 먼저 내려 closeTaskModal이 `history.back()`을 또 부르지 않게 하고, 걷히는 동안은 **주소를 쓰지 않는다**(`backLeaveRef` — 창이 아직 열려 있어
+t가 붙은 주소가 방금 돌아온 자리를 덮는다). 열기 전 화면으로 돌리기(47-c ②)는 닫힌 뒤. ✕가 안 닫으면(없거나 막혔으면) `EXIT_MS + 400` 뒤 예전처럼 곧바로 내린다. 움직임 줄이기면 `useLeave`가
+기다리지 않는다. 새 업무 폼 갈래(55-a)는 그대로다. `modals.jsx` 머리의 '폰 뒤로가기는 App이 곧바로 내린다' 주석은 그 파일을 만지는 회차에 고친다(같은 날 다른 묶음이 만지는 중이었다).
+검사에서 파일을 고친 직후 같은 서버로 브라우저 스위트를 돌리면 HMR 때문에 `import('/src/…')`로 바꿔 끼운 것(다듬기 가짜 등)이 엉뚱하게 깨진다(54-e) — 되돌려 보기가 끝나면 서버를 새로 띄워 다시 돈다.

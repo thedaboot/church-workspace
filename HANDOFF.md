@@ -291,17 +291,17 @@ src/components/DatePicker.jsx 노션 톤 데이트피커 — children·triggerCl
                               **달력은 body로 포털된다**(2026-09-22) — 검사는 `[data-datepicker]`를 **문서에서** 찾는다(트리거 안이 아니다)
 src/components/DocEmbed.jsx   구글 문서·시트·슬라이드를 앱 안 iframe으로(판정·주소는 services/docEmbed.js · §6-29-z-6)
 src/components/ErrorBoundary.jsx  오류 화면
-src/components/FilePreviewModal.jsx  첨부 미리보기 창 — 갈래 판정은 services/previewKind.js(§6-29-c)
-src/components/fileRow.jsx    파일 한 줄의 크기·종류 표기 — 업무 첨부와 주보 송폼 공용
+src/components/FilePreviewModal.jsx  첨부 미리보기 창 — 갈래 판정은 services/previewKind.js(§6-29-c) · 받기 실패만 '다시 시도' · '다운로드 중 N%'(PITFALLS 60-d)
+src/components/fileRow.jsx    파일 한 줄의 크기·종류 표기 — 업무 첨부와 주보 송폼 공용 · 첨부 메타 '크기 · 올린 날 · 올린 사람'(fileMeta)
 src/components/linkIcons.jsx  참고 링크 앞의 서비스 표시(커밋된 path · §4.2)
-src/components/links.jsx      프로젝트 헤더의 참고 링크 부품 — PinnedLinkChip·LinkAddPopover·useLinkAccess·LinkPwFields(§6-35)
+src/components/links.jsx      프로젝트 헤더의 참고 링크 부품 — PinnedLinkChip·LinkAddPopover(주소 먼저 · 이름을 비우면 받아 온다 · 60-f)·useLinkAccess·LinkPwFields(§6-35)
 src/components/LoginScreen.jsx 로그인 화면(라이트 고정 hex · 로고 preload — §6-29-z-5)
 src/components/MarkdownEditor.jsx  TipTap 편집기 — 서식 바·sticky·LockedHeadings·frame(§6-32-o·32-p·§6-9-aa)
 src/components/media.jsx      이미지·영상·소리 미리보기
 src/components/MentionInput.jsx  @멘션 자동완성 — 댓글·답글 공용(§4.11)
 src/components/OfficeView.jsx 워드·PPT 미리보기 **폴백**(구글 사본이 있으면 안 쓴다 · §6-29-y)
 src/components/paper.jsx      **종이** — PaperMast·PaperNoteHead·PaperSheet·NotePaper·NoteSheet·ServiceSheetOne/Two(§6-32-p) · NOTE_CUT
-src/components/PdfView.jsx    pdf.js 미리보기 — cmaps 없이는 한글이 빈다 · 폭이 바뀌면 다시 그린다(§6-29-z-9)
+src/components/PdfView.jsx    pdf.js 미리보기 — cmaps 없이는 한글이 빈다 · 폭이 바뀌면 다시 그린다(§6-29-z-9) · 화면 가까운 쪽만 그리고 '3 / 7' 알약(쪽 상한 없음 · 60-e)
 src/components/RichText.jsx   본문 렌더 — InlineLink가 앱 안에서 연다(§6의 본문 링크 항목) · 유튜브 링크 카드(`ytCards` — 댓글·업무 보기만 · 59-d)
 src/components/roster.jsx     (v2) 청년 명단 — 연도 세그먼트·직분 6종·계정 연결(0043) · `RowSkeleton`·`rowDelay`(멤버 화면도 쓴다) · NameSearch·PanelClose 한 벌
 src/components/ShareButton.jsx  프로젝트·카드 공유 링크
@@ -355,7 +355,7 @@ src/modals/taskSummary.jsx    업무 창의 AI — 3줄 요약(useTaskSummary ·
 src/modals/coedit.jsx         업무 창의 같이 쓰기 — useCoedit(늦게 연다 · 받아들이기) · 머리줄 얼굴 · 보기의 수정 중 알약·줄 표시·살아 있는 본문 · 버전 기록 탭 · 고친 곳(그린 줄) · 개발용 가짜(32-zq·32-zr·32-zt~zw)
 src/services/coedit/          같이 쓰기 엔진(0084) — index.js 여는 곳(awareness user·editing·line · 사진 이름표) · core.js 순수(caretLine 포함) · store.js Supabase · view.js 화면 순수(색·알약 대비·판 글자·줄 차이 · import 0)
 src/modals/attachments.jsx    업무 창의 첨부 구역 — 업로드·미리보기·삭제·구글 사본 편집 자격(§6-34-h · startUploads는 §6-29-u)
-src/modals/uploadQueue.js     올리는 중·못 올린 첨부 줄(업무마다 · 모임 보고서는 `meeting:<id>` · 모듈 목록 · 동시 3개 · 다시 시도)
+src/modals/uploadQueue.js     올리는 중·못 올린 첨부 줄(업무마다 · 모임 보고서는 `meeting:<id>` · 모듈 목록 · 동시 3개 · 다시 시도) · 진행(_pct·_phase)·멈춤 cancelUpload(60-a~c)
 src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널(§4.11) · 쓰던 댓글·답글 표(업무 열쇠) · 자라는 칸(`useAutoGrow`) · 못 보낸 댓글(흐리게 + '다시 보내기' · 59-a)
 src/modals/taskFocus.js       업무 창을 어느 댓글로 여나(알림·검색 → 창 · App을 거치지 않는다) · 지금 열린 업무(알림 종이 듣는다) — PITFALLS 54-d
 src/modals/settings.jsx       내 정보(사진·이름·팀) / 프로젝트 만들기·이름 수정(§4.7·§6-34-g)
@@ -400,7 +400,9 @@ src/services/pdfWorkerEntry.js pdf.js 워커 껍데기 — 그 폴리필을 **�
 src/services/docEmbed.js      구글 임베드 판정·주소 — 순수 함수(§6-29-z-6)
 src/services/viewPw.js        화면 가림 비밀번호 순수 모듈 — cloud.js를 import하지 않는다(§6-31-f·9-bp)
 src/services/markdown.js      마크다운 왕복 — RichText와 한 쌍(mdcheck)
-src/services/titleText.js     유튜브 제목 평문화 — 앱과 api/yt.js 두 곳(§6-9-ah)
+src/services/titleText.js     유튜브 제목 평문화 — 앱과 api/yt.js·api/link-title.js(§6-9-ah)
+src/services/linkTitle.js     참고 링크 이름 순수 모듈(import 0 · 앱과 서버 한 벌) — 이름 짓기·페이지 제목·SSRF 판정(주소 글자 · DNS 답 · 60-f)
+src/services/transfer.js      바이트 진행 순수 모듈 — 올리기 XHR(xhrSend)·받기 스트림(readBody)·pctOf(60-a·60-d)
 src/services/errorText.js     오류 코드 → 사람 말(§6-29-e · §8)
 src/services/shareImage.js    종이를 그림·PDF로 — nodeToPng·bakeAndSlice·shareOrSave·isBlankCanvas(§6-32-*)
 src/services/people.js        (v2) 명단·모임 읽기 공용 + guestStore(게스트 저장 자리 공장) · `byName`(이름순 한 벌)
@@ -428,6 +430,7 @@ service-view.html             공개 보기 껍데기(두 번째 빌드 입구 �
 src/serviceViewMain.jsx       공개 보기 화면 — worshipStory·paper 그대로 · **supabase를 부르는 모듈을 import하지 않는다**(logcheck가 따라간다)
 src/services/honorific.js     호칭 순수 모듈(people.js가 다시 내보낸다) — 서버·공개 보기도 같은 규칙
 api/yt.js                     유튜브 재생목록·제목 중계(ai.js와 같은 Bearer 인증)
+api/link-title.js             참고 링크 이름 받기 { url } → { title } — 승인된 사람만 · 유튜브 oEmbed · 페이지 <title> · SSRF 두 겹(lookup이 연결할 IP를 본다) · 4초·512KB(60-f)
 vite.config.js                dev 전용 `/api/<name>` 미들웨어(게스트 모드 제외 · §6-29-z-4) + pdf.js 보조 자료를 `/pdfjs/`로(§6-29-z-9)
                               + 첫 화면 벤더 칸 `EAGER_VENDORS` — 통째로 묶으면 첫 화면이 2배(§6-29-z-18)
 public/sw.js                  서비스 워커 — 푸시 표시 + 클릭 시 딥링크(앱이 떠 있으면 { open } 메시지로 제자리 · 답이 없으면 navigate · PITFALLS 55-e). 캐싱은 하지 않는다
