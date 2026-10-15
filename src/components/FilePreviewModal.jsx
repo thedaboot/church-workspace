@@ -4,6 +4,7 @@ import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronR
 import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, getFileDownloadUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { useMyEmail } from '../services/auth.jsx';
 import { Skeleton, SmartImage, usePanDrag } from './media.jsx';
 import { showToast } from './Toast.jsx';
@@ -94,6 +95,20 @@ const ZOOM_TAP = 2;
 // deltaY가 한 자리라 저절로 잘게 따라온다(크롬·사파리가 `ctrlKey: true`인 wheel로 준다).
 const WHEEL_ZOOM_K = 0.0025;
 const ZOOM_KINDS = new Set(['image', 'pdf']);
+// 확대하면 큰 그림으로 바꿔 끼운다(2026-10-15 · PITFALLS 56-c). 첫 화면은 `=s1600`인데 배율은 3배까지라
+// 키우면 글자가 뭉갰다. 처음 1을 넘는 순간 긴 변 2560(첨부가 올라갈 때 줄이는 크기 · image.js FILE_MAX_DIM과
+// 같다 — 그 위는 원본에도 없다)을 받아 두고, 다 받으면 같은 자리에 겹쳐 올린다. 층 크기(natural)는 첫 그림의
+// 것을 그대로 쓴다 — 비율이 같으므로 `object-contain`이 같은 픽셀에 앉고, 자리가 움직이지 않는다.
+const HI_RES_PX = 2560;
+// 폰에서 배율 1일 때 한 손가락으로 옆으로 밀면 이전/다음 사진(2026-10-15 · 56-d). **손짓 판정은 이것 하나**다 —
+// 확대돼 있으면(밀기는 스크롤이다) · 손가락이 둘이었으면(오므리기) · 옆보다 위아래가 크면(창 닫기·스크롤) 넘기지 않는다.
+// 1.5배는 대각선 밀기를 걸러 내는 값이다(사진 앱들과 비슷한 느낌 · 50px은 엄지가 살짝 미끄러진 것보다 크다).
+const SWIPE_MIN_PX = 50;
+export const swipeStep = ({ dx, dy, scale, multi }) => {
+  if (multi || scale > ZOOM_MIN) return 0;
+  if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return 0;
+  return dx < 0 ? 1 : -1;
+};
 // Storage에 남은 옛 오피스 파일만 이 뷰어로 간다(드라이브 파일은 구글이 그린다)
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 // 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §3-5).
@@ -403,14 +418,21 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   // 그 스크롤을 잠깐 끊는다. 하나로 줄면 바로 밀기로 돌아간다.
   // 리스너는 **통(zoomBox)에** 건다 — 머리줄·딤에서의 휠까지 가로채면 창 밖의 평범한
   // 조작까지 바뀐다. `{ passive: false }`가 아니면 `preventDefault`가 무시된다.
+  // 넘기기는 아래에서 정의된다(go) — 이 효과의 의존성 배열이 먼저 평가되므로 ref로 건넨다
+  const swipeRef = useRef(null);
   useEffect(() => {
     if (!canZoom || !zoomBox) return;
     let startD = 0;                       // 두 손가락이 닿은 순간의 거리(0이면 손짓이 없다)
+    // 한 손가락 옆 밀기(위 swipeStep) — 닿은 자리 · 중간에 손가락이 늘었나
+    let swipe = null;
     const spread = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
     const midX = (t) => (t[0].clientX + t[1].clientX) / 2;
     const midY = (t) => (t[0].clientY + t[1].clientY) / 2;
     const onTouchStart = (e) => {
       if (e.touches.length === 2) { startD = spread(e.touches); liveBegin(midX(e.touches), midY(e.touches)); }
+      // 손가락이 하나라도 더 닿으면 그 손짓은 넘기기가 아니다(오므리기의 첫 손가락)
+      if (e.touches.length === 1) swipe = { x: e.touches[0].clientX, y: e.touches[0].clientY, multi: false };
+      else if (swipe) swipe.multi = true;
     };
     const onTouchMove = (e) => {
       if (!startD || e.touches.length !== 2) return;
@@ -423,7 +445,16 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     };
     // 손가락이 둘 미만이 되는 순간 커밋한다 — 사파리는 `gestureend`가 먼저 커밋하고
     // 여기는 아무 일도 안 하게 된다(liveCommit은 한 번만 먹는다).
-    const onTouchEnd = (e) => { if (e.touches.length < 2) { startD = 0; liveCommit(); } };
+    const onTouchEnd = (e) => {
+      if (e.touches.length < 2) { startD = 0; liveCommit(); }
+      // 마지막 손가락이 떨어질 때 한 번만 본다 — 배율은 지금 값(오므렸다 놓은 뒤면 이미 1이 아니다)
+      if (e.touches.length === 0 && swipe && e.type === 'touchend') {
+        const t = e.changedTouches?.[0];
+        const step = t ? swipeStep({ dx: t.clientX - swipe.x, dy: t.clientY - swipe.y, scale: zoomRef.current, multi: swipe.multi || gestureRef.current }) : 0;
+        swipe = null;
+        if (step) swipeRef.current?.(step);
+      } else if (e.touches.length === 0) swipe = null;
+    };
     const onWheel = (e) => {
       if (!e.ctrlKey && !e.metaKey) return;   // 그냥 휠은 스크롤 그대로 — 긴 PDF를 읽는 길이다
       e.preventDefault();                     // 안 막으면 브라우저가 페이지를 확대한다
@@ -466,6 +497,34 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     // 층 크기는 그림 크기가 정한다 — 앞 사진의 값을 들고 있으면 다음 사진이 그 비율로 선다.
     setNatural(null);
   }, [canNav, gallery, gi, liveStrip]);
+  // 밀어서 넘길 때만 새 사진이 민 쪽에서 들어온다(.26s quint · 움직임 줄이기면 그냥 바뀐다).
+  // 통(zoomBox)은 파일이 바뀌어도 같은 노드라 거기에 건다 — 그림은 key가 바뀌어 새로 선다.
+  swipeRef.current = (d) => {
+    if (!(canNav && gallery[gi + d])) return;
+    go(d);
+    if (zoomBox?.animate && !prefersReducedMotion()) {
+      zoomBox.animate(
+        [{ transform: `translateX(${d * 48}px)`, opacity: 0.35 }, { transform: 'none', opacity: 1 }],
+        { duration: 260, easing: 'cubic-bezier(.16, 1, .3, 1)' },
+      );
+    }
+  };
+  // 큰 그림(위 HI_RES_PX) — 이 사진에서 배율이 처음 1을 넘을 때 한 번 받는다. 줄였다 다시 키워도 또 받지 않고,
+  // 다 받기 전에 넘기면 버린다(id로 가른다).
+  const [hiSrc, setHiSrc] = useState(null);       // { id, src }
+  const hiAskedRef = useRef(null);
+  const curIdRef = useRef(cur.id);
+  curIdRef.current = cur.id;
+  useEffect(() => {
+    if (kind !== 'image' || zoom <= ZOOM_MIN || cur.source !== 'drive' || !cur.drive_file_id) return;
+    if (hiAskedRef.current === cur.id) return;
+    hiAskedRef.current = cur.id;
+    const id = cur.id;
+    const src = driveImageFullUrl(cur.drive_file_id, HI_RES_PX);
+    const im = new Image();
+    im.onload = () => { if (curIdRef.current === id) setHiSrc({ id, src }); };
+    im.src = src;
+  }, [kind, zoom, cur]);
   // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
   // 다음/이전을 눌렀을 때 스켈레톤 없이 바로 뜬다.
   useEffect(() => {
@@ -740,7 +799,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
               너비의 배수라 세로로 긴 사진이 1.05배에서 통째로 튀어나간다(§6-29-z-13-a).
               `data-zoom-layer` — 손짓이 도는 동안 **여기에** transform이 걸린다(위 liveBegin).
               통이 아니라 이 감싸개여야 스크롤은 그대로 두고 내용만 늘어난다. */}
-          <div data-zoom-layer="" style={layerStyle}>
+          <div data-zoom-layer="" className="relative" style={layerStyle}>
             <SmartImage
               key={cur.id}
               src={imgSrcOf(cur) || url} alt={cur.name}
@@ -755,6 +814,12 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
               className="w-full h-full object-contain rounded-md"
               skeletonClassName="w-72 h-72" loadingText="미리보기를 준비하고 있어요"
             />
+            {/* 확대용 큰 그림 — 다 받은 뒤에만 서므로 깜빡이지 않는다. 같은 층·같은 object-contain이라
+                아래 그림과 같은 자리에 겹친다(위 HI_RES_PX). 누르기·손짓은 아래로 지나간다. */}
+            {hiSrc?.id === cur.id && fit > 0 && (
+              <img src={hiSrc.src} alt="" aria-hidden="true" draggable={false} data-hi-res=""
+                className="absolute inset-0 w-full h-full object-contain rounded-md pointer-events-none" />
+            )}
           </div>
         </div>
       );

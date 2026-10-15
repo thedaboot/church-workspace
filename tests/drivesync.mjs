@@ -1075,7 +1075,8 @@ check('손가락 확대는 손짓 동안 리액트를 거치지 않는다', () =
   assert.ok(!/const onChange = \(e\) => \{[^}]*zoomTo\(/.test(preview),
     'gesturechange가 배율을 곧바로 커밋한다');
   // 커밋은 손가락이 둘 미만이 되는 순간 한 번. 사파리는 gestureend와 touchend를 둘 다 준다.
-  assert.match(preview, /const onTouchEnd = \(e\) => \{ if \(e\.touches\.length < 2\) \{ startD = 0; liveCommit\(\); \} \};/,
+  // (2026-10-15부터 같은 자리에서 밀어서 넘기기도 본다 — 커밋 줄은 맨 앞 그대로)
+  assert.match(preview, /const onTouchEnd = \(e\) => \{\s*if \(e\.touches\.length < 2\) \{ startD = 0; liveCommit\(\); \}/,
     '손을 뗄 때 커밋하지 않는다');
   assert.match(preview, /const liveCommit = useCallback[\s\S]{0,160}?pinchRef\.current = null;/,
     '커밋이 두 번 먹는다(사파리는 gestureend·touchend를 둘 다 준다)');
@@ -1085,7 +1086,8 @@ check('손가락 확대는 손짓 동안 리액트를 거치지 않는다', () =
   assert.match(preview, /pinchRef\.current = null; liveStrip\(\);/,
     '사진을 넘길 때 라이브 transform이 남는다');
   // 걸리는 자리는 통이 아니라 내용 층이다 — 통에 걸면 스크롤까지 같이 늘어난다
-  assert.match(preview, /<div data-zoom-layer="" style=\{layerStyle\}>/, '사진에 확대 층이 없다');
+  // (relative — 확대용 큰 그림이 같은 층에 겹친다 · 56-c)
+  assert.match(preview, /<div data-zoom-layer=""( className="relative")? style=\{layerStyle\}>/, '사진에 확대 층이 없다');
   // 층은 **통 크기의 배수가 아니라 그림만큼**이다(사용자 지적 2026-09-17 — 세로로 긴 표를
   // 키우면 아래·오른쪽 빈 자리가 스크롤 범위에 들어갔다). 통의 배수로 두면 `object-contain`의
   // 레터박스 여백까지 같은 배수로 커져 빈 종이를 스크롤하게 된다.
@@ -1623,6 +1625,41 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
     assert.ok(hookAt < sec.indexOf('return null'), '보기 화면에서 첨부가 없으면 훅이 안 걸린다');
     const pend = att.slice(att.indexOf('export const PendingAttachments'), att.indexOf('function PasswordGate'));
     assert.match(pend, /useWindowFileDrop\(add, setDragOver\)/, '새 업무 첨부 칸이 훅을 안 쓴다');
+  });
+}
+
+// ── 사진 미리보기 — 확대하면 큰 그림 · 폰에서 밀어서 넘기기 (2026-10-15 · 56-c·56-d) ─────────────
+{
+  check('확대하면 큰 그림(=s2560)으로 바꿔 끼우되 층 크기는 첫 그림의 것 그대로다', () => {
+    assert.match(preview, /const HI_RES_PX = 2560;/, '큰 그림 크기가 없다');
+    const eff = preview.slice(preview.indexOf('const [hiSrc, setHiSrc]'), preview.indexOf('// 아직 올리는 중인 파일'));
+    assert.match(eff, /zoom <= ZOOM_MIN/, '배율이 1을 넘을 때만 받는 조건이 없다');
+    assert.match(eff, /driveImageFullUrl\(cur\.drive_file_id, HI_RES_PX\)/, '큰 그림 주소를 안 만든다');
+    assert.match(eff, /hiAskedRef\.current === cur\.id/, '같은 사진에서 여러 번 받는다');
+    assert.match(eff, /im\.onload = \(\) => \{ if \(curIdRef\.current === id\) setHiSrc/, '다 받은 뒤에만 바꾸지 않는다(또는 넘긴 뒤에도 앉힌다)');
+    assert.ok(!/setNatural/.test(eff), '큰 그림이 층 크기(natural)를 바꾼다 — 자리가 튄다');
+    const img = preview.slice(preview.indexOf('data-zoom-layer="" className="relative"'), preview.indexOf("if (kind === 'video')"));
+    assert.match(img, /hiSrc\?\.id === cur\.id && fit > 0[\s\S]{0,80}<img src=\{hiSrc\.src\}/, '큰 그림을 같은 층에 겹치지 않는다');
+    assert.match(img, /absolute inset-0 w-full h-full object-contain[^"]*pointer-events-none/, '큰 그림이 아래 그림과 같은 자리·같은 맞춤이 아니다');
+  });
+  check('폰에서 밀어서 넘기기 — 배율 1 · 한 손가락 · 옆으로 50px 넘게 · 옆이 위아래보다 클 때만', () => {
+    const m = /const SWIPE_MIN_PX = (\d+);\r?\nexport const swipeStep = [\s\S]*?\n\};/.exec(preview);
+    assert.ok(m, 'swipeStep을 못 찾았다');
+    const swipeStep = new Function('ZOOM_MIN', `${m[0].replace('export const', 'const')}; return swipeStep;`)(1);
+    assert.strictEqual(swipeStep({ dx: -80, dy: 10, scale: 1, multi: false }), 1, '왼쪽으로 밀면 다음');
+    assert.strictEqual(swipeStep({ dx: 80, dy: -10, scale: 1, multi: false }), -1, '오른쪽으로 밀면 이전');
+    assert.strictEqual(swipeStep({ dx: -80, dy: 10, scale: 1.5, multi: false }), 0, '확대돼 있는데 넘긴다 — 밀기를 가로챈다');
+    assert.strictEqual(swipeStep({ dx: -80, dy: 10, scale: 1, multi: true }), 0, '오므리기 뒤에 넘긴다');
+    assert.strictEqual(swipeStep({ dx: -40, dy: 0, scale: 1, multi: false }), 0, '살짝 미끄러진 것에 넘긴다');
+    assert.strictEqual(swipeStep({ dx: -80, dy: 70, scale: 1, multi: false }), 0, '대각선·세로 밀기에 넘긴다');
+    // 배선 — 마지막 손가락이 떨어질 때 지금 배율로 판정하고, 넘기기는 go를 지난다
+    assert.match(preview, /e\.touches\.length === 0 && swipe && e\.type === 'touchend'/, '손을 뗄 때 판정하지 않는다');
+    assert.match(preview, /scale: zoomRef\.current, multi: swipe\.multi \|\| gestureRef\.current/, '지금 배율·오므리기를 판정에 안 넘긴다');
+    assert.match(preview, /else if \(swipe\) swipe\.multi = true;/, '두 번째 손가락을 안 센다');
+    const sw = preview.slice(preview.indexOf('swipeRef.current = (d) =>'), preview.indexOf('const [hiSrc, setHiSrc]'));
+    assert.match(sw, /go\(d\);/, '넘기기가 go를 안 지난다');
+    assert.match(sw, /!prefersReducedMotion\(\)/, '움직임 줄이기에도 미끄러진다');
+    assert.match(sw, /cubic-bezier\(\.16, 1, \.3, 1\)/, 'quint 곡선이 아니다');
   });
 }
 
