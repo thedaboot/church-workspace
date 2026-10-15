@@ -255,7 +255,7 @@
 파일마다 한 줄이다. 설명은 그 파일 **머리말 주석**에 있으니 되풀이하지 않는다. 괄호의 `§`는 `docs/PITFALLS.md`.
 
 ```
-src/main.jsx                  부트스트랩(React 마운트)
+src/main.jsx                  부트스트랩(React 마운트) · 옛 조각 404는 한 번 새로 고침(오프라인이면 online을 기다린다)
 src/App.jsx                   조립 + 라우팅 상태 · GLOBAL_MENUS·CHURCH_ORDER·needsFullHeight · main 스크롤(§6-9-v)
 src/index.css                 토큰(--app-*/--p-*)·모션(dc-*)·`.tab-bar-work`(하단바 모드 전환)·`.tiptap`·`.note-paper`(§6-32-p) · 폰트 import (§4.2)
 src/config.js                 팀·상태 상수 · teamColor/teamPaint · MAX_UPLOAD_MB · 팀 표는 안전목록(§6-9-bo)
@@ -277,7 +277,7 @@ src/hooks/useProjectYear.js   고른 연도 모듈 스토어 — 지도·프로�
 src/hooks/useSheetShare.jsx   종이를 미리 구워 두는 훅 + 마지막 갈래 overlay(§6-32-g·32-s·32-m)
 src/components/layout.jsx     TopNav · ProfileMenu · ViewerFaces · CHURCH_MENUS(재수출: YearPicker·SearchHint)
 src/components/navParts.jsx   탭 줄 공용 — useYearTabs · YearPicker · YearFolders · useTabFit · saveTabOrder · 앞 칸 넛지 · FreshDot(§6-12-g·12-h)
-src/components/mobileNav.jsx  MobileTopBar · 폰 프로젝트 탭 줄(길게 눌러 끌기) · MobileTabBar 두 층 · menuTitle(§6-9-cb)
+src/components/mobileNav.jsx  MobileTopBar · 폰 프로젝트 탭 줄(길게 눌러 끌기) · MobileTabBar 두 층 · menuTitle(§6-9-cb) · 켜진 탭 다시 누르면 맨 위로(scrollMainTop · PITFALLS 55-d)
 src/components/searchBox.jsx  통합 검색 · useRotatingHint/SearchHint · 관련된 업무 내용(z-80 · §6-9-cb·17-d)
 src/components/notificationBell.jsx 알림 종 · 알림 받기 줄 · 설치 줄
 src/components/boards.jsx     칸반 보드(dnd-kit) — 카드·상태 칩·컬럼·DragOverlay(§6-1·§6-10~12-c)
@@ -367,7 +367,8 @@ src/services/cardLock.js      업무 잠금(0099)의 순수 판정(import 0 · �
 src/components/cardLock.jsx   업무 잠금 화면 — 머리줄 자물쇠 + `업무 잠그기` 팝오버 · 잠금 판 · LockGate(잠길 때·열릴 때만 움직임) · 보드 카드 자물쇠
 src/components/leaderOnly.jsx 프로젝트 머리 자물쇠 버튼(팝오버 `리더만 보기` 토글 · 리더에게만) · `리더만` 칩(데스크톱 제목 옆 · 업무 창 머리) · 폰 상단바는 제목 앞 자물쇠(`LeaderTitleLock`) · 팝오버·저장 한 벌(`useLeaderSwitch`·`useSetVisibility`)
 src/services/auth.jsx         OAuth — 로그인 전 자리 기억·카카오 인앱 자동 시작(§6의 auth 항목)
-src/services/approvalWatch.js 승인 대기 → 승인 전환 판정(순수 · logcheck) — auth.jsx가 대기 중에 실시간·다시 보일 때·30초로 다시 묻는다
+src/services/approvalWatch.js 승인 대기 → 승인 전환 판정(순수 · logcheck) — auth.jsx가 대기 중에 실시간·다시 보일 때·30초로 다시 묻는다 · 첫 물음이 두 번 실패하면 4초마다(shouldRetryPerm)
+src/services/viewChunks.js    늦게 싣는 화면 조각(예배·말씀·모임·명단·위키) 미리 받기 — 첫 화면 뒤 한가할 때(App) · 폰 하단 탭 pointerdown(mobileNav)
 src/services/approval.js      승인 확인 **서버 전용** 한 벌 — api/drive*.js가 쓴다(합친 계정은 남긴 계정 칸 · §6-34-i)
 src/services/domain.js        TaskService·ActivityService(§6-28) · 상시로 저장하면 날짜 두 칸을 지운다
 src/services/taskCounts.js    업무 셈 한 벌 — 지연·마감 구간·남은 업무·2주 방치·진척·팀별/청년별(§6-28-c) — logcheck가 검사
@@ -429,7 +430,7 @@ src/services/honorific.js     호칭 순수 모듈(people.js가 다시 내보낸
 api/yt.js                     유튜브 재생목록·제목 중계(ai.js와 같은 Bearer 인증)
 vite.config.js                dev 전용 `/api/<name>` 미들웨어(게스트 모드 제외 · §6-29-z-4) + pdf.js 보조 자료를 `/pdfjs/`로(§6-29-z-9)
                               + 첫 화면 벤더 칸 `EAGER_VENDORS` — 통째로 묶으면 첫 화면이 2배(§6-29-z-18)
-public/sw.js                  서비스 워커 — 푸시 표시 + 클릭 시 딥링크. 캐싱은 하지 않는다
+public/sw.js                  서비스 워커 — 푸시 표시 + 클릭 시 딥링크(앱이 떠 있으면 { open } 메시지로 제자리 · 답이 없으면 navigate · PITFALLS 55-e). 캐싱은 하지 않는다
 public/bible/                 (v2) 개역한글 66권 json + index.json
 public/chars/                 (v2) 캐릭터 7컷(webp · @2x 포함 14장) — 홈(sparkle-wave·heart·book·coffee·laptop) · 말씀(book) · 예배 노트(heart) · 다붓이(question · 물음표) · 더다붓 소개(umbrella · 우산).
                               원본(177~225px) 이상으로 키우지 않는다. 새 컷은 원본 시트(레포 밖 `Desktop/church_workspace_design/chars.png`)에서 다시 자른다

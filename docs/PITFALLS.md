@@ -1262,3 +1262,30 @@ scroll-margin-top 12px과 같다). 다붓이 답: **질문 말풍선부터 답 �
 **56-h.** **목록 → 상세 → 목록의 자리는 `hooks/useScrollMemory(inDetail)` 한 벌**(주보 목록 · 동아리 목록 · 폰 위키 첫 화면). 목록 자리는 **스크롤할 때마다 적어 둔다** — 상세로 바뀐 뒤에
 재면 이미 상세 높이에 눌린(clamp) 값이다. 그래서 **넘어가는 순간에 부르는 쪽이 main을 맨 위로 올리면 안 된다**(그 0이 목록 자리로 적힌다 — 위키 `go()`가 그래서 목록↔장에서는 안 올린다).
 돌아올 때는 즉시(움직이면 '어디로 가나'가 보인다) · 처음 마운트가 상세면(딥링크) 아무것도 안 한다 · App의 화면 바꿈 되돌리기(activeMenu)와는 겹치지 않는다(그건 뷰째 다시 마운트된다).
+
+### UX 다듬기 β (2026-10-15)
+
+**55-a.** **새 업무 폼도 history 한 자리를 남기고, 뒤로가기는 ✕를 대신 누른다**(`App.jsx` `openTaskModal`·`onPop` · 47-c의 뒤). 자리가 없던 때는 뒤로가기가 앞 화면으로 나가며 폼이 묻지도 않고 사라졌다.
+popstate는 이미 자리를 떠난 뒤라 막을 수 없다 — **그 자리를 곧바로 다시 세우고**(같은 주소 pushState `{ taskModal: 1 }`) 머리줄 ✕를 누른다. 적은 것이 있으면 ✕가 `저장하지 않은 내용이 있어요`를 열고,
+없으면 그냥 닫는다(둘 다 closeTaskModal이 다시 세운 자리를 뒤로 걷는다). **확인이 이미 떠 있으면 누르지 않는다** — ✕는 ConfirmPopover의 토글이라 또 누르면 확인이 닫힌다.
+`modals.jsx`는 고치지 않았다: dirty 판정은 창 안에 있고, 딤 클릭이 쓰는 길(✕ 클릭)을 App이 같이 쓴다. ✕는 업무 창을 감싼 `data-task-modal`(display: contents) 안에서 찾는다 — 다른 판의 `닫기`를 누르지 않게.
+**55-b.** **AuthGate의 `approved === null` 갈래는 서지 않는다** — 컨텍스트의 `approved`는 `perm.approved !== false`라 '모름'(null)을 승인으로 준다(승인 대기 화면이 번쩍이지 않게 · 2026-09-22).
+그래서 첫 자격 물음이 두 번 다 실패해도 빈 화면에 갇히지 않고 워크스페이스가 선다 — 대신 isAdmin·isMaster가 다음 토큰 갱신(약 한 시간)까지 false였다. 지금은 `shouldRetryPerm`(stuck + null)일 때
+다시 보일 때·초점·online·4초마다 다시 묻는다. 그 갈래에 '10초 뒤 오류 화면'을 붙이지 말 것 — 닿지 않는 코드다. 갈래 자체는 CloudSplash로 남겨 두었다(logcheck-sec가 단정).
+**55-c.** **`vite:preloadError`는 빌드에서만 온다**(빌드의 preload 도우미가 쏜다 — 개발 서버에서는 안 온다). 오프라인에서 새로 고치면 브라우저 '오프라인' 페이지에 떨어지므로 `navigator.onLine === false`면
+online을 기다렸다 한 번 새로 고친다(`main.jsx` — 10초 고리 판정보다 앞). 브라우저 스위트로는 못 보니 logcheck-v2가 소스를 본다.
+앱의 online 재조회는 실시간 onReconnect와 **같은 300ms 타이머**(refetchAll)다 — 둘이 붙어 오면 한 번이다. 늦게 붙은 소켓의 onReconnect를 '방금 읽었다'고 건너뛰지 말 것(읽은 뒤 ~ 소켓이 붙기 전의 변경은 이벤트로 오지 않는다).
+**55-d.** **폰 하단 탭 다시 누르기 = 스크롤 통(`main`)을 맨 위로**(`mobileNav` `scrollMainTop`). `scroll-behavior`가 없는 통이라 rAF로 직접 민다(남은 거리 (1-t)^5 · 480ms) · 움직임 줄이기면 즉시 ·
+오르는 중 wheel/touchstart가 오면 그 자리에서 멈춘다. 팀 탭은 **내 팀 보드일 때만** 다시 누르기다(남의 팀 보드에서 누르면 예전처럼 내 팀으로 간다).
+**55-e.** **푸시 클릭은 focus가 먼저, 메시지가 뒤다**(`public/sw.js` `openInPlace`). `WindowClient.focus()`는 notificationclick 직후에만 허락된다 — 앱의 답을 1초 기다린 뒤 부르면 막힐 수 있다.
+답은 MessageChannel로 받고 **포트를 닫는다**(안 닫으면 노드 스위트 `push`가 끝나지 않는다). 앱은 못 여는 주소에 `{ ok: false }`로 곧바로 답한다 — 침묵이면 워커가 1초를 헛기다린다.
+앱 쪽 `openPushUrl`은 알림 종과 같은 길(업무 = handleSearchSelect · 딥링크 = handleOpenLink)이고, 새 업무 폼이 열려 있으면 덮지 않는다(ok:true만 — 폼을 지킨다).
+**55-f.** **순 편성 쓰기는 먼저 화면에 얹는다**(`groupsView` `runSunOp`·`applySunOps` · 동아리 순서 clubOrder와 같은 길). 얹기는 멱등이어야 한다 — 다시 읽은 한 벌에 같은 모양이 이미 있는 채로 한 번 더 얹힌다.
+실패하면 얹은 것을 걷고 한 벌을 다시 읽는다(옮기기는 넣기만 되고 빼기가 막힌 반쪽일 수 있다).
+**줄(`dc-row`)에 opacity를 걸면 안 먹는다** — 등장 애니메이션이 `both`라 끝 키프레임의 opacity 1을 붙든다. 흐림은 안쪽 칸들에(`[&>*]:opacity-60`).
+옮긴 칩의 FLIP(`useMovedChips`)은 칩을 `display: contents` 감싸개(`data-pid`·`data-gid`)로 찾고, **순(gid)이 바뀐 사람만** 움직인다(넣기·빼기·연도 바꾸기는 옛 자리가 없거나 상관없다).
+검사 함정 둘: 게스트 쓰기·다시 읽기는 **마이크로태스크 안에 끝나** setTimeout 뒤에 보면 이미 지나갔다 — MutationObserver로 지나간 모양을 모은다(`tests/groups` 5-a).
+게스트 저장(`people.guestStore`)은 읽기·쓰기 실패를 다 삼킨다(사파리 비공개 모드 — JSON.stringify도 try 안이다) — 실패를 흉내 내려면 누른 직후 **첫 읽기 한 번만** group_members를 배열이 아닌 값으로 돌려준다(addMember의 filter가 던진다 · 다시 읽기는 제 값). 일부러 낸 실패의 콘솔 줄은 '콘솔 오류 0'에서 뺀다.
+**55-g.** **첫 페인트 로고(`index.html` `.boot-splash`)는 Tailwind가 아니라 인라인 style 값이다** — 개발 서버는 CSS를 JS가 넣어서 번들 전에는 클래스가 안 먹는다. 값(바탕 = --app-canvas 라이트/다크 · 3rem · 2s 숨쉬기)을
+바꾸면 `CloudSplash`도 같이(logcheck가 대조한다). 새 인라인 `<script>`는 넣지 말 것 — CSP 테마 스크립트 해시(drivesync)가 깨진다. 박자는 React가 첫 그림의 애니메이션 시각을 읽어 잇는다(`splashDelay`).
+늦게 싣는 화면 미리 받기(`services/viewChunks.js`)는 App의 lazy와 **같은 import 주소**라 같은 조각이다 — App의 lazy 줄은 logcheck-v2·logcheck-wiki가 글자 그대로 단정하니 그대로 둔다.
