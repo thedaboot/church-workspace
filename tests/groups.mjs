@@ -2378,6 +2378,58 @@ const dropped = await ev(`(() => ({
 }))()`);
 check('빼기는 확인을 거쳐 지운다', JSON.stringify(dropped.counts) === '[3,3]' && dropped.stored === false, JSON.stringify(dropped));
 
+// ── 5-a) 순 편성은 먼저 화면에 선다 (2026-10-15 · PITFALLS 55-f) ─────────────────────────────
+// 예전에는 쓰기 + 한 벌 다시 읽기를 다 기다린 뒤에야 바뀌었다(아무 표시 없이 멈췄다가 이름이 사라졌다 나타났다). 지금은 누르는 순간
+// 옮겨 서고 · 다시 읽는 동안 두 순의 줄이 흐리고(data-busy) · 옮긴 칩은 옛 자리에서 미끄러지고(FLIP) · 실패하면 되돌리고 토스트.
+// 게스트 쓰기는 마이크로태스크 안에 끝나므로 화면이 지나간 모양을 MutationObserver로 모은다.
+// 되돌리기: groupsView runSunOp의 setSunOps(얹기)를 지우면 '흐린 채 옮겨 선 순간'이, useMovedChips의 animate를 지우면 미끄러짐이 깨진다.
+const watchMove = (label, target, name, arm = '') => ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const rows = () => [...document.querySelectorAll('.sun-row')];
+  const snap = () => JSON.stringify({ counts: rows().map(r => r.querySelectorAll('.sun-member').length), busy: rows().map(r => r.hasAttribute('data-busy')) });
+  const seen = [];
+  const mo = new MutationObserver(() => { const s = snap(); if (seen[seen.length - 1] !== s) seen.push(s); });
+  mo.observe(document.querySelector('.sun-admin'), { subtree: true, childList: true, attributes: true, attributeFilter: ['data-busy'] });
+  const btn = document.querySelector(${JSON.stringify(sel('button', label))});
+  if (!btn) { mo.disconnect(); return { err: 'no-btn' }; }
+  btn.click(); await w(220);
+  const o = [...document.querySelectorAll('.menu-pick-option')].find(b => b.textContent.trim() === ${JSON.stringify(target)});
+  if (!o) { mo.disconnect(); return { err: 'no-option' }; }
+  ${arm}
+  o.click();
+  await w(60);
+  const chip = [...document.querySelectorAll('.sun-member')].find(m => m.textContent.includes(${JSON.stringify(name)}));
+  const moving = (chip?.getAnimations() || []).some(a => String(a.effect?.getKeyframes?.()[0]?.transform || '').startsWith('translate'));
+  await w(1200);
+  mo.disconnect();
+  return { seen, moving, last: snap(), failed: document.body.innerText.includes('순을 옮기지 못했어요') };
+})()`, true);
+const fast = await watchMove('천진영 순 옮기기', 'TT순', '천진영');
+const fastSeen = (fast.seen || []).map(s => JSON.parse(s));
+check('순을 옮기면 누르는 순간 옮겨 서고, 다시 읽는 동안 두 순의 줄이 흐리다 · 끝나면 걷힌다',
+  fastSeen.some(s => JSON.stringify(s.counts) === '[2,4]' && JSON.stringify(s.busy) === '[true,true]')
+  && fast.last === JSON.stringify({ counts: [2, 4], busy: [false, false] }), JSON.stringify(fast));
+check('옮긴 칩은 옛 자리에서 새 자리로 미끄러진다(transform · quint)', fast.moving === true, JSON.stringify(fast));
+// 실패 — 게스트 저장(people.guestStore)은 읽기·쓰기 실패를 다 삼킨다(사파리 비공개 모드). 그래서 **누른 직후 첫 읽기 한 번만**
+// group_members를 배열이 아닌 값으로 돌려준다 — addMember의 filter가 던지고(run이 잡아 토스트), 다시 읽기는 제 값을 본다.
+const ARM_FAIL = `{ const g = Storage.prototype.getItem; Storage.prototype.getItem = function (k) {
+    const v = g.call(this, k);
+    if (k !== 'church_groups_v1') return v;
+    Storage.prototype.getItem = g;
+    return JSON.stringify({ ...JSON.parse(v), group_members: 'x' });
+  }; }`;
+const bad = await watchMove('김승찬 순 옮기기', 'TT순', '김승찬', ARM_FAIL);
+// 일부러 낸 실패의 콘솔 줄(run이 원문을 콘솔에 남긴다)은 '콘솔 오류 0'에서 뺀다
+for (let i = logs.length - 1; i >= 0; i--) if (/순을 옮기지 못했어요 실패: TypeError: guestRows/.test(logs[i])) logs.splice(i, 1);
+const badSeen = (bad.seen || []).map(s => JSON.parse(s));
+check('저장이 실패하면 옮겨 섰던 칩이 되돌아가고 토스트가 말한다',
+  badSeen.some(s => JSON.stringify(s.counts) === '[1,5]') && JSON.parse(bad.last || '{}').counts?.join() === '2,4' && bad.failed, JSON.stringify(bad));
+// 앞 편성으로 되돌린다(아래 5-0이 '꼬순 = 김윤주·천진영·김승찬'을 기댄다)
+check('되돌려 옮기기', (await pickMenu('천진영 순 옮기기', '꼬순')) === 'ok');
+await sleep(900);
+const sunBack = await ev(`[...document.querySelectorAll('.sun-row')].map(r => r.querySelectorAll('.sun-member').length).join()`);
+check('편성이 앞 모양으로 돌아왔다', sunBack === '3,3', sunBack);
+
 // ── 5-0) 순장 지정 네 갈래 (사용자 지적 2026-09-03) ────────────────────────
 // "순장을 다른 사람으로 바꿨는데 '순장을 정하지 못했어요'라고 하면서 실제로는 이미
 // 바뀌어 있다." 지금은 저장하러 가기 전에 판정하고, 되는 경우에는 토스트도 성공이다.

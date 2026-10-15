@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { SectionHead } from '../views/dashboardParts.jsx';
 import { Skeleton } from './media.jsx';
@@ -15,6 +15,7 @@ import { NoteSheet, paperDate, NOTE_CUT } from './paper.jsx';
 import { splitNoteSections } from '../services/noteTemplate.js';
 import { guidePickLabel } from '../services/sunGuide.js';
 import { imeComposing } from '../utils.js';
+import { useReducedMotion } from '../hooks/useReducedMotion.js';
 
 // ============================================================================
 // 순 — 내 순 카드(구성원 · 최근 주일 예배 출석 · 공유된 예배 노트) · 순 편성 관리 구역
@@ -249,12 +250,47 @@ const ADMIN_SKELETON = (
   </div>
 );
 
+// 순을 옮긴 사람은 **옛 자리에서 새 자리로 미끄러진다**(FLIP · 2026-10-15 · PITFALLS 55-f) — 옮기기는 이제 누르는 순간 화면에
+// 서므로(groupsView runSunOp), 이름이 한 순에서 사라지고 다른 순에 툭 생기면 어디로 갔는지 놓친다. 그릴 때마다 칩 자리를
+// 순 목록 상자 기준으로 재 두었다가, 순(data-gid)이 바뀐 사람만 옛 자리 → 새 자리로 transform을 푼다. 곡선은 앱의 quint
+// (--ease-out-quint와 같은 값 · .42s) · 움직임 줄이기면 움직이지 않는다. 넣기·빼기·연도 바꾸기는 움직이지 않는다(옛 자리가 없다).
+const FLIP_MS = 420;
+const QUINT = 'cubic-bezier(.16, 1, .3, 1)';
+function useMovedChips(ref) {
+  const reduce = useReducedMotion();
+  const last = useRef(new Map());
+  useLayoutEffect(() => {
+    const root = ref.current;
+    if (!root) { last.current = new Map(); return; }
+    const base = root.getBoundingClientRect();
+    const next = new Map();
+    for (const el of root.querySelectorAll('[data-pid]')) {
+      const chip = el.firstElementChild;
+      if (!chip) continue;
+      const r = chip.getBoundingClientRect();
+      next.set(el.dataset.pid, { x: r.left - base.left, y: r.top - base.top, gid: el.dataset.gid, chip });
+    }
+    if (!reduce) {
+      for (const [pid, n] of next) {
+        const was = last.current.get(pid);
+        if (!was || was.gid === n.gid) continue;
+        const dx = was.x - n.x, dy = was.y - n.y;
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+        n.chip.animate?.([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: FLIP_MS, easing: QUINT });
+      }
+    }
+    last.current = next;
+  });
+}
+
 export function SunAdminPanel({
-  year, years, suns, people, members, creating, closingCreate, onCloseCreate, loading = false,
+  year, years, suns, people, members, busy = null, creating, closingCreate, onCloseCreate, loading = false,
   onYear, onCreateSun, onRenameSun, onSetLeader, onAddMember, onMoveMember, onRemoveMember,
 }) {
   const [name, setName] = useState('');
   const [leaderId, setLeaderId] = useState('');
+  const listRef = useRef(null);
+  useMovedChips(listRef);
 
   // 그 해 어느 순에도 없는 사람만 '순원 추가'에 올린다 — 이미 편성된 사람은 '순 옮기기'로
   // 옮긴다. 그러지 않으면 한 사람이 두 순에 동시에 들어간다.
@@ -307,10 +343,10 @@ export function SunAdminPanel({
 
       {loading ? ADMIN_SKELETON : (
         <>
-          <div className="space-y-2.5">
+          <div ref={listRef} className="space-y-2.5">
             {suns.map(g => (
               <SunRow key={g.id} group={g} suns={suns} people={people} members={members}
-                unplaced={unplaced} leaderPool={leaderPool}
+                unplaced={unplaced} leaderPool={leaderPool} busy={!!busy?.has(g.id)}
                 onRename={onRenameSun} onSetLeader={onSetLeader}
                 onAddMember={onAddMember} onMoveMember={onMoveMember} onRemoveMember={onRemoveMember} />
             ))}
@@ -325,7 +361,7 @@ export function SunAdminPanel({
   );
 }
 
-function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, onSetLeader, onAddMember, onMoveMember, onRemoveMember }) {
+function SunRow({ group, suns, people, members, unplaced, leaderPool, busy = false, onRename, onSetLeader, onAddMember, onMoveMember, onRemoveMember }) {
   const [draft, setDraft] = useState(group.name);
   useEffect(() => { setDraft(group.name); }, [group.name]);
 
@@ -343,7 +379,10 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
   };
 
   return (
-    <div className={`sun-row dc-row p-3.5 ${CARD}`} style={CARD_STYLE}>
+    // 저장하고 다시 읽는 동안 그 순의 줄은 흐리다(data-busy · groupsView busySuns) — 누른 것이 아직 오가는 중이라는 표시. 글자는 없다.
+    // 흐림은 **안쪽 칸들에** 건다 — 줄 자체에는 등장 애니메이션(dc-row · fill both)이 opacity 1을 붙들고 있어 opacity가 안 먹는다.
+    <div className={`sun-row dc-row p-3.5 ${CARD} [&>*]:transition-opacity [&>*]:duration-200 [&>*]:ease-out-quint motion-reduce:[&>*]:transition-none ${busy ? '[&>*]:opacity-60' : ''}`}
+      style={CARD_STYLE} data-busy={busy || undefined} aria-busy={busy || undefined}>
       {/* 줄을 **정해서** 그린다(§6-9-z). flex-wrap에 맡겨 두었더니 375에서 순장 칸이
           둘째 줄로 내려가면서 인원 수가 그 줄 오른쪽에 붙어, 순의 인원이 아니라 순장에
           딸린 숫자처럼 읽혔다. 지금은 [이름 … N명] / [순장]이고, 640부터는 예전처럼
@@ -367,7 +406,9 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
             빠져서, 출석 정책(leads_sun_of)이 보는 명단과 화면이 어긋난다. 순장을 바꾸려면
             위의 순장 칸에서 다른 사람을 고른다. */}
         {list.map(p => (
-          <PersonTag key={p.id} person={p} className="sun-member"
+          // data-pid·data-gid: 순을 옮긴 칩을 미끄러뜨릴 때 재는 자리(useMovedChips) — 상자는 만들지 않는다(contents)
+          <div key={p.id} className="contents" data-pid={p.id} data-gid={group.id}>
+          <PersonTag person={p} className="sun-member"
             badge={p.id === group.leader_person_id ? '순장' : null}
             right={p.id === group.leader_person_id ? null : (
               <>
@@ -382,6 +423,7 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
                 </ConfirmPopover>
               </>
             )} />
+          </div>
         ))}
       </div>
 

@@ -54,6 +54,17 @@ import { Segmented } from '../components/segmented.jsx';
 
 const THIS_YEAR = new Date().getFullYear();
 
+// 순 편성의 아직 저장 중인 넣기·옮기기·빼기를 구성원 목록에 얹는다(GroupsView runSunOp). op = { from?, to?, personId } —
+// from이 있으면 그 순에서 빼고, to가 있으면 그 순에 넣는다(이미 있으면 그대로). 다시 읽은 목록에 또 얹어도 같은 답이다.
+function applySunOps(members, ops) {
+  let out = members;
+  for (const o of ops) {
+    if (o.from) out = out.filter(m => !(m.group_id === o.from && m.person_id === o.personId));
+    if (o.to && !out.some(m => m.group_id === o.to && m.person_id === o.personId)) out = [...out, { group_id: o.to, person_id: o.personId }];
+  }
+  return out;
+}
+
 // 순모임 가이드 패널(components/sunGuide.jsx · 35kB)은 **볼 자격이 있을 때만** 받는다(2026-09-24).
 // 자격자는 순장·관리자뿐이라 대다수는 이 파일을 받을 일이 없다. React.lazy + Suspense로 두면 받는
 // 동안 폴백이 **두 번째 스켈레톤**으로 꽂혀 자리가 두 번 흔들린다(사용자 지적 2026-09-03 · tests/groups
@@ -604,19 +615,37 @@ export function GroupsView() {
     }, plan.name ? `${plan.name}님을 ${group.name} 순장으로 지정했어요` : '순장을 비웠어요');
   }, [run, refuse, adminData]);
 
+  // **순 편성의 넣기·옮기기·빼기는 먼저 화면에 선다**(2026-10-15 · PITFALLS 55-f). 예전에는 쓰기 + 한 벌 다시 읽기를 다
+  // 기다린 뒤에야 바뀌어서, 누른 뒤 아무 표시 없이 멈춰 있다가 이름이 사라졌다 다시 나타났다. 지금은 바뀔 모양(sunOps)을
+  // 따로 들고 있다가 그릴 때 구성원 목록에 얹고(applySunOps — 동아리 순서 clubOrder와 같은 길), 다시 읽는 동안 그 순의 줄을
+  // 흐리게 둔다(busySuns). 다시 읽은 한 벌에는 같은 모양이 이미 있으므로 얹기는 겹쳐도 같은 답이다(멱등). 실패하면 얹은 것을
+  // 걷고(되돌림) 토스트 — 옮기기는 넣기가 되고 빼기가 막힌 반쪽일 수 있어 한 벌을 다시 읽어 서버 모양을 그린다.
+  const [sunOps, setSunOps] = useState([]);
+  const opSeq = useRef(0);
+  const runSunOp = useCallback(async (op, ...args) => {
+    const id = ++opSeq.current;
+    setSunOps(ops => [...ops, { ...op, id }]);
+    const ok = await run(...args);
+    setSunOps(ops => ops.filter(o => o.id !== id));
+    if (!ok) refresh();
+    return ok;
+  }, [run, refresh]);
+  const sunMembers = useMemo(() => applySunOps(adminData?.members || [], sunOps), [adminData, sunOps]);
+  const busySuns = useMemo(() => new Set(sunOps.flatMap(o => [o.from, o.to]).filter(Boolean)), [sunOps]);
+
   const addSunMember = useCallback((group, personId) => {
     const name = state?.people.find(p => p.id === personId)?.name || '';
-    return run('순원을 넣지 못했어요', () => addMember(group.id, personId),
+    return runSunOp({ to: group.id, personId }, '순원을 넣지 못했어요', () => addMember(group.id, personId),
       name ? `${name}님을 ${group.name}에 넣었어요` : '순원을 넣었어요',
       name ? `${name}님은 이미 ${group.name} 순원이에요` : '이미 그 순의 순원이에요');
-  }, [run, state]);
+  }, [runSunOp, state]);
 
-  const moveSunMember = useCallback((group, toGroupId, person) => run('순을 옮기지 못했어요',
-    () => moveMember(group.id, toGroupId, person.id), `${person.name}님의 순을 옮겼어요`,
-    `${person.name}님은 이미 그 순의 순원이에요`), [run]);
+  const moveSunMember = useCallback((group, toGroupId, person) => runSunOp({ from: group.id, to: toGroupId, personId: person.id },
+    '순을 옮기지 못했어요', () => moveMember(group.id, toGroupId, person.id), `${person.name}님의 순을 옮겼어요`,
+    `${person.name}님은 이미 그 순의 순원이에요`), [runSunOp]);
 
-  const dropSunMember = useCallback((group, person) => run('순원을 빼지 못했어요',
-    () => removeMember(group.id, person.id), `${person.name}님을 순에서 뺐어요`), [run]);
+  const dropSunMember = useCallback((group, person) => runSunOp({ from: group.id, personId: person.id },
+    '순원을 빼지 못했어요', () => removeMember(group.id, person.id), `${person.name}님을 순에서 뺐어요`), [runSunOp]);
 
   // ── QR·알림으로 들어온 자리 ───────────────────────────────────────────────
   // `/?p=groups&g=<동아리 id>`면 그 동아리 상세를 열고, `&apply=1`이면 신청까지 한다.
@@ -802,7 +831,7 @@ export function GroupsView() {
       {active === 'sun' && !baseFailed && (
         <SunAdminPanel year={year} years={years} loading={!adminData}
           suns={adminData?.suns || []} people={adminData?.people || []}
-          members={adminData?.members || []} onYear={setYear}
+          members={sunMembers} busy={busySuns} onYear={setYear}
           creating={creating === 'sun'} closingCreate={closingCreate} onCloseCreate={shutCreate}
           onCreateSun={newSun} onRenameSun={renameSun} onSetLeader={setLeader}
           onAddMember={addSunMember} onMoveMember={moveSunMember} onRemoveMember={dropSunMember} />
