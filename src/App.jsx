@@ -486,6 +486,8 @@ function WorkspaceShell() {
   // 실제 pushState는 아래 URL 동기화 effect가 한다(주소를 만드는 유일한 곳 — '뒤로가기' 주석).
   const modalOpenRef = useRef(false);
   modalOpenRef.current = modalState.isOpen;
+  const newFormRef = useRef(false);      // 지금 열린 창이 새 업무 폼(id 없음)이다
+  newFormRef.current = modalState.isOpen && !modalState.task?.id;
   const activeMenuRef = useRef(activeMenu);
   activeMenuRef.current = activeMenu;
   const pushModalRef = useRef(false);    // 다음 주소 쓰기를 '업무 창 자리' push로
@@ -494,8 +496,9 @@ function WorkspaceShell() {
   const pendingBackRef = useRef(false);  // 닫기(✕·닫기·삭제)가 그 자리를 history.back()으로 걷는 중
   const lastUrlRef = useRef('');         // 동기화 effect가 마지막으로 만든 주소
   const openTaskModal = useCallback((task, { history: remember = true } = {}) => {
-    // 새 업무 폼(id 없음)은 남기지 않는다 — 뒤로가기가 묻지 않고 닫으면 적던 것이 사라진다(✕·닫기는 묻는다 · modals.jsx confirmClose)
-    if (remember && task?.id && !modalOpenRef.current) { pushModalRef.current = true; menuBeforeRef.current = activeMenuRef.current; }
+    // 새 업무 폼(id 없음)도 한 자리를 남긴다(2026-10-15) — 예전에는 남기지 않아서 폰 뒤로가기가 폼을 묻지도 않고 닫고(자리가 없으니
+    // 앞 화면으로 나갔다) 적던 것이 사라졌다. 지금은 뒤로가기가 ✕와 같은 확인('저장하지 않은 내용이 있어요')을 연다 — 아래 onPop.
+    if (remember && !modalOpenRef.current) { pushModalRef.current = true; menuBeforeRef.current = activeMenuRef.current; }
     modalOpenRef.current = true;
     setModalState({ isOpen: true, task });
   }, []);
@@ -783,6 +786,16 @@ function WorkspaceShell() {
         window.history.replaceState(null, '', lastUrlRef.current);
         return;
       }
+      // **새 업무 폼에서 뒤로가기**(2026-10-15 · PITFALLS 55-a) — 그 자리를 곧바로 다시 세우고(창은 아직 열려 있다) 머리줄 ✕를
+      // 대신 누른다. ✕는 적은 것이 있으면 '저장하지 않은 내용이 있어요'(만들고 닫기 · 무시하고 닫기 · 돌아가기)를 열고,
+      // 없으면 그냥 닫는다 — 둘 다 closeTaskModal이 방금 세운 자리를 뒤로 걷는다. 확인이 이미 떠 있으면 다시 누르지 않는다
+      // (✕는 그 확인을 여닫는 토글이라 또 누르면 닫힌다). 업무 창(modals.jsx)은 손대지 않고 그 창이 딤 클릭에 쓰는 길을 같이 쓴다.
+      if (modalHistRef.current && newFormRef.current && !window.history.state?.taskModal) {
+        window.history.pushState({ taskModal: 1 }, '', lastUrlRef.current);
+        const asking = [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '무시하고 닫기');
+        if (!asking) document.querySelector('[data-task-modal] button[aria-label="닫기"]')?.click();
+        return;
+      }
       const q = new URLSearchParams(window.location.search);
       if (modalHistRef.current && !q.get('t')) {
         modalHistRef.current = false;
@@ -944,7 +957,9 @@ function WorkspaceShell() {
         />
       )}
 
+      {/* data-task-modal: 뒤로가기가 새 업무 폼의 ✕를 찾는 자리(onPop) — 상자는 만들지 않는다(contents) */}
       {modalState.isOpen && (
+        <div data-task-modal className="contents">
         <ErrorBoundary>
           <TaskModalShell
             task={modalState.task}
@@ -965,6 +980,7 @@ function WorkspaceShell() {
             onDelete={() => { controller.handleDeleteTask(modalState.task); closeTaskModal(); }}
           />
         </ErrorBoundary>
+        </div>
       )}
 
       {isProfileModalOpen && <ProfileModal onClose={() => setIsProfileModalOpen(false)} onSave={(p) => controller.handleUpdateUser(p)} />}

@@ -1155,6 +1155,31 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   const d1 = await hist();
   check('딥링크로 연 창은 자리를 남기지 않고, 닫으면 주소만 고친다',
     d0.open && !d0.tagged && !d1.open && d1.len === d0.len && d1.url === '/?p=p1', JSON.stringify({ d0, d1 }));
+  // ⑤ 새 업무 폼도 한 자리 — 뒤로가기는 ✕와 같은 확인을 연다(2026-10-15 · PITFALLS 55-a). 예전에는 자리가 없어 뒤로가기가
+  // 묻지 않고 폼을 닫고 앞 화면으로 나가 적던 것이 사라졌다. 되돌리기: openTaskModal의 `!modalOpenRef.current` 앞에 `task?.id &&`를
+  // 되살리면 n1.tagged가, onPop의 새 업무 갈래를 지우면 n4(묻기)가 깨진다.
+  const asking = `document.body.innerText.includes('저장하지 않은 내용이 있어요')`;
+  const n0 = await hist();
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(800);
+  const n1 = await hist();
+  await ev(`history.back()`); await sleep(800);
+  const n2 = await hist();
+  check('새 업무 폼(빈 채)도 한 자리 · 뒤로가기는 묻지 않고 창만 닫는다(화면 그대로)',
+    !n0.open && n1.open && n1.tagged && !n2.open && !n2.tagged && n2.url === n0.url, JSON.stringify({ n0, n1, n2 }));
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(800);
+  await setTitle('적다 만 업무'); await sleep(200);
+  const n3 = await hist();
+  await ev(`history.back()`); await sleep(800);
+  const n4 = { ...(await hist()), asking: await ev(asking), title: await ev(`document.querySelector('input[name="title"]')?.value || ''`) };
+  check('적은 것이 있으면 뒤로가기가 ✕와 같은 확인을 연다 — 창·글은 그대로 · 자리도 다시 선다',
+    n3.tagged && n4.open && n4.asking && n4.tagged && n4.title === '적다 만 업무' && n4.url === n0.url, JSON.stringify({ n3, n4 }));
+  await ev(`history.back()`); await sleep(800);
+  const n5 = { ...(await hist()), asking: await ev(asking) };
+  check('확인이 떠 있는 채 또 뒤로가기 — 확인은 그대로(✕ 토글로 닫히지 않는다)', n5.open && n5.asking && n5.tagged, JSON.stringify(n5));
+  await ev(`${byLabel('무시하고 닫기')}?.click()`); await sleep(900);
+  const n6 = { ...(await hist()), asking: await ev(asking) };
+  check("'무시하고 닫기'는 창과 그 자리를 같이 걷는다(쌓이지 않는다)",
+    !n6.open && !n6.tagged && !n6.asking && n6.url === n0.url && n6.len === n1.len, JSON.stringify({ n1, n6 }));
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
 
