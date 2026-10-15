@@ -3416,6 +3416,67 @@ await send('Emulation.clearDeviceMetricsOverride');
   logs.push(...mineLogs);
 }
 
+// ── 순모임 가이드 다시 만들기 중(시안 B6 · 사용자 승인 2026-10-15) ─────────────────────────
+// 다시 만드는 동안 종이(편집 중이면 편집 칸)를 걷지 않고 .45로 흐리게 두고, 다붓이 얼굴 + 점 셋(글자 없음)이
+// 보이는 영역(main ∩ 하단 탭바 위)에 든 종이 부분의 세로 가운데에 선다 · 스크롤하면 따라간다 · 편집 중에는 520px 뼈대가
+// 끼지 않는다 · 실패하면 흐림만 걷힌다. 게스트 AI는 곧바로 답하므로 개발 서버의 window.__guideHold로 그 순간을 붙잡는다.
+// **되돌리기**: showSheet에 `!making`을 되살리고 SKELETON 조건을 `(making || guideQ.loading)`으로 돌리면 ①②③이,
+// RegenVeil의 place()를 지우면(가운데 고정 50%) ①의 가운데·스크롤이 깨진다.
+{
+  const logsBefore = logs.length;
+  const VEIL = `(() => { const v = document.querySelector('.sun-guide-regen-veil'); const box = v?.closest('.sun-guide-regen-box');
+    const fade = box?.querySelector('.sun-guide-fade');
+    if (!v) return { veil: false, sheet: !!document.querySelector('.sun-guide-sheet'), skel: !!document.querySelector('.sun-guide-loading') };
+    const r = v.getBoundingClientRect(), b = box.getBoundingClientRect(), m = document.querySelector('main').getBoundingClientRect();
+    const bar = document.querySelector('[data-tab-bar]'); const bt = bar && bar.getBoundingClientRect().height ? bar.getBoundingClientRect().top : innerHeight;
+    const vt = Math.max(m.top, 0), vb = Math.min(m.bottom, bt, innerHeight);
+    return { veil: true, mid: Math.round(r.top + r.height / 2), want: Math.round((Math.max(b.top, vt) + Math.min(b.bottom, vb)) / 2),
+      text: v.innerText.trim(), face: !!v.querySelector('img.dab-face'), dots: v.querySelectorAll('.dab-dots span').length,
+      radius: getComputedStyle(v).borderRadius, op: fade ? getComputedStyle(fade).opacity : '', trans: fade ? getComputedStyle(fade).transitionProperty + ' ' + getComputedStyle(fade).transitionDuration : '',
+      sheet: !!document.querySelector('.sun-guide-sheet'), skel: !!document.querySelector('.sun-guide-loading') }; })()`;
+  const hold = () => ev(`window.__guideHold = new Promise((res, rej) => { window.__guideRelease = res; window.__guideFail = rej; }); true`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 393, height: 852, deviceScaleFactor: 1, mobile: true });
+  await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
+  await ev(`(() => { const s = document.querySelector('.sun-guide-sheet'); const m = document.querySelector('main'); m.scrollTop += s.getBoundingClientRect().top - m.getBoundingClientRect().top - 56; return true; })()`);
+  await hold();
+  await ev(`document.querySelector('.sun-guide-regen').click()`); await sleep(700);
+  const a = await ev(VEIL);
+  check('다시 만드는 동안 종이는 그 자리에 .45로 남고 뼈대가 서지 않는다(B6)', a.veil && a.sheet && !a.skel && a.op === '0.45', JSON.stringify(a));
+  check('다붓이 얼굴 + 점 셋이 작은 바탕(16px)에 — 글자는 없다', a.face && a.dots === 3 && a.text === '' && a.radius === '16px', JSON.stringify(a));
+  check('얼굴은 보이는 종이 부분의 세로 가운데에 선다(폰 393 · 탭바 위)', Math.abs(a.mid - a.want) <= 2, `${a.mid} / ${a.want}`);
+  await ev(`document.querySelector('main').scrollTop += 260; true`); await sleep(250);
+  const b = await ev(VEIL);
+  check('스크롤하면 얼굴이 보이는 부분의 가운데를 따라간다', b.veil && Math.abs(b.mid - b.want) <= 2 && b.mid !== a.mid, `${b.mid} / ${b.want} (앞 ${a.mid})`);
+  await ev(`window.__guideRelease(); true`); await sleep(800);
+  const top0 = await ev(`Math.round(document.querySelector('.sun-guide-edit')?.getBoundingClientRect().top ?? -1)`);
+  await hold();
+  await ev(`document.querySelector('.sun-guide-edit .sun-guide-regen').click()`); await sleep(600);
+  const c = await ev(VEIL);
+  const top1 = await ev(`Math.round(document.querySelector('.sun-guide-edit')?.getBoundingClientRect().top ?? -1)`);
+  check('편집 중 다시 만들기는 520px 뼈대를 끼우지 않고 편집 칸 위에 같은 얼굴을 얹는다(칸이 밀리지 않는다)',
+    c.veil && !c.skel && c.op === '0.45' && top0 >= 0 && top0 === top1 && Math.abs(c.mid - c.want) <= 2, JSON.stringify({ c, top0, top1 }));
+  await ev(`window.__guideRelease(); true`); await sleep(500);
+  await ev(`document.querySelector('.sun-guide-cancel')?.click(); true`); await sleep(400);
+  // 실패 — 흐림만 걷히고 종이는 그대로
+  await hold();
+  await ev(`document.querySelector('.sun-guide-regen').click()`); await sleep(500);
+  await ev(`window.__guideFail(new Error('테스트 실패')); true`); await sleep(700);
+  const d = await ev(`({ veil: !!document.querySelector('.sun-guide-regen-veil'), sheet: !!document.querySelector('.sun-guide-sheet'),
+    op: getComputedStyle(document.querySelector('.sun-guide-fade')).opacity, edit: !!document.querySelector('.sun-guide-edit') })`);
+  check('다시 만들기가 실패하면 흐림만 걷힌다', !d.veil && d.sheet && d.op === '1' && !d.edit, JSON.stringify(d));
+  // 움직임 줄이기 — 흐려지는 전이가 없다
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await hold();
+  await ev(`document.querySelector('.sun-guide-regen').click()`); await sleep(100);
+  const e = await ev(VEIL);
+  check('움직임 줄이기면 즉시 흐려진다(전이 없음)', e.veil && e.trans.startsWith('none') && e.op === '0.45' && a.trans.startsWith('opacity 0.42s'), JSON.stringify({ trans: e.trans, op: e.op }));
+  await ev(`window.__guideRelease(); delete window.__guideHold; true`); await sleep(500);
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  const mine = logs.splice(logsBefore).filter(l => !/\[sunGuide\] 가이드를 만들지 못했어요/.test(l));
+  logs.push(...mine);
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));

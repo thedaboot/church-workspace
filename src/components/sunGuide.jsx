@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Heart, Loader2, Pencil, Pin, Share2, Wand2 } from 'lucide-react';
 import logoLight from '../assets/logo-light.webp';
 import { Skeleton } from './media.jsx';
@@ -10,6 +10,7 @@ import { dropCache, useCached } from '../services/cache.js';
 import { failText, errorReason } from '../services/errorText.js';
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { DAB_CUT, cutSet } from './dabooti.jsx';
 import {
   LIMITS,
   fitGuide, generateGuide, guideDateLabel, guidePickLabel, guideServiceDate, guideServiceLabel,
@@ -295,13 +296,83 @@ function Chooser({ items, selectedId, have, onPick }) {
   );
 }
 
-// 만드는 동안 — 종이 한 장이 설 자리를 그대로 잡는다.
+// 처음 만드는 동안(아직 종이가 없다) — 종이 한 장이 설 자리를 그대로 잡는다.
+// **다시 만들기에는 쓰지 않는다**(아래 RegenVeil) — 종이를 걷고 이 판을 세우면 읽던 자리가 사라지고,
+// 편집 중에는 이 520px이 편집 칸 위에 끼어 칸이 통째로 아래로 밀렸다.
 // Skeleton은 className만 받는다(자리·크기는 유틸리티로) — media.jsx 주석.
 const SKELETON = (
   <div className="sun-guide-loading">
     <Skeleton className="w-full rounded-[14px] h-[520px]" />
   </div>
 );
+
+// ── 다시 만드는 동안 (시안 B6 · 사용자 승인 2026-10-15) ───────────────────────────
+// 지금 종이(편집 중이면 편집 칸)를 **걷지 않고** .45로 흐리게 둔다(.42s quint · 움직임 줄이기면 즉시).
+// 그 위에 다붓이 얼굴 + 기다림 점 셋(dab-dots)을 작은 바탕(surface · 16px 모서리 · 옅은 그림자)에 얹는다 — 글자는 없다.
+// 얼굴은 **보는 화면의 가운데**에 선다: 종이 중 보이는 영역(main 스크롤 판 ∩ 하단 탭바 위)에 든 부분의 세로 가운데 —
+// 종이가 다 보이면 종이의 가운데, 화면보다 길면 보이는 부분의 가운데다. 스크롤하면 따라간다(main의 scroll은 거품이 안 올라와 capture로 듣는다).
+// 자리는 렌더가 아니라 style.top을 바로 고친다 — 스크롤마다 리렌더하지 않게. 실패하면 흐림만 걷힌다(부르는 쪽).
+// 감싸는 상자는 **늘** 세운다(on이 아닐 때도) — 켜고 끌 때 종이가 다시 마운트되면 굽기 ref·편집 초점이 끊긴다.
+function RegenVeil({ on, children }) {
+  const boxRef = useRef(null);
+  const badgeRef = useRef(null);
+  useLayoutEffect(() => {
+    if (!on) return undefined;
+    const box = boxRef.current;
+    if (!box) return undefined;
+    let raf = 0;
+    const place = () => {
+      raf = 0;
+      const badge = badgeRef.current;
+      if (!badge) return;
+      const r = box.getBoundingClientRect();
+      let vt = 0;
+      let vb = window.visualViewport?.height || window.innerHeight;
+      const main = box.closest('main');
+      if (main) { const m = main.getBoundingClientRect(); vt = Math.max(vt, m.top); vb = Math.min(vb, m.bottom); }
+      const bar = document.querySelector('[data-tab-bar]');
+      if (bar) { const b = bar.getBoundingClientRect(); if (b.height > 0 && b.top < vb) vb = b.top; }
+      const half = badge.offsetHeight / 2;
+      // 보이는 부분(종이 ∩ 보이는 영역)의 가운데 — 종이가 다 보이면 그게 곧 종이의 가운데다.
+      // 종이가 짧아도 반쯤 스크롤돼 있으면 보이는 쪽에 선다(얼굴이 화면 밖으로 나가지 않게). 종이 밖으로는 안 나간다.
+      let mid = (Math.max(r.top, vt) + Math.min(r.bottom, vb)) / 2 - r.top;
+      mid = Math.min(Math.max(mid, half), Math.max(half, r.height - half));
+      badge.style.top = `${Math.round(mid)}px`;
+    };
+    const queue = () => { if (!raf) raf = requestAnimationFrame(place); };
+    place();
+    document.addEventListener('scroll', queue, { capture: true, passive: true });
+    window.addEventListener('resize', queue);
+    window.visualViewport?.addEventListener('resize', queue);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(queue) : null;
+    ro?.observe(box);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      document.removeEventListener('scroll', queue, { capture: true });
+      window.removeEventListener('resize', queue);
+      window.visualViewport?.removeEventListener('resize', queue);
+      ro?.disconnect();
+    };
+  }, [on]);
+  return (
+    <div ref={boxRef} className="sun-guide-regen-box relative" aria-busy={on || undefined}>
+      <div className={`sun-guide-fade transition-opacity duration-[420ms] ease-[var(--ease-out-quint)] motion-reduce:transition-none ${on ? 'opacity-[.45]' : 'opacity-100'}`}>
+        {children}
+      </div>
+      {on && (
+        <div ref={badgeRef} role="status" aria-label="가이드를 다시 만드는 중"
+          className="sun-guide-regen-veil absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2.5 px-[18px] pt-3.5 pb-3 rounded-2xl shadow-soft pointer-events-none"
+          style={{ background: 'var(--app-surface)' }}>
+          <span className="w-11 h-11 rounded-full overflow-hidden" style={{ background: 'var(--app-hero)' }}>
+            <img src={DAB_CUT.src} srcSet={cutSet(DAB_CUT.src)} alt="" aria-hidden="true" draggable="false" width={44} height={44}
+              className="dab-face block w-11 h-11 rounded-full object-cover" style={{ objectPosition: '50% 20%' }} />
+          </span>
+          <span className="dab-dots inline-flex gap-1 align-middle"><span /><span /><span /></span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // 짧은 문자열 해시(FNV-1a 32비트) — 굽기 열쇠용. 암호가 아니라 "글이 바뀌었나"만 가른다.
 const textHash = (str) => {
@@ -418,11 +489,19 @@ export function SunGuidePanel({
     return 'AI가 답을 주지 않았어요 · 잠시 뒤 다시 눌러 주세요';
   };
 
+  // 만드는 동안 다른 주보를 고르면(머리줄 고르개는 열려 있다) 늦게 온 초안을 그 주보에 얹지 않는다
+  const pickedRef = useRef(selectedId);
+  pickedRef.current = selectedId;
   const make = async () => {
     if (!selected) return;
+    const forId = selectedId;
     setBusy('make'); setMaking(true);
     try {
+      // 검사가 '만드는 중'을 붙잡는 자리(개발 서버만 · tests/groups) — 게스트의 AI는 곧바로 답해 그 순간이 한 프레임뿐이다.
+      // 배포 빌드에서는 import.meta.env.DEV가 거짓이라 통째로 빠진다(homeView의 window.__kstNow와 같은 관례).
+      if (import.meta.env?.DEV && typeof window !== 'undefined' && window.__guideHold) await window.__guideHold;
       const body = await generateGuide(selected);
+      if (pickedRef.current !== forId) return;
       if (!body) {
         showToast(failText('지금은 가이드를 만들 수 없어요', { human: await whyCannotMake() }));
         return;
@@ -495,7 +574,9 @@ export function SunGuidePanel({
 
   const dateLabel = guideDateLabel(selected.service_date);
   const editing = !!draft;
-  const showSheet = !editing && !making && !guideQ.loading && !!guide;
+  // 다시 만드는 동안에도 종이는 그 자리에 흐리게 남는다(RegenVeil) — 뼈대는 **아직 종이가 없을 때만**이다
+  const showSheet = !editing && !guideQ.loading && !!guide;
+  const showSkeleton = guideQ.loading || (making && !editing && !guide);
   // 고른 주보에 아직 가이드가 없으면 **고르는 줄부터** 편다(Chooser 머리말). 못 읽었으면 그 자리에
   // 실패가 선다(위 guideFailed) — 없는 것과 못 읽은 것을 가른다.
   const showFail = !editing && !making && !guideQ.loading && !guide && guideFailed;
@@ -598,10 +679,12 @@ export function SunGuidePanel({
         <SectionHead right={actions} wrapRight>순모임 가이드</SectionHead>
       )}
       <div className="sun-guide-body-wrap w-full max-w-[560px] mx-auto">
-        {(making || guideQ.loading) && SKELETON}
+        {showSkeleton && SKELETON}
         {editing && (
-          <Editor draft={draft} setDraft={setDraft} busy={working} onSave={save} onRegen={make}
-            onCancel={() => setDraft(null)} />
+          <RegenVeil on={making}>
+            <Editor draft={draft} setDraft={setDraft} busy={working} onSave={save} onRegen={make}
+              onCancel={() => setDraft(null)} />
+          </RegenVeil>
         )}
         {showFail && (
           <Empty className="sun-guide-load-failed" mark={<NoteMark />} minH="20vh" title={GUIDE_FAIL}>
@@ -625,7 +708,11 @@ export function SunGuidePanel({
             )}
           </>
         )}
-        {showSheet && <Sheet guide={guide} dateLabel={dateLabel} sheetRef={sheetRef} />}
+        {showSheet && (
+          <RegenVeil on={making}>
+            <Sheet guide={guide} dateLabel={dateLabel} sheetRef={sheetRef} />
+          </RegenVeil>
+        )}
       </div>
       {/* 공유·저장이 막힌 브라우저에서 마지막 갈래(hooks/useSheetShare.jsx) */}
       {img.overlay}
