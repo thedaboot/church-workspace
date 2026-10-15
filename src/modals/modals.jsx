@@ -291,7 +291,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   }, [flushAll]);
   // 닫기는 창이 걷히는 것(.dc-out · EXIT_MS)을 그린 뒤 부른다(hooks/useExit.js) — 밀린 쓰기는 **먼저** 흘린다.
   // 걷히는 사이 다른 카드로 바뀌었으면(같은 창이 새 카드를 받는다 · App은 key를 주지 않는다) 그 카드는 닫지 않는다.
-  // 폰 뒤로가기는 App이 곧바로 내린다(걷는 모션 없음).
+  // 폰 뒤로가기도 App이 이 창의 ✕를 눌러 같은 길로 걷힌다(PITFALLS 60-g).
   const [leaving, leave] = useLeave();
   const idRef = useRef(task.id);
   idRef.current = task.id;
