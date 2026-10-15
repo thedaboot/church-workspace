@@ -191,7 +191,9 @@ const EMPTY = `(() => {
     fill: Math.round(main.getBoundingClientRect().bottom - parseFloat(getComputedStyle(main).paddingBottom)
       - box.closest('.worship-list, .worship-detail').getBoundingClientRect().bottom),
     scroll: main.scrollHeight - main.clientHeight,
-    text: box.innerText.trim(),
+    // 문구 한 줄 — 편집할 수 있는 사람에게는 그 아래 '수정'이 붙는다(시안 E9 · edit)
+    text: (box.querySelector('p') || box).innerText.trim(),
+    edit: box.querySelector('.worship-empty-edit')?.textContent.trim() || '',
   };
 })()`;
 // 상세 화면의 빈 탭은 아래에 '내 예배 노트'(서식 바 + 편집기)가 실제로 자리를 차지한다.
@@ -678,6 +680,8 @@ check('담당자·찬양·광고 빈 탭도 같은 자리·같은 마크',
   JSON.stringify(emptyTabs.map(e => [e && e.text, e && e.dy, e && e.dx])));
 check('빈 탭 칸도 탭 줄 아래 남는 공간을 그대로 차지한다',
   emptyTabs.every(fills), JSON.stringify(emptyTabs.map(e => [e && e.fill, e && e.scroll])));
+check("편집할 수 있으면 빈 탭 넷 모두 문구 아래 작은 '수정'이 선다(시안 E9)",
+  [emptyWord, ...emptyTabs].every(e => e && e.edit === '수정'), JSON.stringify([emptyWord, ...emptyTabs].map(e => e && e.edit)));
 // 곡도 인도자도 없으면 팀 줄조차 서지 않는다 — 팀 이름만 남겨 두면 '찬양을 정해 뒀다'로 읽힌다
 await ev(`[...document.querySelectorAll('.worship-tab')].find(x => x.textContent.trim() === '찬양').click()`);
 await sleep(300);
@@ -2267,7 +2271,7 @@ const praiseOnly = await ev(`(() => {
   return {
     team: head?.querySelector('.worship-praise-team')?.textContent.trim() || null,
     leader: head?.querySelector('.worship-praise-leader')?.textContent.trim() || null,
-    empty: empty ? empty.innerText.trim() : null,
+    empty: empty ? (empty.querySelector('p') || empty).innerText.trim() : null,
     order: !!head && !!empty && head.getBoundingClientRect().bottom <= empty.getBoundingClientRect().top,
   };
 })()`);
@@ -4205,6 +4209,52 @@ publicView: {
   // 가로챈 페이지에서는 dev 서버의 HMR 소켓이 붙지 않아 vite 클라이언트가 콘솔에 남긴다 — 배포에는 없는 dev 소음이다
   const mine = logs.splice(logsBefore).filter(l => !/\[vite\]|Vite server/.test(l));
   logs.push(...mine);
+}
+
+// ── 빈 탭의 '수정' · 탭 판 갈림(시안 E9 · 사용자 승인 2026-10-15) ───────────────────────────
+// 편집할 수 있는 사람에게만 빈 탭 문구 아래 작은 '수정'(BTN_SOFT)이 서고, 누르면 **그 탭을 연 채** 수정으로 들어간다.
+// 탭을 바꾸면 판이 새로 들어오며 .dc-fade(.2s)로 갈린다 — 움직임 줄이기면 없다.
+// **되돌리기**: WorshipEmpty의 onEdit 버튼을 지우면 아래 '선다'·'그 탭을 연 채'가(위 '빈 탭 넷 모두'도),
+// 탭 판의 key·dc-fade를 지우면 '갈린다'가 깨진다.
+{
+  const plantEmpty = (canEdit) => `(() => { const g = JSON.parse(${JSON.stringify(JSON.stringify(seed))});
+    g.services.find(x => x.id === 's1').notices = [];
+    g.me = { canEdit: ${canEdit}, canCheckAll: false, ledGroupIds: [], canCheck: false };
+    localStorage.setItem('church_worship_v1', JSON.stringify(g)); localStorage.setItem('theme', 'light'); })()`;
+  const PANEL = `(() => { const box = document.querySelector('.worship-tabpanel .worship-empty'); const b = box?.querySelector('.worship-empty-edit');
+    const p = document.querySelector('.worship-tabpanel');
+    return { text: box?.querySelector('p')?.textContent.trim() || '', edit: b?.textContent.trim() || '',
+      soft: b ? getComputedStyle(b).backgroundColor === ${tokenColor('--app-accent-weak')} && getComputedStyle(b).fontSize === '11.5px' : false,
+      anim: p ? getComputedStyle(p).animationName : '' }; })()`;
+  for (const canEdit of [false, true]) {
+    await ev(plantEmpty(canEdit));
+    await send('Page.navigate', { url: `${URL_BASE}/?p=worship&s=s1` }); await wait('Page.loadEventFired');
+    await waitFor(HAS_DETAIL);
+    await sleep(600);
+    await ev(`document.querySelector('.worship-tabpanel').__mark = 1; true`);
+    await ev(`[...document.querySelectorAll('.worship-tab')].find(t => t.textContent.trim() === '광고').click()`);
+    await sleep(350);
+    const v = await ev(PANEL);
+    const fresh = await ev(`document.querySelector('.worship-tabpanel').__mark !== 1`);
+    if (!canEdit) {
+      check("편집할 수 없으면 빈 탭에 '수정'이 없다", v.text === '광고를 아직 적지 않았어요' && v.edit === '', JSON.stringify(v));
+      check('탭을 바꾸면 판이 새로 들어오며 .dc-fade로 갈린다', fresh && v.anim === 'dc-fade-in', JSON.stringify({ fresh, anim: v.anim }));
+      await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+      await ev(`[...document.querySelectorAll('.worship-tab')].find(t => t.textContent.trim() === '말씀').click()`);
+      await sleep(200);
+      const still = await ev(`getComputedStyle(document.querySelector('.worship-tabpanel')).animationName`);
+      check('움직임 줄이기면 탭 판이 갈리는 모션이 없다', still === 'none', still);
+      await send('Emulation.setEmulatedMedia', { features: [] });
+      continue;
+    }
+    check("편집할 수 있으면 빈 광고 탭 문구 아래 작은 '수정'(연한 accent · 11.5px)", v.text === '광고를 아직 적지 않았어요' && v.edit === '수정' && v.soft, JSON.stringify(v));
+    await ev(`document.querySelector('.worship-empty-edit')?.click(); true`);
+    await sleep(500);
+    const e = await ev(`({ editing: !!document.querySelector('.worship-save'),
+      tab: document.querySelector('.worship-tab[aria-selected="true"]')?.textContent.trim() || '' })`);
+    check("빈 탭의 '수정'은 그 탭을 연 채 수정으로 들어간다", e.editing && e.tab === '광고', JSON.stringify(e));
+    await ev(`${byText('목록으로')}.click()`); await sleep(600);
+  }
 }
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));

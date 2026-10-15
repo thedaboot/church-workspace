@@ -129,10 +129,10 @@ function CueSheetView({ cue, files = [], onOpen }) {
 }
 
 // ── 보기 ─────────────────────────────────────────────────────────────────────
-function WordTab({ service, onOpenBible, cueFiles = [], onOpenFile }) {
+function WordTab({ service, onOpenBible, cueFiles = [], onOpenFile, onEdit = null }) {
   const cue = cueUrl(service) ? cueOf(service) : null;
   const has = service.title || service.passage_ref || service.preacher;
-  if (!has && !cue && !cueFiles.length) return <WorshipEmpty text="설교 제목과 본문 구절을 아직 적지 않았어요" />;
+  if (!has && !cue && !cueFiles.length) return <WorshipEmpty text="설교 제목과 본문 구절을 아직 적지 않았어요" onEdit={onEdit} />;
   // 구절은 누르면 성경 읽기의 그 장으로 간다(App.jsx의 openBible → WordView initialRef).
   const ref = service.passage_ref;
   return (
@@ -158,10 +158,10 @@ function WordTab({ service, onOpenBible, cueFiles = [], onOpenFile }) {
 // 편집 줄은 손대지 않는다 — 입력칸에 담기는 값은 이름이라야 명단 연결이 계속 맞는다.
 // **명단이 오기 전에는 얼굴·이름 자리를 비워 둔다**(namesReady · PITFALLS 48-a·52-c) — 호칭 없는 이름과 글자 원이 섰다가
 // 명단이 오면 '양민혁 전도사님'과 사진으로 바뀌었다. 줄·번호·역할 칩은 그대로 서고 둘만 visibility로 숨긴다(줄 높이 그대로).
-function RolesTab({ rows, people, nameOf, namesReady = true }) {
+function RolesTab({ rows, people, nameOf, namesReady = true, onEdit = null }) {
   const held = namesReady ? undefined : HELD;
   const byId = useMemo(() => new Map((people || []).map(p => [p.id, p])), [people]);
-  if (!rows.length) return <WorshipEmpty text="담당자를 아직 정하지 않았어요" />;
+  if (!rows.length) return <WorshipEmpty text="담당자를 아직 정하지 않았어요" onEdit={onEdit} />;
   return (
     <ul className={LIST}>
       {rows.map((r, i) => {
@@ -265,9 +265,9 @@ const PraiseHead = ({ leader, playlistUrl, nameOf, namesReady = true }) => (
 // 이름만 남겨 두면 '찬양을 정해 뒀다'로 읽힌다.
 const WJ = '⁠';   // 단어 잇개 — 아래 곡 링크의 아이콘이 혼자 다음 줄로 내려가지 않게
 
-function SongsTab({ rows, leader, playlistUrl, nameOf, namesReady = true }) {
+function SongsTab({ rows, leader, playlistUrl, nameOf, namesReady = true, onEdit = null }) {
   // 빈 상태 한 벌 — 인도자·재생목록만 정해 둔 주보는 머리 한 줄 아래에 같은 빈 상태가 선다
-  const empty = <WorshipEmpty text="찬양을 아직 정하지 않았어요" />;
+  const empty = <WorshipEmpty text="찬양을 아직 정하지 않았어요" onEdit={onEdit} />;
   if (!rows.length && !leader && !playlistUrl) return empty;
   return (
     <>
@@ -365,8 +365,8 @@ function NoticeCard({ notice, index, serviceDate = '', onCalendar, held = false 
 // '다음 주 예배 위원' 광고의 이름은 본명으로 세운다(real · serviceView.realNamesInRoleLines) —
 // 저장된 광고 글은 그대로다. 나머지 광고는 사람이 쓴 글이라 한 글자도 안 건드린다.
 // 그 광고의 글은 명단이 오기 전에는 숨긴다(namesReady — 본명으로 바뀌기 전 글자가 섰다가 바뀌지 않게 · 제목은 선다).
-function NoticesTab({ rows, serviceDate = '', onCalendar, real = null, namesReady = true }) {
-  if (!rows.length) return <WorshipEmpty text="광고를 아직 적지 않았어요" />;
+function NoticesTab({ rows, serviceDate = '', onCalendar, real = null, namesReady = true, onEdit = null }) {
+  if (!rows.length) return <WorshipEmpty text="광고를 아직 적지 않았어요" onEdit={onEdit} />;
   return (
     <ul className={`${LIST} space-y-2`}>
       {rows.map((n, i) => (
@@ -668,6 +668,14 @@ export function ServiceDetail({
   // 미리 열어 명단을 훑을 수 있고, 그때는 출석 화면이 체크를 잠근다(worshipAttendance).
   const canAttend = perms.canCheck && attendanceVisible(service);
 
+  // 수정으로 들어간다 — 머리줄 '수정'과 빈 탭의 '수정'(시안 E9)이 같은 길이다. 빈 탭에서 누르면 **그 탭을 연 채**다.
+  const startEdit = (tabId = null) => {
+    dirty.current = false; setSaveState(''); setDraft(draftOf(service));
+    if (tabId) setTab(tabId);
+  };
+  // 빈 탭의 '수정'은 편집할 수 있는 사람에게만, 보기일 때만 선다
+  const editFrom = (tabId) => (perms.canEdit && !editing ? () => startEdit(tabId) : null);
+
   // 기다리지 않고 지금 저장하고 보기 모드로
   const saveNow = async () => {
     setBusy(true);
@@ -742,7 +750,7 @@ export function ServiceDetail({
               띈다). 도구 줄의 연한 버튼이던 것을 자격자에게만 여기로 올렸다 —
               발행·삭제·저장 상태는 그대로 아래 도구 줄에 남는다. */}
           {perms.canEdit && !editing && (
-            <button type="button" onClick={() => { dirty.current = false; setSaveState(''); setDraft(draftOf(service)); }}
+            <button type="button" onClick={() => startEdit()}
               className={`worship-edit-open shrink-0 ${WITH_ICON} ${BTN}`}>
               <PencilLine size={13} /> 수정
             </button>
@@ -792,7 +800,9 @@ export function ServiceDetail({
         ))}
       </div>
 
-      <div className="worship-tabpanel">
+      {/* 탭을 바꾸면 판이 .dc-fade(.2s · 움직임 줄이기면 없음)로 갈린다 — 탭마다 높이가 달라 뚝 바뀌던 것을 누그러뜨린다(시안 E9).
+          key가 탭이라 바꿀 때마다 새로 들어온다(수정 들어가기·나오기는 같은 탭이라 다시 돌지 않는다) */}
+      <div key={activeTab} className="worship-tabpanel dc-fade">
         {activeTab === 'paper' && (
           <ServicePaper service={service} nameOf={nameOf} real={real} rosterKey={rosterKey} namesReady={rosterReady} cover={cover} onShareLink={onShareLink} />
         )}
@@ -800,11 +810,11 @@ export function ServiceDetail({
           ? <WordEdit draft={draft} set={set} cueFiles={cueFiles} canEdit={!!(editing && perms.canEdit)}
               onPick={fs => onUploadFiles(fs, CUESHEET)} onOpen={setPreview}
               onRemove={onRemoveFile} lastCue={lastCue} onCopyLast={copyLastCue} />
-          : <WordTab service={service} onOpenBible={onOpenBible} cueFiles={cueFiles} onOpenFile={setPreview} />)}
+          : <WordTab service={service} onOpenBible={onOpenBible} cueFiles={cueFiles} onOpenFile={setPreview} onEdit={editFrom('word')} />)}
         {activeTab === 'roles' && (editing
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })}
               seeded={seeded} onClearPrefill={clearPrefill} />
-          : <RolesTab rows={rows('roles')} people={people} nameOf={nameOf} namesReady={rosterReady} />)}
+          : <RolesTab rows={rows('roles')} people={people} nameOf={nameOf} namesReady={rosterReady} onEdit={editFrom('roles')} />)}
         {activeTab === 'songs' && (
           <>
             {editing
@@ -815,7 +825,7 @@ export function ServiceDetail({
                   onPlaylist={v => set({ praise_playlist_url: v })}
                   onPullPlaylist={onPullPlaylist} onLookupTitle={onLookupTitle} Thumb={SongThumb} />
               : <SongsTab rows={rows('songs')} leader={service.praise_leader || ''}
-                  playlistUrl={service.praise_playlist_url || ''} nameOf={nameOf} namesReady={rosterReady} />}
+                  playlistUrl={service.praise_playlist_url || ''} nameOf={nameOf} namesReady={rosterReady} onEdit={editFrom('songs')} />}
             {/* 송폼은 찬양 목록 바로 아래 한 구역이다(0047). 붙이고 지우는 것은 수정
                 화면에서, 보기 화면에는 줄만 선다 — 담당자·찬양·광고와 같은 문법이다.
                 큐시트 파일(말씀 탭)이 여기 섞이지 않는 것은 kind로 갈랐기 때문이다(0054). */}
@@ -825,7 +835,7 @@ export function ServiceDetail({
         )}
         {activeTab === 'notices' && (editing
           ? <NoticesEdit rows={rows('notices')} onChange={v => set({ notices: v })} />
-          : <NoticesTab rows={rows('notices')} serviceDate={service.service_date} real={real} namesReady={rosterReady}
+          : <NoticesTab rows={rows('notices')} serviceDate={service.service_date} real={real} namesReady={rosterReady} onEdit={editFrom('notices')}
               onCalendar={onAddToCalendar && !isDraft ? (i, n, r) => onAddToCalendar(service, i, n, r) : null} />)}
       </div>
 

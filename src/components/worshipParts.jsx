@@ -136,7 +136,9 @@ function useFillRest() {
 // children — 읽기 실패 때 제목 아래에 붙는 둘째 줄과 '다시 시도'(groupsParts FailTail · D2).
 // mark — 그림을 바꿀 때(내 예배 노트 0건은 노트 그림 · groupsParts NoteMark). alert — children이
 // 실패가 아니라 할 일 버튼일 때 false로 준다(그때는 경고 역할이 아니다).
-export function WorshipEmpty({ text, className = '', children, mark = null, alert = null }) {
+// onEdit — 주보 보기의 빈 탭에서 **편집할 수 있는 사람에게만** 문구 아래 작은 '수정'(BTN_SOFT · 노트·출석의 '수정'과
+// 같은 것 · 시안 E9 · 사용자 승인 2026-10-15). 누르면 그 탭을 연 채 수정으로 들어간다(부르는 쪽 ServiceDetail).
+export function WorshipEmpty({ text, className = '', children, mark = null, alert = null, onEdit = null }) {
   const [ref, minH] = useFillRest();
   return (
     <div ref={ref} className={`worship-empty flex flex-col items-center justify-center text-center ${className}`}
@@ -144,6 +146,11 @@ export function WorshipEmpty({ text, className = '', children, mark = null, aler
       {mark || <EmptyBookMark />}
       <p className="mt-3 text-[13.5px] font-semibold text-fg">{text}</p>
       {children}
+      {onEdit && (
+        <div className="mt-3">
+          <button type="button" onClick={onEdit} className={`worship-empty-edit ${BTN_SOFT}`}>수정</button>
+        </div>
+      )}
     </div>
   );
 }
