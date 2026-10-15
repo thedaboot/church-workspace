@@ -13,6 +13,7 @@ import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { keepShift, topPosition } from './utils.js';
 import { prefersReducedMotion } from './hooks/useReducedMotion.js';
+import { EXIT_MS } from './hooks/useExit.js';
 
 // ── 키보드가 올라와도 커서가 보이게 (2026-09-22 신고) ───────────────────────
 // 폰에서 업무 상세를 고칠 때, 커서가 있는 줄이 **저장·취소 바 뒤로** 들어가 손으로
@@ -512,6 +513,7 @@ function WorkspaceShell() {
   const modalHistRef = useRef(false);    // 지금 열린 창이 history에 제 자리를 갖고 있다
   const menuBeforeRef = useRef(null);    // 창을 열기 전 화면 — 검색·알림은 창과 함께 화면도 옮긴다
   const pendingBackRef = useRef(false);  // 닫기(✕·닫기·삭제)가 그 자리를 history.back()으로 걷는 중
+  const backLeaveRef = useRef(null);     // 뒤로가기로 닫는 창이 걷히는 중 — 닫히면 부를 것(열기 전 화면으로) · 그동안 주소를 쓰지 않는다
   const lastUrlRef = useRef('');         // 동기화 effect가 마지막으로 만든 주소
   const openTaskModal = useCallback((task, { history: remember = true } = {}) => {
     // 새 업무 폼(id 없음)도 한 자리를 남긴다(2026-10-15) — 예전에는 남기지 않아서 폰 뒤로가기가 폼을 묻지도 않고 닫고(자리가 없으니
@@ -524,6 +526,8 @@ function WorkspaceShell() {
   // 그냥 닫으면 걷히지 않은 자리가 남아 다음 뒤로가기 한 번이 아무 일도 안 하는 것처럼 보인다.
   // 지금 자리가 우리 것(state.taskModal)일 때만 — 아니면(창 안에서 링크로 건너뛴 자리 등) 예전처럼 주소만 고친다.
   const closeTaskModal = useCallback(() => {
+    const afterBack = backLeaveRef.current;
+    backLeaveRef.current = null;
     if (modalHistRef.current && window.history.state?.taskModal) {
       pendingBackRef.current = true;
       window.history.back();
@@ -537,6 +541,7 @@ function WorkspaceShell() {
     modalHistRef.current = false;
     modalOpenRef.current = false;
     setModalState({ isOpen: false, task: null });
+    afterBack?.();
   }, []);
 
   // 업무 창 핸들러의 기준 카드는 모달을 연 시점의 스냅샷(modalState.task)이 아니라
@@ -855,10 +860,24 @@ function WorkspaceShell() {
       const q = new URLSearchParams(window.location.search);
       if (modalHistRef.current && !q.get('t')) {
         modalHistRef.current = false;
-        modalOpenRef.current = false;
-        setModalState({ isOpen: false, task: null });
         const before = menuBeforeRef.current;
-        if (before && before !== activeMenuRef.current) { keepScrollRef.current = true; setActiveMenu(before); }
+        const back = () => { if (before && before !== activeMenuRef.current) { keepScrollRef.current = true; setActiveMenu(before); } };
+        // **창이 스스로 닫는 길로 닫는다**(2026-10-15 · UX 다듬기 2차 · PITFALLS 60-g) — 머리줄 ✕를 대신 누르면 업무 창이
+        // 밀린 쓰기를 흘리고 걷히는 모션(.dc-out · useLeave)을 그린 뒤 onClose(closeTaskModal)를 부른다. 예전에는 여기서 곧바로
+        // 내려서 폰 뒤로가기만 모션 없이 뚝 사라졌다. 움직임 줄이기면 useLeave가 기다리지 않는다(곧바로 닫힌다).
+        // 걷히는 동안은 주소를 쓰지 않는다(backLeaveRef — 창이 아직 열려 있어 t가 붙은 주소가 방금 돌아온 자리를 덮는다).
+        // modalHistRef를 먼저 내렸으니 closeTaskModal은 history.back()을 다시 부르지 않는다. 화면 되돌리기는 닫힌 뒤에.
+        // ✕가 안 닫으면(없거나 막혔으면) 걷힘 시간 뒤 예전처럼 곧바로 내린다.
+        const x = document.querySelector('[data-task-modal] button[aria-label="닫기"]');
+        const shut = () => {
+          if (backLeaveRef.current !== back) return;
+          backLeaveRef.current = null;
+          modalOpenRef.current = false;
+          setModalState({ isOpen: false, task: null });
+          back();
+        };
+        backLeaveRef.current = back;
+        if (x) { x.click(); setTimeout(shut, EXIT_MS + 400); } else shut();
         return;
       }
       // 뒤로가기는 **보던 자리로 돌아가는 것**이다 — 화면을 바꾼다고 스크롤을 맨 위로
@@ -906,7 +925,8 @@ function WorkspaceShell() {
     // 눌러야 움직이는 것처럼 보인다.
     lastUrlRef.current = next;
     // 닫기가 그 자리를 뒤로 걷는 중이면 쓰지 않는다 — 지금 자리는 곧 떠날 업무 창 자리다(onPop이 맞춘다)
-    if (pendingBackRef.current) return;
+    // 뒤로가기로 닫는 창이 걷히는 중에도 — 지금 자리는 이미 돌아온 자리다(창이 닫히면 다시 돈다)
+    if (pendingBackRef.current || backLeaveRef.current) return;
     const push = pushNextUrlRef.current;
     pushNextUrlRef.current = false;
     // 앱 안에서 연 업무 창 — 같은 주소여도(새 업무 만들기) 한 자리를 남긴다. 표시(state.taskModal)로 우리 자리임을 안다.

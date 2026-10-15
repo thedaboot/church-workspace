@@ -1054,6 +1054,114 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   check('② 사진 미리보기(1440×900): 넘김 필이 사진 아래 끝을 덮지 않는다', !!pager && pager.imgH > 300 && pager.pillTop >= pager.imgBottom, JSON.stringify(pager));
 }
 
+// ── 미리보기 — 실패 카드 '다시 시도'(C9) · PDF는 화면 가까운 쪽만 그리고 '3 / 7' 알약(C11) (2026-10-15 · UX 다듬기 2차 · PITFALLS 60-d·60-e) ──
+// 앱과 같은 react로 FilePreviewModal을 직접 그린다(위 ②와 같은 길).
+// ① 드라이브 PDF를 게스트에서 열면 받기가 실패한다(로그인 토큰이 없다) — 실패 카드 위 그림은 'PDF' 글자 칩(48px) · '다시 시도'(accent)와
+//    '새 탭에서 열기'(옅은 버튼) · 다시 시도는 실제로 다시 받는다(실패 경고가 한 번 더). 그리기 실패(깨진 PDF 바이트)에는 '다시 시도'가 없다.
+// ② 60쪽 PDF — 쪽마다 자리는 다 깔리고(스크롤 높이) 캔버스는 화면 가까운 몇 장뿐 · 가운데로 내리면 그 쪽이 그려지고 첫 쪽은 빈 자리로 돌아간다 ·
+//    내리는 동안 알약 'N / 60'이 바닥에서 24px · 멎고 1.2초 뒤 걷힌다. 예전에는 50쪽에서 끊고 알약이 없었다.
+// 되돌리기: FilePreviewModal Fallback의 onRetry 갈래를 지우면 ①이, PdfView를 앞 판(다 그리고 50쪽 상한)으로 돌리면 ②가 깨진다.
+{
+  const pv = await ev(`(async () => {
+    const main = await (await fetch('/src/main.jsx')).text();
+    const reactUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)?.[1];
+    const clientUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)?.[1];
+    if (!reactUrl || !clientUrl) return null;
+    const R = await import(reactUrl), C = await import(clientUrl);
+    const React = R.default ?? R, createRoot = (C.default ?? C).createRoot;
+    const { FilePreviewModal } = await import('/src/components/FilePreviewModal.jsx');
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const until = async (fn, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = fn(); if (v) return v; await sleep(80); } return null; };
+    const warns = []; const ow = console.warn, oe = console.error;
+    console.warn = (...a) => { warns.push(String(a[0])); }; console.error = () => {};
+    const host = document.createElement('div'); document.body.appendChild(host);
+    const root = createRoot(host);
+    const out = {};
+    try {
+      // ① 받기 실패 → 종류 칩 · 다시 시도 · 옅은 새 탭
+      const row = { id: 'pdf-drive', name: '26.10.04 청년콘티.pdf', mime_type: 'application/pdf', source: 'drive', drive_file_id: 'abcdefghijklmnop', web_view_link: 'https://drive.google.com/file/d/x/view' };
+      root.render(React.createElement(FilePreviewModal, { row, rows: [row], onClose: () => {} }));
+      const btnOf = (t) => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === t);
+      await until(() => btnOf('다시 시도'));
+      const chipEl = document.querySelector('[data-kind-chip="pdf"]');
+      const chip = chipEl ? { t: chipEl.textContent.trim(), w: Math.round(chipEl.getBoundingClientRect().width) } : null;
+      const again = btnOf('다시 시도'), ext = btnOf('새 탭에서 열기');
+      const fails0 = warns.filter(w => w.includes('미리보기 실패')).length;
+      again?.click();
+      await sleep(900);
+      out.fail = { chip,
+        againAccent: !!again && / bg-accent /.test(' ' + again.className + ' '), extSoft: !!ext && /bg-accent-weak/.test(ext.className),
+        fails0, fails1: warns.filter(w => w.includes('미리보기 실패')).length, againBack: !!btnOf('다시 시도') };
+      // 그리기 실패(깨진 바이트) — 다시 시도 없음 · 새 탭은 진한 버튼 그대로
+      const bad = new Blob(['not a pdf at all'], { type: 'application/pdf' });
+      const broken = { id: 'pdf-bad', name: 'broken.pdf', mime_type: 'application/pdf', source: 'local', _file: bad, size_bytes: bad.size };
+      root.render(React.createElement(FilePreviewModal, { key: 'b', row: broken, rows: [broken], onClose: () => {} }));
+      await until(() => document.body.innerText.includes('그릴 수 없어요'), 15000);
+      await sleep(300);
+      out.draw = { retry: !!btnOf('다시 시도'), ext: !!btnOf('새 탭에서 열기') };
+
+      // ② 60쪽 PDF(쪽마다 'Page N')
+      const mkPdf = (n) => {
+        const NL = String.fromCharCode(10);
+        const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+        const kids = [];
+        for (let i = 0; i < n; i++) {
+          kids.push((4 + i * 2) + ' 0 R');
+          const c = 'BT /F1 48 Tf 100 700 Td (Page ' + (i + 1) + ') Tj ET';
+          objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ' + (5 + i * 2) + ' 0 R >>');
+          objs.push('<< /Length ' + c.length + ' >>' + NL + 'stream' + NL + '' + c + '' + NL + 'endstream');
+        }
+        objs[1] = '<< /Type /Pages /Kids [' + kids.join(' ') + '] /Count ' + n + ' >>';
+        let s = '%PDF-1.4' + NL + ''; const offs = [];
+        objs.forEach((o, k) => { offs.push(s.length); s += (k + 1) + ' 0 obj' + NL + '' + o + '' + NL + 'endobj' + NL + ''; });
+        const x = s.length;
+        s += 'xref' + NL + '0 ' + (objs.length + 1) + '' + NL + '0000000000 65535 f ' + NL + '' + offs.map(o => String(o).padStart(10, '0') + ' 00000 n ' + NL + '').join('');
+        s += 'trailer' + NL + '<< /Size ' + (objs.length + 1) + ' /Root 1 0 R >>' + NL + 'startxref' + NL + '' + x + '' + NL + '%%EOF';
+        return new Blob([s], { type: 'application/pdf' });
+      };
+      const blob = mkPdf(60);
+      const doc = { id: 'pdf-60', name: '60쪽.pdf', mime_type: 'application/pdf', source: 'local', _file: blob, size_bytes: blob.size };
+      root.render(React.createElement(FilePreviewModal, { key: 'p', row: doc, rows: [doc], onClose: () => {} }));
+      const layer = await until(() => { const l = document.querySelector('[data-zoom-layer]'); return l && l.querySelector('canvas') && l.parentElement.className.indexOf('opacity-0') < 0 ? l : null; }, 15000);
+      if (!layer) return { ...out, pdf: 'no-layer' };
+      await sleep(600);
+      const box = layer.parentElement;
+      const canvases = () => layer.querySelectorAll('canvas').length;
+      out.first = { slots: layer.children.length, canvases: canvases(), scrollH: box.scrollHeight, clientH: box.clientHeight,
+        page1: layer.children[0]?.tagName, pill: !!document.querySelector('[data-pdf-page]') };
+      // 가운데(30쪽)로
+      const target = layer.children[29];
+      box.scrollTop = target.offsetTop - 40;
+      box.dispatchEvent(new Event('scroll'));
+      await until(() => layer.children[29]?.tagName === 'CANVAS', 8000);
+      await sleep(500);
+      const pill = document.querySelector('[data-pdf-page]');
+      const pr = pill?.getBoundingClientRect(), wr = box.parentElement.getBoundingClientRect();
+      out.mid = { p30: layer.children[29]?.tagName, p1: layer.children[0]?.tagName, canvases: canvases(),
+        pillText: pill?.textContent.trim(), pillOpacity: pill ? getComputedStyle(pill).opacity : null,
+        pillGap: pr ? Math.round(wr.bottom - pr.bottom) : null };
+      await sleep(1900);
+      out.later = { pillOpacity: pill ? getComputedStyle(pill).opacity : null };
+    } finally {
+      console.warn = ow; console.error = oe;
+      root.unmount(); host.remove();
+    }
+    return out;
+  })()`, true);
+  const f = pv?.fail || {};
+  check('미리보기 실패(받기): PDF 글자 칩 48px · 다시 시도(accent) + 새 탭에서 열기(옅은) · 다시 시도가 다시 받는다',
+    f.chip?.t === 'PDF' && f.chip?.w === 48 && f.againAccent && f.extSoft && f.fails1 === f.fails0 + 1 && f.againBack, JSON.stringify(pv?.fail ?? pv));
+  check('미리보기 실패(그리기): 다시 시도 없이 새 탭에서 열기만', pv?.draw && !pv.draw.retry && pv.draw.ext, JSON.stringify(pv?.draw ?? pv));
+  const a = pv?.first || {}, b = pv?.mid || {}, c = pv?.later || {};
+  check('PDF 60쪽: 쪽 자리는 다 깔리고 캔버스는 화면 가까운 몇 장뿐(50쪽 상한 없음)',
+    a.slots === 60 && a.canvases >= 1 && a.canvases <= 12 && a.scrollH > a.clientH * 20 && a.page1 === 'CANVAS', JSON.stringify(pv?.first ?? pv));
+  check('PDF 60쪽: 가운데로 내리면 그 쪽을 그리고 멀어진 첫 쪽은 빈 자리로 돌린다',
+    b.p30 === 'CANVAS' && b.p1 === 'DIV' && b.canvases <= 12, JSON.stringify(b));
+  check("PDF 쪽 알약: 내리는 동안 'N / 60'이 바닥에서 24px · 멎고 1.2초 뒤 걷힌다",
+    /^(29|30|31) \/ 60$/.test(b.pillText || '') && Number(b.pillOpacity) > 0.9 && Math.abs((b.pillGap ?? 0) - 24) <= 1 && Number(c.pillOpacity) < 0.05,
+    JSON.stringify({ b, c }));
+}
+
 // ── 폰 키보드 · 뒤로가기 · 닫은 뒤 초점 (2026-10-14 점검 · PITFALLS 47-a~d) ──────────────────────────────
 // 키보드는 visualViewport 높이만 줄여 흉내 낸다(PITFALLS 42-g — 레이아웃 뷰포트는 그대로라 아이폰과 같다).
 // 되돌리기 검사: App.jsx caretGap의 스크롤 통 자르기를 빼면 ①이, index.css `.cmt-input` 비키기를 빼면 ①(SE 폭)이,
@@ -1128,6 +1236,26 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   const h2 = await hist();
   check('뒤로가기: 앱 안에서 연 업무 창은 history 한 자리 · 뒤로가기는 창만 닫는다',
     !h0.open && h1.open && h1.tagged && !h2.open && !h2.tagged && h2.url === h0.url, JSON.stringify({ h0, h1, h2 }));
+  // ③-b 뒤로가기도 ✕처럼 걷히며 닫힌다(2026-10-15 · PITFALLS 60-g) — 창에 .dc-out이 붙었다가 내린다 · 움직임 줄이기면 곧바로(.dc-out 없이).
+  //      되돌리기: App onPop의 '✕ 누르기'를 예전 곧바로 내리기로 돌리면 첫 단정(out)이 깨진다.
+  const watchOut = `(() => { window.__outSeen = false; window.__outMo?.disconnect();
+    window.__outMo = new MutationObserver(() => { if (document.querySelector('[data-task-modal] .dc-out')) window.__outSeen = true; });
+    window.__outMo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] }); return true; })()`;
+  await openWithFocus(); await sleep(800);
+  await ev(watchOut);
+  await ev(`history.back()`); await sleep(90);
+  const b1 = { open: await ev(`!!document.querySelector('.fixed.z-50')`) };
+  await sleep(700);
+  const b2 = { ...(await hist()), out: await ev('window.__outSeen') };
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await openWithFocus(); await sleep(800);
+  await ev(watchOut);
+  await ev(`history.back()`); await sleep(90);
+  const b3 = { ...(await hist()), out: await ev('window.__outSeen') };
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  await ev('window.__outMo?.disconnect()');
+  check('뒤로가기도 걷히며 닫힌다(.dc-out 뒤에 내림 · 자리·주소 그대로) · 움직임 줄이기면 곧바로',
+    b1.open && b2.out && !b2.open && !b2.tagged && b2.url === h0.url && !b3.open && !b3.out && b3.url === h0.url, JSON.stringify({ b1, b2, b3 }));
   await openWithFocus(); await sleep(800);
   const h3 = await hist();
   await ev(`${byLabel('닫기')}?.click()`); await sleep(800);
