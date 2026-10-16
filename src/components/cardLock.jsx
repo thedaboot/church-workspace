@@ -3,6 +3,8 @@ import { usePopover } from '../hooks/usePopover.js';
 import { useReducedMotion } from '../hooks/useReducedMotion.js';
 import { imeComposing } from '../utils.js';
 import { LOCK_MOTION_MS, lockFormError } from '../services/cardLock.js';
+import { ConfirmPopover } from './ConfirmPopover.jsx';
+import { BTN } from './buttons.js';
 
 // ============================================================================
 // 업무 잠금(0099) — 자물쇠 그림 · 업무 창 머리줄 자물쇠 버튼 + `업무 잠그기` 팝오버 · 잠금 판 · 판이 접히고 걷히는 모션 · 보드 카드 자물쇠
@@ -17,6 +19,13 @@ import { LOCK_MOTION_MS, lockFormError } from '../services/cardLock.js';
 //   LockGate        잠금 판 ↔ 본문. **잠길 때·열릴 때만** 움직인다(약 420ms · 앱 quint 하나 · index.css .dc-lock-*):
 //                   잠길 때 고리가 내려와 닫히며 본문이 흐려져(blur) 판으로 접히고, 열릴 때 고리가 올라가며 판이 걷히고 본문이
 //                   또렷해진다. 처음 그릴 때와 움직임 줄이기(prefers-reduced-motion)면 즉시. 다른 자리(보드 카드 자물쇠)는 움직이지 않는다.
+//
+// ── 시안 2026-10-16 '비밀번호를 까먹었어요'(**게스트에서만** — 클라우드에는 요청을 담을 칸·알림 종류가 없다) ──
+//   LockedPanel     입력 줄 아래 글자 버튼 `비밀번호를 까먹었어요` → 확인 판(ConfirmPopover) → 그 업무에 요청을 적고
+//                   그 자리는 `마스터에게 요청했어요`가 된다(onForgot · asked — 부르는 쪽 modals.jsx가 넘긴다).
+//   LockResetNotice 마스터에게, 요청이 걸린 잠긴 업무의 보기 화면 위 한 줄 — `○○님이 비밀번호를 다시 정해 달라고 했어요` +
+//                   `새 비밀번호 정하기`(잠그기 팝오버와 같은 두 칸 · LockForm 한 벌). 정하면 요청이 지워진다.
+//   게스트는 마스터이자 요청한 사람이라(auth 기본값) 둘이 한 화면에 같이 선다.
 // ============================================================================
 
 // 자물쇠 그림 — lucide Lock과 같은 선(몸통 + 고리). 고리만 따로 움직이게 path에 클래스를 단다.
@@ -54,37 +63,65 @@ function useShake(refs) {
 const fieldCls = (bad) => `h-[34px] px-2.5 rounded-lg bg-surface-2 text-[13px] text-fg outline-none border transition-colors ${
   bad ? 'border-tag-red-fg' : 'border-line focus:border-accent'}`;
 
-// 머리줄 자물쇠(만든 사람에게만 — 부르는 쪽이 가른다). onLock(pw) / onUnlock() → 약속(실패면 던진다 — 부르는 쪽이 토스트).
-export function CardLockButton({ locked, onLock, onUnlock }) {
-  const pop = usePopover(250, 190, { gap: 8, measure: true });
-  const reduced = useReducedMotion();
+// 잠그기 팝오버의 두 칸 + 아래 줄 한 벌 — 머리줄 자물쇠(CardLockButton)와 마스터의 새 비밀번호 정하기(ResetLockButton)가 같이 쓴다.
+// onSubmit(pw) → 약속(실패면 던진다 — 부르는 쪽이 토스트) · 맞으면 onDone. extra는 왼쪽 끝 버튼(잠금 해제).
+function LockForm({ open, title, submitLabel, onSubmit, onCancel, onDone, extra = null, busy: outerBusy = false }) {
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [busy, setBusy] = useState(false);
   const pwRef = useRef(null);
   const pw2Ref = useRef(null);
   const shake = useShake({ pw: pwRef, confirm: pw2Ref });
+  useEffect(() => { if (!open) { setPw(''); setPw2(''); shake.clear(); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const submit = async () => {
+    if (busy || outerBusy) return;
+    const bad = lockFormError(pw, pw2);
+    if (bad) { shake.flag(bad); return; }
+    setBusy(true);
+    try { await onSubmit(pw); onDone?.(); } catch { /* 부르는 쪽이 토스트 */ } finally { setBusy(false); }
+  };
+  const onKey = (e) => { if (e.key === 'Enter' && !imeComposing(e)) { e.preventDefault(); submit(); } };
+  return (
+    <div data-card-lock-pop="" className="flex flex-col gap-2">
+      <div className="text-[12.5px] font-bold text-fg">{title}</div>
+      <label className="flex flex-col gap-1 text-[11px] text-fg-muted">비밀번호
+        <input ref={pwRef} type="password" autoComplete="new-password" value={pw} autoFocus
+          onChange={e => { setPw(e.target.value); shake.clear(); }} onKeyDown={onKey} data-lock-field="pw" aria-invalid={shake.bad === 'pw'}
+          className={fieldCls(shake.bad === 'pw')} />
+      </label>
+      <label className="flex flex-col gap-1 text-[11px] text-fg-muted">비밀번호 확인
+        <input ref={pw2Ref} type="password" autoComplete="new-password" value={pw2}
+          onChange={e => { setPw2(e.target.value); shake.clear(); }} onKeyDown={onKey} data-lock-field="confirm" aria-invalid={shake.bad === 'confirm'}
+          className={fieldCls(shake.bad === 'confirm')} />
+      </label>
+      <div className="flex items-center gap-1.5 justify-end mt-0.5">
+        {extra}
+        <button type="button" onClick={onCancel}
+          className="px-3 py-1.5 rounded-[7px] bg-surface-hover text-fg-muted text-[12px] font-semibold hover:bg-line">취소</button>
+        <button type="button" onClick={submit} disabled={busy || outerBusy} data-lock-submit=""
+          className="px-3 py-1.5 rounded-[7px] bg-accent hover:bg-accent-strong text-white text-[12px] font-bold disabled:opacity-40">{submitLabel}</button>
+      </div>
+    </div>
+  );
+}
+
+// 머리줄 자물쇠(만든 사람에게만 — 부르는 쪽이 가른다). onLock(pw) / onUnlock() → 약속(실패면 던진다 — 부르는 쪽이 토스트).
+export function CardLockButton({ locked, onLock, onUnlock }) {
+  const pop = usePopover(250, 190, { gap: 8, measure: true });
+  const reduced = useReducedMotion();
+  const [busy, setBusy] = useState(false);
   const [stir, setStir] = useState(null);   // 'shut' | 'lift' — 버튼 고리가 한 번 움직인다
-  useEffect(() => { if (!pop.open) { setPw(''); setPw2(''); shake.clear(); } }, [pop.open]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!stir) return undefined;
     const t = setTimeout(() => setStir(null), LOCK_MOTION_MS);
     return () => clearTimeout(t);
   }, [stir]);
   const done = (kind) => { pop.close(); if (!reduced) setStir(kind); };
-  const submit = async () => {
-    if (busy) return;
-    const bad = lockFormError(pw, pw2);
-    if (bad) { shake.flag(bad); return; }
-    setBusy(true);
-    try { await onLock(pw); done('shut'); } catch { /* 부르는 쪽이 토스트 */ } finally { setBusy(false); }
-  };
   const release = async () => {
     if (busy) return;
     setBusy(true);
     try { await onUnlock(); done('lift'); } catch { /* 부르는 쪽이 토스트 */ } finally { setBusy(false); }
   };
-  const onKey = (e) => { if (e.key === 'Enter' && !imeComposing(e)) { e.preventDefault(); submit(); } };
   return (
     <span ref={pop.rootRef} className="inline-flex shrink-0">
       <span ref={pop.btnRef} className="inline-flex">
@@ -96,37 +133,46 @@ export function CardLockButton({ locked, onLock, onUnlock }) {
         </button>
       </span>
       {pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated px-3.5 py-3', (
-        <div data-card-lock-pop="" className="flex flex-col gap-2">
-          <div className="text-[12.5px] font-bold text-fg">업무 잠그기</div>
-          <label className="flex flex-col gap-1 text-[11px] text-fg-muted">비밀번호
-            <input ref={pwRef} type="password" autoComplete="new-password" value={pw} autoFocus
-              onChange={e => { setPw(e.target.value); shake.clear(); }} onKeyDown={onKey} data-lock-field="pw" aria-invalid={shake.bad === 'pw'}
-              className={fieldCls(shake.bad === 'pw')} />
-          </label>
-          <label className="flex flex-col gap-1 text-[11px] text-fg-muted">비밀번호 확인
-            <input ref={pw2Ref} type="password" autoComplete="new-password" value={pw2}
-              onChange={e => { setPw2(e.target.value); shake.clear(); }} onKeyDown={onKey} data-lock-field="confirm" aria-invalid={shake.bad === 'confirm'}
-              className={fieldCls(shake.bad === 'confirm')} />
-          </label>
-          <div className="flex items-center gap-1.5 justify-end mt-0.5">
-            {locked && (
-              <button type="button" onClick={release} disabled={busy} data-lock-release=""
-                className="mr-auto px-2 py-1.5 rounded-[7px] text-[12px] font-semibold text-fg-muted hover:text-fg hover:bg-surface-hover disabled:opacity-40">잠금 해제</button>
-            )}
-            <button type="button" onClick={pop.close}
-              className="px-3 py-1.5 rounded-[7px] bg-surface-hover text-fg-muted text-[12px] font-semibold hover:bg-line">취소</button>
-            <button type="button" onClick={submit} disabled={busy} data-lock-submit=""
-              className="px-3 py-1.5 rounded-[7px] bg-accent hover:bg-accent-strong text-white text-[12px] font-bold disabled:opacity-40">잠그기</button>
-          </div>
-        </div>
+        <LockForm open={pop.open} title="업무 잠그기" submitLabel="잠그기" onSubmit={onLock} onCancel={pop.close} onDone={() => done('shut')} busy={busy}
+          extra={locked && (
+            <button type="button" onClick={release} disabled={busy} data-lock-release=""
+              className="mr-auto px-2 py-1.5 rounded-[7px] text-[12px] font-semibold text-fg-muted hover:text-fg hover:bg-surface-hover disabled:opacity-40">잠금 해제</button>
+          )} />
       ))}
     </span>
   );
 }
 
+// 마스터의 새 비밀번호 정하기(시안 · 게스트) — 잠그기 팝오버와 같은 두 칸. onReset(pw) → 약속(실패면 던진다).
+function ResetLockButton({ onReset }) {
+  const pop = usePopover(250, 190, { gap: 8, measure: true });
+  return (
+    <span ref={pop.rootRef} className="inline-flex shrink-0">
+      <span ref={pop.btnRef} className="inline-flex">
+        <button type="button" onClick={pop.toggle} aria-expanded={pop.open} data-lock-reset-open="" className={`${BTN} whitespace-nowrap`}>새 비밀번호 정하기</button>
+      </span>
+      {pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated px-3.5 py-3', (
+        <LockForm open={pop.open} title="새 비밀번호 정하기" submitLabel="정하기" onSubmit={onReset} onCancel={pop.close} onDone={pop.close} />
+      ))}
+    </span>
+  );
+}
+
+// 마스터에게 — 요청이 걸린 잠긴 업무의 보기 화면 위 한 줄(시안 · 게스트). by: 요청한 사람 이름.
+export function LockResetNotice({ by, onReset }) {
+  return (
+    <div data-lock-reset-ask="" className="flex flex-wrap items-center gap-x-2.5 gap-y-2 mt-4 pl-3 pr-2 py-2 rounded-[10px] bg-accent-weak">
+      <LockGlyph size={15} strokeWidth={2.2} className="text-accent-text shrink-0" />
+      <span className="flex-1 min-w-[160px] text-[12.5px] leading-snug text-fg">{by}님이 비밀번호를 다시 정해 달라고 했어요</span>
+      <ResetLockButton onReset={onReset} />
+    </div>
+  );
+}
+
 // 못 여는 사람의 본문 자리. onUnlock(pw) → 약속<boolean>(맞으면 true · 틀렸거나 1분 5회를 넘었으면 false · 통신 실패는 던진다).
 // stir: LockGate가 넘기는 'shut' | 'lift' — 판의 자물쇠 고리가 한 번 움직인다.
-export function LockedPanel({ onUnlock, stir = null }) {
+// onForgot() → 약속(시안 · 게스트만 넘긴다) — 없으면 `비밀번호를 까먹었어요`가 서지 않는다. asked: 내가 이미 요청했나.
+export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = false }) {
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
@@ -153,6 +199,14 @@ export function LockedPanel({ onUnlock, stir = null }) {
         <button type="button" onClick={submit} disabled={busy} data-lock-enter=""
           className="h-9 px-3.5 rounded-[9px] bg-accent hover:bg-accent-strong text-white text-[12.5px] font-bold shrink-0 disabled:opacity-40">입력</button>
       </div>
+      {onForgot && (asked ? (
+        <div data-lock-forgot-asked="" className="mt-0.5 text-[11.5px] text-fg-muted">마스터에게 요청했어요</div>
+      ) : (
+        <ConfirmPopover message="마스터에게 비밀번호를 다시 정해 달라고 요청할까요?" confirmLabel="요청하기" tone="ok" onConfirm={onForgot}>
+          <button type="button" data-lock-forgot=""
+            className="mt-0.5 text-[11.5px] text-fg-muted underline underline-offset-2 decoration-line hover:text-fg">비밀번호를 까먹었어요</button>
+        </ConfirmPopover>
+      ))}
     </div>
   );
 }

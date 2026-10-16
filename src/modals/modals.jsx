@@ -39,7 +39,7 @@ import { getMemberNames, loadCardDetail, loadCardPatch, cardWritePromise, lockCa
 import { isCardClosed, allowTry } from '../services/cardLock.js';
 import { makeViewPw, verifyViewPw } from '../services/viewPw.js';
 import { failText } from '../services/errorText.js';
-import { CardLockButton, LockedPanel, LockGate } from '../components/cardLock.jsx';
+import { CardLockButton, LockedPanel, LockGate, LockResetNotice } from '../components/cardLock.jsx';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useLeave } from '../hooks/useExit.js';
@@ -107,7 +107,7 @@ function useAfterPaint() {
 // 넘기고, 그 자리에서 그 업무의 보기 화면이 된다(첨부는 예전처럼 카드가 들어간 뒤 올린다).
 export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddComment, onUpdateComment, onDeleteComment, onFileActivity, onDelete }) {
   const currentUser = useStore(selectCurrentUser);
-  const { enabled, session, isAdmin } = useAuth();
+  const { enabled, session, isAdmin, isMaster } = useAuth();
   const cloudMode = enabled && !!session;
   const userId = session?.user?.id;
   const isNew = !task.id;
@@ -432,6 +432,22 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       return true;
     } catch (e) { console.error('[cloud] 잠긴 업무 열기 실패:', e); showToast(failText('업무를 열지 못했어요', e)); throw e; }
   };
+  // 비밀번호를 까먹었어요(시안 2026-10-16 · **게스트만** — 클라우드에는 요청 칸·알림 종류가 없어 버튼을 세우지 않는다).
+  // 요청은 그 업무에 적는다(lockReset { by, at }) — 게스트에는 알림 저장 자리가 없어 마스터는 그 업무를 열 때 머리 한 줄로 본다.
+  // 마스터가 새 비밀번호를 정하면 해시를 바꾸고 요청을 지운다(내가 맞혀 둔 열림은 그대로 · 다른 사람은 새 비밀번호로).
+  const lockAsk = !isNew && source.locked ? source.lockReset || null : null;
+  // 시안 데이터로 뜬 게스트만(domain.MockFactory의 demo) — 스위트가 심은 게스트는 예전 잠금 판 그대로다
+  const demo = useStore(s => !!s.demo) && !cloudMode;
+  const askReset = !demo ? null : async () => {
+    sync({ id: cardId, lockReset: { by: currentUser.name || '', at: new Date().toISOString() } });
+  };
+  const resetPw = async (pw) => {
+    try {
+      sync({ id: cardId, lockPw: await makeViewPw(pw), lockReset: null });
+      showToast('새 비밀번호를 정했어요');
+    } catch (e) { console.error('[guest] 새 비밀번호 정하기 실패:', e); showToast(failText('새 비밀번호를 정하지 못했어요', e)); throw e; }
+  };
+  const lockNotice = demo && lockAsk && isMaster ? <LockResetNotice by={lockAsk.by} onReset={resetPw} /> : null;
 
   // ── 보기 ↔ 수정 ───────────────────────────────────────────────────────
   const enterEdit = () => { setMode('edit'); if (isMobile) setMobileTab('detail'); };
@@ -613,6 +629,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />
       : <TaskView key={task.id} task={source} commit={commit} co={co} coPending={cloudMode && !co && !coFailed && !closed}
           liveMd={liveMd} editors={editors} closed={closed} onUnlock={tryUnlock}
+          lockNotice={lockNotice} onForgot={askReset} asked={!!lockAsk && lockAsk.by === currentUser.name}
           cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />;
   // 잠금 판이 서 있으면 댓글·활동·버전 기록 자리는 비운다 — 사이드바는 접히고(데스크톱) 탭은 상세 하나(폰). 판은 본문 자리 하나뿐이다.
@@ -890,7 +907,7 @@ function moveStatus(cardId, status, commit, cloudMode) {
 // editors(나 말고 수정 화면에 있는 사람)가 있으면 본문 위 알약과 그 사람이 있는 줄 표시(coedit.jsx)가 선다.
 // **본문 통은 오른쪽 28px(pr-7)을 늘 비워 둔다** — 줄 표시 얼굴이 그 안에 서서 잘리지 않고, 누가 들어와도 글줄이 다시 흐르지 않는다.
 // closed(업무 잠금 · 0099)면 위 줄들(상태·팀·제목·담당자·날짜·선행 업무) 아래가 **잠금 판 하나**다(LockGate — 잠길 때·열릴 때만 움직인다).
-function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = false, onUnlock, cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
+function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = false, onUnlock, lockNotice = null, onForgot = null, asked = false, cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
   const summary = useTaskSummary(task, cloudMode);
   const md = liveMd ?? task.content ?? '';
   const [bodyEl, setBodyEl] = useState(null);   // 줄 표시가 재는 통(coedit.jsx PresenceMarks)
@@ -950,7 +967,8 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
         <DependsViewRow dependsOn={task.dependsOn} />
       </div>
 
-      <LockGate closed={closed} panel={(stir) => <div className="mt-5"><LockedPanel onUnlock={onUnlock} stir={stir} /></div>}>
+      {lockNotice}
+      <LockGate closed={closed} panel={(stir) => <div className="mt-5"><LockedPanel onUnlock={onUnlock} stir={stir} onForgot={onForgot} asked={asked} /></div>}>
       <div>
       {summary.block && <div className="mt-4">{summary.block}</div>}
       {/* 본문 위 한 줄 — 왼쪽은 '○○○님이 수정 중'(남이 수정 화면일 때만), 오른쪽은 3줄 요약 버튼(hover로 숨기지 않는다) */}

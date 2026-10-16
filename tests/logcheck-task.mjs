@@ -1225,3 +1225,36 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(Q.uploadingByCard.has(key), false, '빨간 줄도 남지 않는다');
   console.log('PASS  올리는 진행 · 올리기 멈춤 · 받는 진행(transfer · uploadQueue) 22가지');
 }
+
+// ── 시안 2026-10-16 — 공유 주소 링크를 앱 안에서 열기(services/appLink.js) · 보는 사람 직접 고르기(visibility.js 게스트 칸) ─────────
+// 공유 버튼이 복사하는 `/s/t/<업무>`·`/s/p/<프로젝트>`를 본문에서 누르면 페이지 전체를 새로 읽었다 — 판정이 `?p=&t=`만 알았다.
+// **되돌리기**: appLink.js에서 SHARE_PATH 갈래(`if (share) …`)를 지우면 ①②가, toggleViewerTeam의 `rest.some` 거르기를 빼면 ⑥이 깨진다.
+{
+  const { parseAppLink } = await loadSource('src/services/appLink.js');
+  const here = 'https://app.example.org/?p=dash';
+  assert.deepStrictEqual(parseAppLink('https://app.example.org/s/t/abc-123', here), { projectId: null, taskId: 'abc-123', share: true }, '① 공유 업무 주소');
+  assert.deepStrictEqual(parseAppLink('/s/p/p-9/', here), { projectId: 'p-9', taskId: null, share: true }, '② 공유 프로젝트 주소(상대 · 끝 빗금)');
+  assert.deepStrictEqual(parseAppLink('https://app.example.org/?p=p1&t=t1', here), { projectId: 'p1', taskId: 't1', share: false }, '③ 옛 모양 그대로');
+  assert.strictEqual(parseAppLink('https://other.example.org/s/t/abc', here), null, '④ 다른 origin은 평범한 링크');
+  assert.strictEqual(parseAppLink('https://app.example.org/s/c/club1?apply=1', here), null, '⑤ 동아리 QR(/s/c)은 api/share가 받는다');
+  assert.strictEqual(parseAppLink('https://app.example.org/s/t/', here), null, '⑤ id 없는 공유 주소');
+  assert.strictEqual(parseAppLink('not a url ::', 'nope'), null, '⑤ 잘못된 기준 주소');
+  const rich = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
+  assert.ok(rich.includes('parseAppLink(href, window.location.href)'), 'RichText InlineLink가 appLink 판정을 쓴다');
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/if \(taskId && share\) return false;/.test(app), '스토어에 없는 공유 업무는 주소로 보낸다(삭제 토스트를 띄우지 않는다)');
+
+  const V = await loadSource('src/services/visibility.js');
+  const people = [{ name: '나', teams: ['미디어팀'] }, { name: '은지', teams: ['웰컴팀', '임원진'] }, { name: '수빈', teams: ['웰컴팀'] }, { name: '지훈', teams: ['임원진'] }];
+  let v = V.toggleViewerTeam({ viewers: ['나'], viewerTeams: [] }, '웰컴팀', people, '나');
+  assert.deepStrictEqual(v, { viewers: ['나', '은지', '수빈'], viewerTeams: ['웰컴팀'] }, '팀 칩을 켜면 그 팀 사람이 다 들어간다');
+  v = V.toggleViewerTeam(v, '임원진', people, '나');
+  assert.deepStrictEqual(v.viewers, ['나', '은지', '수빈', '지훈'], '겸직은 한 번만');
+  v = V.toggleViewerTeam(v, '웰컴팀', people, '나');
+  assert.deepStrictEqual(v, { viewers: ['나', '은지', '지훈'], viewerTeams: ['임원진'] }, '⑥ 끄면 그 팀에만 걸린 사람만 빠진다(겸직 은지는 남는다)');
+  assert.deepStrictEqual(V.toggleViewerTeam({ viewers: ['나'], viewerTeams: ['미디어팀'] }, '미디어팀', people, '나').viewers, ['나'], '나는 빠지지 않는다');
+  const proj = { visibility: V.CUSTOM, viewers: ['은지'], visibilityBy: '나' };
+  assert.ok(V.canSeeProject(proj, '은지') && V.canSeeProject(proj, '나') && !V.canSeeProject(proj, '수빈'), '직접 고른 사람·정한 사람만 본다');
+  assert.ok(V.canSeeProject({ visibility: 'all' }, '수빈') && V.isRestricted(proj) && V.isRestricted({ visibility: V.LEADERS }) && !V.isRestricted({}), '공개·자물쇠 판정');
+  console.log('PASS  공유 주소 링크를 앱 안에서 · 보는 사람 직접 고르기(시안) 15가지');
+}

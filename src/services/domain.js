@@ -155,14 +155,47 @@ export const TaskService = {
 export const MockFactory = {
   createUser: (name = '홍길동', team = '미디어팀') => ({ name, team }),
   createProject: (title, pinnedLinks = []) => ({ id: generateId(), title, pinnedLinks }),
+  // 처음 연 게스트(저장된 것이 없을 때)의 시연 데이터 — 시안 2026-10-16(보는 사람 직접 고르기 · 비밀번호를 까먹었어요 · 업무 링크 카드)이
+  // 손을 대지 않고도 보이게 짰다. 스위트는 저마다 church_app_v4를 심고 들어오므로 여기를 타지 않는다.
+  //   p2  직접 고른 사람만(웰컴팀 칩 + 교역자 한 사람 · 웰컴팀의 정하늘은 뺐다) — 사람은 data/guestPeople.js
+  //   t3  김은지가 잠근 업무(비밀번호 1234 — viewPw와 같은 해시) · 나(홍길동)에게는 잠금 판이다
+  //   t1  댓글에 공유 주소(`/s/t/…`) 셋 — 열리는 업무 · 잠긴 업무 · 스토어에 없는 업무(카드 없이 링크만)
   createWorkspace: () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const p1 = MockFactory.createProject('2026 여름 수련회 준비', [{ id: generateId(), title: '기획안 원본', url: '#' }]);
-    const p2 = MockFactory.createProject('새신자 초청 주일', []);
-    const t1 = TaskService.create({ projectId: p1.id, title: '수련회 포스터 디자인', status: '진행 중', assignees: ['홍길동'], teams: ['미디어팀'], content: '여름 수련회 포스터 업무입니다.', dueDate: '2026-07-25' }, '임성빈');
+    const p2 = {
+      ...MockFactory.createProject('새신자 초청 주일', []),
+      visibility: 'custom', viewerTeams: ['웰컴팀'], visibilityBy: '홍길동',
+      viewers: ['홍길동', '김은지', '이수빈', '최다은', '조은혜'],
+    };
+    const t2 = TaskService.create({ projectId: p1.id, title: '수련회 장소 답사', status: '진행 중', assignees: ['김은지', '박지훈', '홍길동', '임성빈'], teams: ['임원진'],
+      content: '## 답사 일정\n- 7월 12일 토요일 오전에 출발해요\n- 숙소·식당·강당을 같이 봐요', startDate: '2026-07-01', dueDate: '2026-07-12' }, '홍길동');
+    const t3 = {
+      ...TaskService.create({ projectId: p1.id, title: '수련회 회비 정산', status: '시작 전', assignees: ['김은지'], teams: ['임원진'],
+        content: '## 회비 내역\n- 1인 8만 원', dueDate: '2026-07-30' }, '김은지'),
+      locked: true, lockedOpen: false,
+      lockPw: { view_pw: '3266bab95f769e008ab30ddde7200901e0a8fef887f44002ff1daaff3aac22c8', view_pw_salt: 'demo-salt-0001' },
+    };
+    const t4 = TaskService.create({ projectId: p2.id, title: '새신자 환영 선물 준비', status: '시작 전', assignees: ['이수빈', '최다은'], teams: ['웰컴팀'],
+      content: '', dueDate: '2026-08-09' }, '홍길동');
+    const at = (d) => `2026-07-0${d}T09:00:00.000Z`;
+    const cmt = (author, text, d) => ({ id: generateId(), author, text, timestamp: at(d), parentId: null, edited: false });
+    const t1 = {
+      ...TaskService.create({ projectId: p1.id, title: '수련회 포스터 디자인', status: '진행 중', assignees: ['홍길동'], teams: ['미디어팀'],
+        content: `여름 수련회 포스터 업무입니다.\n장소는 답사 뒤에 정해져요 ${origin}/s/t/${t2.id}`, dueDate: '2026-07-25' }, '임성빈'),
+      comments: [
+        cmt('임성빈', `장소가 정해지면 포스터에 넣어 주세요\n${origin}/s/t/${t2.id}`, 2),
+        cmt('김은지', `회비 금액은 여기 정리해 둘게요\n${origin}/s/t/${t3.id}`, 3),
+        cmt('박지훈', `작년 포스터는 여기 있어요\n${origin}/s/t/${generateId()}`, 4),
+      ],
+    };
     return {
+      // 시안 표시 — 이 시연 데이터로 뜬 게스트에서만 시안 화면(보는 사람 직접 고르기 · 비밀번호를 까먹었어요)이 선다.
+      // 스위트가 심는 상태에는 없어서 기존 화면(리더만 보기 토글 · 잠금 판)을 그대로 본다.
+      demo: true,
       currentUser: MockFactory.createUser(),
       projects: normalize([p1, p2]),
-      tasks: normalize([t1])
+      tasks: normalize([t1, t2, t3, t4])
     };
   }
 };

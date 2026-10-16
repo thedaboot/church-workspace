@@ -1,9 +1,19 @@
-import { useState } from 'react';
-import { Lock } from 'lucide-react';
+import { useState, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { Lock, Plus } from 'lucide-react';
 import { usePopover } from '../hooks/usePopover.js';
+import { useDismiss } from '../hooks/useDismiss.js';
+import { usePresence } from '../hooks/useExit.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 import { ShareSwitch } from './bibleParts.jsx';
-import { LEADERS, isLeaderOnly, canSetVisibility } from '../services/visibility.js';
+import { Segmented } from './segmented.jsx';
+import { Avatar } from './Avatar.jsx';
+import { BTN_CONFIRM_QUIET } from './buttons.js';
+import { CONFIG } from '../config.js';
+import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly, isRestricted, canSetVisibility, toggleViewerTeam } from '../services/visibility.js';
+import { GUEST_PEOPLE } from '../data/guestPeople.js';
 import { store, useStore } from '../store/workspaceStore.js';
+import { selectMembers } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { showToast } from './Toast.jsx';
@@ -20,6 +30,14 @@ import { failText } from '../services/errorText.js';
 // 누르면 팝오버에 `리더만 보기` 라벨 + 토글 한 줄뿐이다(설명 줄 없음 · 폭은 내용만큼 — `!w-max`가 판 폭을 이긴다).
 // 켜져 있으면 버튼도 accent-weak로 서서 상태가 보인다. 실제 경계는 DB다(0092 정책) — 여기는 그리기만.
 // 저장(useSetVisibility)도 여기 한 벌 — 프로젝트 머리와 폰 상단바가 같이 쓴다.
+//
+// ── 시안 2026-10-16 '보는 사람 직접 고르기'(**게스트에서만** — 클라우드는 위 토글 그대로 · DB 칸이 없다) ──
+// 판이 `보는 사람` + 세 칸(모두 · 리더만 · 직접 고르기 — Segmented)이 된다. 직접 고르기면 팀 칩이 먼저 서고, 칩을 누르면
+// 그 팀 사람이 아래에 **다 체크된 채** 펼쳐진다(사람마다 뺄 수 있다 · 나는 못 뺀다). 다른 팀 사람은 이름 칸으로 더한다.
+// 고를 때마다 곧바로 저장한다(토글과 같은 결 — 확정 버튼 없음). 값은 프로젝트의 viewers·viewerTeams(services/visibility.js).
+// 데스크톱은 같은 자물쇠 팝오버를 넓혀서(312px · .dc-pop), 폰은 아래 시트(.dc-sheet-up + .dc-scrim · 닫힘은 .dc-out).
+// 칩 자리(데스크톱 제목 옆 · 업무 창 머리)는 '리더만' 칩과 같은 알약에 자물쇠 + 얼굴 셋 + 'N명'.
+// 사람 목록은 스토어의 members, 게스트는 비어 있어서 data/guestPeople.js.
 // ============================================================================
 
 // 보는 사람 바꾸기(0092) — 바꿀 수 없는 사람이면 null(자물쇠 버튼·팝오버를 세우지 않는다).
@@ -27,18 +45,22 @@ import { failText } from '../services/errorText.js';
 // 같은 순서). 클라우드는 서버가 돌려준 값(리더가 아니면 트리거가 옛 값으로 되돌린다)을 그대로 쓴다.
 // 누가·언제(visibilityBy·visibilityAt · 0099)도 같이 적는다 — 화면 문구는 없다. 클라우드는 DB 트리거가 적은 값을 받고,
 // 게스트는 로컬에 이름과 시각을 적는다(바뀔 때만 — 같은 값을 다시 누르면 옛 기록 그대로).
+// next: 'all' | 'leaders' | { visibility: 'custom', viewers, viewerTeams }(게스트만 — 클라우드는 받지 않는다)
 export function useSetVisibility(project) {
   const { enabled, session } = useAuth();
   const cloudOn = enabled && !!session;
   // 나는 리더인가(0092 · cloudSync.loadCloudState) — 게스트 스토어에는 이 칸이 없고 자물쇠는 언제나 선다
   const amLeader = useStore(s => s.amLeader);
   if (!project || !canSetVisibility({ cloudOn, amLeader })) return null;
-  return async (on) => {
-    const want = on ? LEADERS : 'all';
+  return async (next) => {
+    const want = typeof next === 'string' ? next : next?.visibility;
+    if (want === CUSTOM && cloudOn) return;
     try {
+      const changed = want !== (project.visibility || 'all');
       const saved = cloudOn ? await cloudSync.projectVisibilityCloud(project.id, want)
-        : (want === (project.visibility || 'all') ? { visibility: want }
-          : { visibility: want, visibilityBy: store.getState().currentUser?.name || null, visibilityAt: new Date().toISOString() });
+        : { visibility: want,
+          ...(want === CUSTOM ? { viewers: next.viewers || [], viewerTeams: next.viewerTeams || [] } : {}),
+          ...(changed ? { visibilityBy: store.getState().currentUser?.name || null, visibilityAt: new Date().toISOString() } : {}) };
       store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, ...saved } });
     } catch (err) {
       const what = '보는 사람을 바꾸지 못했어요';
@@ -49,7 +71,9 @@ export function useSetVisibility(project) {
 }
 
 // small — 업무 창 머리(10.5px) / 기본 — 데스크톱 제목 옆(11px)
+// 직접 고른 사람만(시안 · 게스트)이면 같은 알약에 자물쇠 + 얼굴 셋 + 'N명'(누가 보는지 한눈에 · 이름은 title로)
 export function LeaderChip({ project, small = false, className = '' }) {
+  if (isCustomOnly(project)) return <ViewersChip project={project} small={small} className={className} />;
   if (!isLeaderOnly(project)) return null;
   return (
     <span data-leader-chip="" className={`inline-flex items-center shrink-0 rounded-full bg-accent-weak text-accent-text font-bold whitespace-nowrap ${
@@ -59,40 +83,176 @@ export function LeaderChip({ project, small = false, className = '' }) {
   );
 }
 
+function ViewersChip({ project, small, className }) {
+  const names = project.viewers || [];
+  const face = small ? 'w-[14px] h-[14px] text-[7.5px]' : 'w-4 h-4 text-[8px]';
+  return (
+    <span data-viewers-chip="" title={names.join(', ')}
+      className={`inline-flex items-center shrink-0 rounded-full bg-accent-weak text-accent-text font-bold whitespace-nowrap tabular-nums ${
+        small ? 'gap-[3px] pl-[5px] pr-[7px] py-[1px] text-[10.5px]' : 'gap-1 pl-[7px] pr-[9px] py-[2px] text-[11px]'} ${className}`}>
+      <Lock size={small ? 10 : 11} strokeWidth={2.5} className="shrink-0" aria-hidden />
+      <span className="inline-flex items-center mx-px">
+        {names.slice(0, 3).map(n => <Avatar key={n} name={n} className={`flex ${face} -ml-[4px] first:ml-0 ring-[1.5px] ring-accent-weak`} />)}
+      </span>
+      {names.length}명
+    </span>
+  );
+}
+
 // 탭 줄 자물쇠(20차 ⑥ · 시안 '프로젝트 탭줄(리더에게)') — 리더 프로젝트 탭 이름 앞 10px. 색은 탭 글자를 따른다
 // (currentColor — 켜진 탭은 진하게 · 꺼진 탭은 muted · 보관은 faint). 데스크톱 탭과 그 폭 재기 줄 · 더보기 연도 폴더 · 폰 탭 줄.
 // 글자 줄 안의 inline-block이다(감싸는 flex를 두지 않는다 — 폰 보관 탭의 Archive 아이콘과 같은 이유 · §6-9-bu).
+// 직접 고른 사람만(시안 · 게스트)도 같은 자물쇠다.
 export function TabLock({ project, className = '' }) {
-  if (!isLeaderOnly(project)) return null;
+  if (!isRestricted(project)) return null;
   return <Lock size={10} strokeWidth={2.6} data-tab-lock="" aria-hidden className={`inline-block shrink-0 align-[-1px] mr-[5px] ${className}`} />;
 }
 
 // 자물쇠 하나에 붙는 `리더만 보기` 팝오버 한 벌 — 프로젝트 머리 자물쇠와 폰 상단바 제목 자물쇠가 같이 쓴다.
-// onSet(on) → 약속. 실패하면 useSetVisibility가 토스트를 띄우고 값은 그대로다(저장된 것만 비춘다 — 낙관적으로 먼저 뒤집지 않는다).
+// onSet(next) → 약속. 실패하면 useSetVisibility가 토스트를 띄우고 값은 그대로다(저장된 것만 비춘다 — 낙관적으로 먼저 뒤집지 않는다).
+// 게스트(시안)는 판이 `보는 사람` 세 칸으로 넓어지고, 폰에서는 아래 시트로 뜬다(머리말).
 function useLeaderSwitch(project, onSet) {
-  const pop = usePopover(140, 40, { gap: 8, measure: true });
+  const { enabled, session } = useAuth();
+  // 시안 데이터로 뜬 게스트만(domain.MockFactory의 demo) — 스위트가 심은 게스트는 위 토글 그대로다
+  const demo = useStore(s => !!s.demo);
+  const pick = demo && !(enabled && !!session);
+  const isMobile = useIsMobile();
+  const sheet = pick && isMobile;
+  const pop = usePopover(pick ? 312 : 140, pick ? 120 : 40, { gap: 8, measure: true });
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetRef = useRef(null);
+  useDismiss(sheetOpen, () => setSheetOpen(false), [sheetRef]);
+  const { shown: sheetShown, leaving: sheetLeaving } = usePresence(sheetOpen);
   const [busy, setBusy] = useState(false);
   const on = isLeaderOnly(project);
   const flip = async () => {
     if (busy) return;
     setBusy(true);
-    try { await onSet(!on); } finally { setBusy(false); }
+    try { await onSet(on ? 'all' : LEADERS); } finally { setBusy(false); }
   };
-  const panel = () => pop.panel('z-[90] !w-max bg-surface border border-line rounded-lg shadow-elevated py-[9px] pl-3.5 pr-3', (
-    <button type="button" role="switch" aria-checked={on} disabled={busy} onClick={flip} data-leader-switch=""
-      className={`inline-flex items-center gap-3 text-[12.5px] font-bold text-fg whitespace-nowrap ${busy ? 'opacity-60' : ''}`}>
-      리더만 보기<ShareSwitch on={on} />
-    </button>
-  ));
-  return { pop, on, panel };
+  const open = sheet ? sheetOpen : pop.open;
+  const toggle = sheet ? () => setSheetOpen(o => !o) : pop.toggle;
+  const panel = () => {
+    if (!pick) return pop.panel('z-[90] !w-max bg-surface border border-line rounded-lg shadow-elevated py-[9px] pl-3.5 pr-3', (
+      <button type="button" role="switch" aria-checked={on} disabled={busy} onClick={flip} data-leader-switch=""
+        className={`inline-flex items-center gap-3 text-[12.5px] font-bold text-fg whitespace-nowrap ${busy ? 'opacity-60' : ''}`}>
+        리더만 보기<ShareSwitch on={on} />
+      </button>
+    ));
+    if (!sheet) return pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated px-3.5 pt-3 pb-3',
+      <ViewersPicker project={project} onSet={onSet} />);
+    if (!sheetShown) return null;
+    return createPortal(
+      <div className={`fixed inset-0 z-[95] flex items-end bg-black/50 dc-scrim${sheetLeaving ? ' dc-out' : ''}`} aria-hidden={sheetLeaving || undefined}>
+        <div ref={sheetRef} role="dialog" aria-label="보는 사람" data-viewers-sheet=""
+          className={`w-full max-h-[88dvh] overflow-y-auto flex flex-col gap-3 px-4 pt-2.5 rounded-t-2xl bg-surface dc-sheet-up${sheetLeaving ? ' dc-out' : ''}`}
+          style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+          <span className="self-center w-9 h-1 rounded-full bg-line" />
+          <ViewersPicker project={project} onSet={onSet} big />
+          <button type="button" onClick={() => setSheetOpen(false)} className={`${BTN_CONFIRM_QUIET} w-full`}>닫기</button>
+        </div>
+      </div>, document.body);
+  };
+  return { pop, on: isRestricted(project), open, toggle, panel };
+}
+
+// 보는 사람 고르기 판(시안 · 게스트) — 세 칸 · 팀 칩 · 팀별 사람 체크 · 팀 밖에서 더한 사람 · 이름 칸.
+// big: 폰 시트(줄이 조금 크다). 고를 때마다 onSet으로 곧바로 저장한다.
+const PICK_ITEMS = [['all', '모두'], [LEADERS, '리더만'], [CUSTOM, '직접 고르기']];
+function ViewersPicker({ project, onSet, big = false }) {
+  const me = useStore(s => s.currentUser?.name || '');
+  const storeMembers = useStore(selectMembers);
+  const people = storeMembers.length ? storeMembers : GUEST_PEOPLE;
+  const [q, setQ] = useState('');
+  const mode = project.visibility === LEADERS || project.visibility === CUSTOM ? project.visibility : 'all';
+  const viewers = useMemo(() => (project.viewers?.length ? project.viewers : (me ? [me] : [])), [project.viewers, me]);
+  const viewerTeams = project.viewerTeams || [];
+  // 팀 칩 — 명단에 사람이 있는 팀만, config의 팀 차례로
+  const teams = useMemo(() => Object.keys(CONFIG.TEAMS).filter(t => people.some(p => (p.teams || []).includes(t))), [people]);
+  const save = (patch) => onSet({ visibility: CUSTOM, viewers, viewerTeams, ...patch });
+  const pickMode = (v) => { if (v === mode) return; onSet(v === CUSTOM ? { visibility: CUSTOM, viewers, viewerTeams } : v); };
+  const setTeam = (t) => save(toggleViewerTeam({ viewers, viewerTeams }, t, people, me));
+  const has = new Set(viewers);
+  const flip = (name) => { if (name === me) return; save({ viewers: has.has(name) ? viewers.filter(n => n !== name) : [...viewers, name] }); };
+  const inOpenTeam = (p) => viewerTeams.some(t => (p.teams || []).includes(t));
+  const extras = people.filter(p => has.has(p.name) && !inOpenTeam(p));
+  const found = q.trim() ? people.filter(p => !has.has(p.name) && !inOpenTeam(p) && p.name.includes(q.trim())).slice(0, 6) : [];
+  const row = big ? 'py-[7px] text-[13.5px]' : 'py-[5px] text-[12.5px]';
+  const face = big ? 'w-6 h-6 text-[10.5px]' : 'w-[22px] h-[22px] text-[10px]';
+  const person = (p, key) => (
+    <label key={key} data-viewer-row={p.name} className={`flex items-center gap-2.5 px-1.5 rounded-md hover:bg-surface-hover ${row} ${p.name === me ? '' : 'cursor-pointer'}`}>
+      <input type="checkbox" checked={has.has(p.name)} disabled={p.name === me} onChange={() => flip(p.name)}
+        className={`${big ? 'w-[18px] h-[18px]' : 'w-[15px] h-[15px]'} m-0 shrink-0`} style={{ accentColor: 'var(--app-accent)' }} />
+      <Avatar name={p.name} className={`flex ${face}`} />
+      <span className="flex-1 min-w-0 truncate font-semibold text-fg">{p.name}</span>
+      {p.name === me && <span className="shrink-0 text-[11px] text-fg-muted">나</span>}
+    </label>
+  );
+  return (
+    <div data-viewers-picker="" className="flex flex-col gap-2.5 min-w-0">
+      <div className={`${big ? 'text-[14px]' : 'text-[12.5px]'} font-bold text-fg`}>보는 사람</div>
+      <Segmented className="flex p-[3px] rounded-md" value={mode} onPick={pickMode}
+        btnClassName={`flex-1 px-2 rounded-sm font-bold transition-colors whitespace-nowrap ${big ? 'py-[7px] text-[13px]' : 'py-[5px] text-[12px]'}`}
+        items={PICK_ITEMS.map(([v, label]) => [v, label, { 'data-visibility-pick': v }])} />
+      {mode === CUSTOM && (
+        <>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="팀">
+            {teams.map(t => {
+              const sel = viewerTeams.includes(t);
+              return (
+                <button key={t} type="button" onClick={() => setTeam(t)} aria-pressed={sel} data-viewer-team-chip={t}
+                  className={`rounded-full font-bold border transition active:scale-95 ${big ? 'px-3 py-[5px] text-[12.5px]' : 'px-2.5 py-1 text-[11.5px]'} ${sel
+                    ? `${CONFIG.TEAMS[t]} border-transparent` : 'border-line text-fg-muted hover:bg-surface-hover'}`}>{t}</button>
+              );
+            })}
+          </div>
+          <div className={`flex flex-col gap-2 min-w-0 ${big ? '' : 'max-h-[min(340px,50dvh)] overflow-y-auto -mr-2 pr-2'}`}>
+            {viewerTeams.map(t => {
+              const members = people.filter(p => (p.teams || []).includes(t));
+              const n = members.filter(p => has.has(p.name)).length;
+              return (
+                <div key={t} data-viewer-team={t} className="min-w-0">
+                  <div className="flex items-center justify-between px-1.5 pb-0.5 text-[11px] font-bold">
+                    <span className={CONFIG.TEAM_FG[t] || 'text-fg-muted'}>{t}</span>
+                    <span className="text-fg-muted tabular-nums">{n}/{members.length}</span>
+                  </div>
+                  {members.map(p => person(p, `${t}:${p.name}`))}
+                </div>
+              );
+            })}
+            {extras.length > 0 && (
+              <div data-viewer-extra="" className="min-w-0">
+                <div className="px-1.5 pb-0.5 text-[11px] font-bold text-fg-muted">다른 팀에서 더한 사람</div>
+                {extras.map(p => person(p, `x:${p.name}`))}
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col gap-1 min-w-0">
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="이름으로 더하기" aria-label="이름으로 더하기" data-viewer-search=""
+              className={`w-full px-2.5 rounded-lg bg-surface-2 text-fg placeholder:text-fg-muted outline-none border border-line focus:border-accent ${big ? 'h-10 text-[16px]' : 'h-[34px] text-[13px]'}`} />
+            {found.map(p => (
+              <button key={p.name} type="button" data-viewer-add={p.name} onClick={() => { save({ viewers: [...viewers, p.name] }); setQ(''); }}
+                className={`flex items-center gap-2.5 px-1.5 rounded-md hover:bg-surface-hover text-left ${row}`}>
+                <Avatar name={p.name} className={`flex ${face}`} />
+                <span className="font-semibold text-fg truncate">{p.name}</span>
+                <span className="flex-1 min-w-0 truncate text-[11px] text-fg-muted">{(p.teams || []).join(' · ')}</span>
+                <Plus size={14} className="shrink-0 text-accent-text" aria-hidden />
+              </button>
+            ))}
+          </div>
+          <div className="text-[11.5px] text-fg-muted tabular-nums" data-viewer-count="">{viewers.length}명이 볼 수 있어요</div>
+        </>
+      )}
+    </div>
+  );
 }
 
 export function LeaderLockButton({ project, onSet }) {
-  const { pop, on, panel } = useLeaderSwitch(project, onSet);
+  const { on, open, toggle, panel, pop } = useLeaderSwitch(project, onSet);
   return (
     <span ref={pop.rootRef} className="inline-flex shrink-0">
       <span ref={pop.btnRef} className="inline-flex">
-        <button type="button" onClick={pop.toggle} data-leader-lock="" aria-expanded={pop.open} aria-pressed={on}
+        <button type="button" onClick={toggle} data-leader-lock="" aria-expanded={open} aria-pressed={on}
           title="리더만 보기" aria-label="리더만 보기"
           className={`p-1.5 rounded-md transition active:scale-95 shrink-0 ${on
             ? 'bg-accent-weak text-accent-text' : 'text-fg-faint hover:text-accent-text hover:bg-surface-hover'}`}>
@@ -106,16 +266,16 @@ export function LeaderLockButton({ project, onSet }) {
 
 // 폰 상단바 제목 앞 자물쇠(시안 승인 2026-10-14) — 리더 프로젝트일 때만. 15px accent(탭 줄 자물쇠와 같은 표시)이고
 // 누름 자리는 바 높이(36px)만큼 · 왼쪽 6px은 바 여백으로 내밀어(-ml-1.5) 자물쇠 획이 바 여백(14px)에 맞는다.
-// 바꿀 수 없는 사람(onSet 없음)에게는 누르지 않는 표시만.
+// 바꿀 수 없는 사람(onSet 없음)에게는 누르지 않는 표시만. 직접 고른 사람만(시안 · 게스트)도 같은 자물쇠 → 아래 시트.
 export function LeaderTitleLock({ project, onSet }) {
-  const { pop, panel } = useLeaderSwitch(project, onSet);
-  if (!isLeaderOnly(project)) return null;
+  const { open, toggle, panel, pop } = useLeaderSwitch(project, onSet);
+  if (!isRestricted(project)) return null;
   const icon = <Lock size={15} strokeWidth={2} aria-hidden className="shrink-0" />;
   if (!onSet) return <span data-title-lock="" role="img" aria-label="리더만 보기" className="shrink-0 inline-flex text-accent-text">{icon}</span>;
   return (
     <span ref={pop.rootRef} className="inline-flex shrink-0 -ml-1.5">
       <span ref={pop.btnRef} className="inline-flex">
-        <button type="button" onClick={pop.toggle} data-title-lock="" aria-expanded={pop.open}
+        <button type="button" onClick={toggle} data-title-lock="" aria-expanded={open}
           title="리더만 보기" aria-label="리더만 보기"
           className="h-9 px-1.5 inline-flex items-center rounded-md text-accent-text transition active:scale-95">
           {icon}
