@@ -811,13 +811,16 @@ function WorkspaceShell() {
   // 링크처럼 주소로 이동하고, 딥링크가 다시 판정한다(없는 프로젝트면 대시보드).
   // 다음 주소 쓰기 한 번만 pushState로(아래 '뒤로가기' 주석 참고)
   const pushNextUrlRef = useRef(false);
-  useEffect(() => setTaskLinkOpener(({ projectId, taskId }) => {
+  // 공유 버튼 주소(`/s/t/<업무>` · `/s/p/<프로젝트>` — services/appLink.js)도 같은 길이다(share: true · 업무 링크는 프로젝트를 모른다).
+  useEffect(() => setTaskLinkOpener(({ projectId, taskId, share }) => {
     const s = store.getState();
     const task = taskId ? s.tasks.byId[taskId] : null;
     // 링크로 건너뛰기 전에 **지금 보던 자리를 history에 남긴다** — 그래야 브라우저
     // 뒤로가기(모바일은 가장자리 스와이프)로 돌아올 수 있다. 실제 pushState는 아래
     // URL 동기화 effect가 한 번만 한다(그 자리가 주소를 만드는 유일한 곳이다).
     if (task) { pushNextUrlRef.current = true; setActiveMenu(task.projectId); openTaskModal(task); return true; }
+    // 공유 주소인데 여기 없는 업무 — 지워졌는지 나에게 안 보이는 업무인지 모른다. 주소로 보내 api/share가 정하게 둔다
+    if (taskId && share) return false;
     // 가리키던 업무가 사라졌다 — 주소로 옮겨 가 봐야 대시보드로 떨어지므로 여기서 말한다
     if (taskId) { showToast('업무가 이미 삭제되었어요'); return true; }
     if (s.projects.byId[projectId]) { pushNextUrlRef.current = true; setActiveMenu(projectId); return true; }

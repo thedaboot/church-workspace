@@ -14,6 +14,32 @@ export const LEADERS = 'leaders';
 // 프로젝트 행(앱 모양이든 DB 모양이든) — visibility가 없으면(0092 전 · 게스트의 옛 저장) 공개다
 export const isLeaderOnly = (project) => project?.visibility === LEADERS;
 
+// ── 직접 고른 사람만(시안 2026-10-16 · **게스트에서만** — DB 칸·정책이 없다. 클라우드는 이 값을 쓰지도 읽지도 않는다) ──
+// 프로젝트 행에 visibility 'custom' + viewers(이름 배열 — 고른 사람 전부) + viewerTeams(펼친 팀 칩 · 고른 차례).
+// 정한 사람(visibilityBy)은 늘 본다. 팀 칩은 그 팀 사람을 한 번에 넣는 손잡이일 뿐이고 보는 사람은 viewers 하나가 정한다.
+export const CUSTOM = 'custom';
+export const isCustomOnly = (project) => project?.visibility === CUSTOM;
+// 누가 보나가 좁혀진 프로젝트(리더만 · 직접 고른 사람만) — 탭 자물쇠·폰 제목 자물쇠
+export const isRestricted = (project) => isLeaderOnly(project) || isCustomOnly(project);
+// 이 사람(이름)에게 보이나 — 직접 고른 사람만일 때만 가른다(리더만은 DB가 행을 안 줘서 애초에 스토어에 없다)
+export const canSeeProject = (project, me) => !isCustomOnly(project)
+  || (project.viewers || []).includes(me) || (!!me && project.visibilityBy === me);
+
+// 팀 칩을 켜고 끌 때 viewers를 고친다(순수 · people = [{ name, teams }]).
+// 켜면 그 팀 사람을 **전부 넣고**(골라 뺄 수 있게 기본은 다 체크) 칩을 뒤에 붙인다.
+// 끄면 그 팀에만 걸려 있던 사람을 뺀다 — 다른 켜진 팀에도 있는 사람·팀 밖에서 따로 더한 사람·나(keep)는 남긴다.
+export function toggleViewerTeam({ viewers = [], viewerTeams = [] }, team, people = [], keep = '') {
+  const inTeam = (p, t) => (p.teams || []).includes(t);
+  if (!viewerTeams.includes(team)) {
+    const add = people.filter(p => inTeam(p, team)).map(p => p.name);
+    return { viewers: [...new Set([...viewers, ...add])], viewerTeams: [...viewerTeams, team] };
+  }
+  const rest = viewerTeams.filter(t => t !== team);
+  const drop = new Set(people.filter(p => inTeam(p, team) && !rest.some(t => inTeam(p, t))).map(p => p.name));
+  drop.delete(keep);
+  return { viewers: viewers.filter(n => !drop.has(n)), viewerTeams: rest };
+}
+
 // 자물쇠를 세울까 — 클라우드는 리더에게만, 게스트는 언제나(로컬 값)
 export const canSetVisibility = ({ cloudOn, amLeader }) => (cloudOn ? amLeader === true : true);
 

@@ -5,6 +5,13 @@ import { youtubeVideoId, youtubeThumb, fetchVideoTitle } from '../services/worsh
 import { SmartImage, ImageLightbox } from './media.jsx';
 import { docEmbedKind, DocEmbedModal, DocKindIcon } from './DocEmbed.jsx';
 import { splitMention } from '../utils.js';
+import { parseAppLink } from '../services/appLink.js';
+import { useStore } from '../store/workspaceStore.js';
+import { CONFIG, teamPaint } from '../config.js';
+import { Avatar } from './Avatar.jsx';
+import { CardLockMark } from './cardLock.jsx';
+import { isCardClosed } from '../services/cardLock.js';
+import { canSeeProject } from '../services/visibility.js';
 
 // ============================================================================
 // 9. RichText Parser & Renderer
@@ -29,16 +36,9 @@ export function setTaskLinkOpener(fn) {
   return () => { if (openTaskDeepLink === fn) openTaskDeepLink = null; };
 }
 
-// 같은 origin이고 ?p= 가 있으면 { projectId, taskId }, 아니면 null
-const parseDeepLink = (href) => {
-  if (typeof window === 'undefined') return null;
-  try {
-    const u = new URL(href, window.location.href);
-    if (u.origin !== window.location.origin) return null;
-    const projectId = u.searchParams.get('p');
-    return projectId ? { projectId, taskId: u.searchParams.get('t') } : null;
-  } catch { return null; }
-};
+// 같은 origin의 `?p=…&t=…` 또는 공유 주소 `/s/t/<업무>`·`/s/p/<프로젝트>`면 { projectId, taskId, share }, 아니면 null
+// (판정은 services/appLink.js 한 벌 — 공유 주소를 몰라서 누르면 페이지 전체를 새로 읽던 것을 고쳤다 2026-10-16)
+const parseDeepLink = (href) => (typeof window === 'undefined' ? null : parseAppLink(href, window.location.href));
 
 // 본문의 링크 하나. 앱 안 링크와 **구글 문서 링크**만 클릭을 가로챈다 — 새 탭으로
 // 열려는 누름(⌘/Ctrl·가운데 버튼)은 어느 쪽이든 브라우저에 그대로 넘긴다.
@@ -132,6 +132,69 @@ function YtCard({ id }) {
 const YtCards = ({ text }) => {
   const ids = useMemo(() => ytIdsIn(text), [text]);
   return ids.map(id => <YtCard key={id} id={id} />);
+};
+
+// ── 업무 링크 카드 (시안 2026-10-16 · 유튜브 카드와 같은 자리 — 댓글·업무 보기 본문만) ─────────────────────────────
+// 같은 줄에 우리 업무 주소(`/s/t/<업무>` · `?p=&t=` — services/appLink.js)가 있으면 그 줄 아래에 카드 한 장:
+// 팀 색 레일(보드 카드와 같은 3px · 프로젝트에는 색 칸이 없어 팀 색이다) · 프로젝트 이름 · 제목 · 본문 첫 줄 · 상태 칩 · 담당자 얼굴.
+// 누르면 그 자리에서 업무 창을 연다(InlineLink와 같은 opener · ⌘/Ctrl 누름은 브라우저에 그대로).
+// **잠긴 업무**(나에게 닫힌 것)는 자물쇠 + 제목만(공유 카드 api/share와 같은 선 — 상태·담당자·본문을 싣지 않는다).
+// **스토어에 없는 업무 · 나에게 안 보이는 프로젝트**(직접 고른 사람에 내가 없음)는 카드를 세우지 않는다 — 링크만 남는다.
+const taskIdsIn = (text) => {
+  const here = typeof window === 'undefined' ? null : window.location.href;
+  if (!here) return [];
+  return [...new Set((String(text || '').match(URL_IN_LINE) || []).map(u => parseAppLink(u, here)?.taskId).filter(Boolean))];
+};
+// 본문 첫 글줄을 맨 글자로(제목 줄은 다른 글줄이 없을 때만 · 목록표·체크표·인라인 서식을 뗀다)
+const firstLine = (md) => {
+  const lines = String(md || '').split('\n').map(l => l.trim()).filter(l => l && !/^(-{3,}|\*{3,}|_{3,})$/.test(l) && !IMAGE_LINE_RE.test(l));
+  const line = lines.find(l => !/^#{1,4}\s/.test(l)) || lines[0] || '';
+  const bare = line.replace(/^#{1,4}\s+/, '').replace(/^[-*]\s+\[( |x|X)\]\s?/, '').replace(/^[-*]\s+/, '').replace(/^\d+[.)]\s+/, '');
+  return tokenizeInline(bare).map(s => s.text).join('').trim();
+};
+function TaskLinkCard({ id }) {
+  const task = useStore(s => s.tasks.byId[id]);
+  const project = useStore(s => (task ? s.projects.byId[task.projectId] : null));
+  const me = useStore(s => s.currentUser?.name || '');
+  if (!task || !project || !canSeeProject(project, me)) return null;
+  const closed = isCardClosed(task);
+  const href = `${window.location.origin}/s/t/${id}`;
+  const lead = closed ? '' : firstLine(task.content);
+  const faces = task.assignees || [];
+  return (
+    <a href={href} data-task-card={id} data-task-card-locked={closed ? '' : undefined}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+        if (openTaskDeepLink?.({ projectId: task.projectId, taskId: id, share: true })) e.preventDefault();
+      }}
+      className="task-card flex gap-2.5 mt-1.5 mb-1 pl-2.5 pr-3 py-2 rounded-md border border-line hover:bg-surface-hover transition-colors max-w-[380px] no-underline">
+      <span className="shrink-0 w-[3px] rounded-full my-0.5" style={teamPaint(task.teams || [], true)} />
+      <span className="flex-1 min-w-0">
+        <span className="block text-[10px] text-fg-muted truncate">{project.title}</span>
+        <span className="block text-[13px] font-semibold text-fg leading-snug break-words"><CardLockMark task={task} />{task.title}</span>
+        {lead && <span className="block mt-0.5 text-[11.5px] text-fg-muted leading-snug truncate">{lead}</span>}
+        {!closed && (
+          <span className="flex items-center gap-2 mt-1.5 min-w-0">
+            <span className="inline-flex items-center gap-1.5 pl-2 pr-2 py-[2px] rounded-full border border-line text-[10.5px] font-bold text-fg-muted shrink-0">
+              <span className={`w-[5px] h-[5px] rounded-full ${CONFIG.STATUS_DOTS[task.status] || 'bg-fg-faint'}`} />{task.status}
+            </span>
+            {faces.length > 0 && (
+              <span className="flex items-center shrink-0" title={faces.join(', ')}>
+                {faces.slice(0, 3).map(n => (
+                  <Avatar key={n} name={n} className="flex w-[18px] h-[18px] text-[9px] -ml-[5px] first:ml-0 ring-[1.5px] ring-surface" />
+                ))}
+                {faces.length > 3 && <span className="ml-[5px] text-[10.5px] text-fg-muted tabular-nums">+{faces.length - 3}</span>}
+              </span>
+            )}
+          </span>
+        )}
+      </span>
+    </a>
+  );
+}
+const TaskLinkCards = ({ text }) => {
+  const ids = useMemo(() => taskIdsIn(text), [text]);
+  return ids.map(id => <TaskLinkCard key={id} id={id} />);
 };
 
 // 마크 → 태그·클래스 (에디터 .tiptap 스타일과 같은 톤)
@@ -257,11 +320,11 @@ function ContentImage({ src }) {
 // 넘긴다(하위 업무처럼 보기에서 바로 눌린다). 안 넘기면(댓글·요약 등) 읽기 전용이다.
 // lineAttrs: 줄마다 `data-line`(마크다운 줄 번호)을 단다 — 업무 창 보기 화면이 '누가 어느 줄을 고치는 중인가'를
 // 그 줄 옆에 세우는 좌표다(modals/coedit.jsx PresenceMarks · 엔진 core.caretLine과 같은 번호). 모양은 안 바뀐다.
-// ytCards: 유튜브 영상 주소가 있는 줄 아래에 카드(위 '유튜브 링크 카드') — 댓글·업무 보기 본문만 넘긴다.
+// ytCards: 유튜브 영상 주소·우리 업무 주소가 있는 줄 아래에 카드(위 '유튜브 링크 카드'·'업무 링크 카드') — 댓글·업무 보기 본문만 넘긴다.
 export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false, ytCards = false }) => {
   const blocks = useMemo(() => parseBlocks(content), [content]);
   const ln = (k) => (lineAttrs ? { 'data-line': k } : null);
-  const yt = (value) => (ytCards ? <YtCards text={value} /> : null);
+  const yt = (value) => (ytCards ? <><TaskLinkCards text={value} /><YtCards text={value} /></> : null);
   return (
     <>
       {blocks.map(block => {
