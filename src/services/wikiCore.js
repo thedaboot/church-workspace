@@ -337,7 +337,10 @@ export function prefilter(q) {
 //   statement 알려 주는 말 — unknown으로 저장하고, 그 말은 배운 것 저장소(0098 dabooti_facts)로 간다(마스터면 바로 반영 · api/ai.js)
 export const MAKER = '노준석';
 export const TALK_ANSWERS = {
-  makerAsk: '청년부에서 가장 목소리가 좋은, 위대하신 노준석 개발자님이 만들었어요!',
+  // 묻는 말에 맞춰 고른다(사용자 결정 2026-10-16 — 꾸밈말 없이 '아빠'면 자손, '낳았어'면 탄생 · makerAnswer)
+  makerAsk: '저를 만들어주신 분은 노준석 개발자님이세요.',
+  makerParent: '저는 노준석 님의 자손이에요.',
+  makerBorn: '저를 탄생하게 하신 분은 노준석 개발자님이에요.',
   makerTold: '맞아요! 저를 만들어주신 분은 노준석 개발자님이세요.',
   makerKnown: '네, 저를 만들어주신 분은 노준석 개발자님이세요.',
   makerOther: '저를 만들어주신 분은 노준석 개발자님이세요.',
@@ -352,8 +355,8 @@ export const TALK_ANSWERS = {
 };
 // 다붓이를 부르는 말 — '더다붓'(청년부 이름)은 아니다
 const SELF = /(?<![가-힣])(?:너|넌|너는|너를|너의|니|니가|네가|당신|너희|너희는|너희들|너네|니네)(?![가-힣])|(?<!더)다붓(?:이|아)/;
-const MAKE_WORD = /만들|만든|개발|제작|창조|아빠|아버지|엄마|어머니|부모|주인|창시/;
-const MAKER_ASK = /(?:누가|누구).{0,10}(?:만들|만든|개발|제작|창조)|(?:만든|만들어\s?준|개발한|제작한)\s?(?:사람|분|이|애)|(?:개발자|제작자|아빠|아버지|엄마|어머니|부모|주인).{0,6}(?:누구|누가|뭐)/;
+const MAKE_WORD = /만들|만든|개발|제작|창조|낳|탄생|아빠|아버지|엄마|어머니|부모|주인|창시/;
+const MAKER_ASK = /(?:누가|누구).{0,10}(?:만들|만든|개발|제작|창조|낳|탄생)|(?:만든|만들어\s?준|개발한|제작한)\s?(?:사람|분|이|애)|(?:개발자|제작자|아빠|아버지|엄마|어머니|부모|주인).{0,6}(?:누구|누가|뭐)/;
 // 물음 — 물음표 · 물음 말 · 부탁(…줘)은 알려 주는 말이 아니다
 const ASKING = /[?？]|언제|어디|누구|누가|뭐|뭘|무엇|무슨|어떤|어떻|어때|어땠|왜|몇|얼마|어느|알려|보여|찾아|궁금|있나|있니|없나|인가|인지|일까|는지|던가|맞아|맞나|맞죠|맞지(?!만)|(?:니|냐|나요|까요|까|ㄹ까|가요|나|래요|대요)$/;
 const REQUEST = /줘|주세요|주실|줄래|줄 수|달라|해\s?봐/;
@@ -468,6 +471,9 @@ export function isStatement(q) {
   return PLAIN_END.test(s) && INFO_PARTICLE.test(`${s} `);
 }
 
+// 묻는 꼴에 맞는 답 — 부모를 물으면 자손, 낳은·탄생을 물으면 탄생, 그 밖은 만든 분
+const makerAnswer = (s) => /아빠|아버지|엄마|어머니|부모/.test(s) ? TALK_ANSWERS.makerParent
+  : /낳|탄생/.test(s) ? TALK_ANSWERS.makerBorn : TALK_ANSWERS.makerAsk;
 const makerTold = (s) => !isAsking(s) && MAKE_WORD.test(s) && (SELF.test(s) || new RegExp(MAKER).test(s));
 export function talkKind(q, prev = []) {
   const s = String(q || '').trim();
@@ -478,7 +484,7 @@ export function talkKind(q, prev = []) {
   // 다붓이를 누가 만들었나 — 앞에서 사용자가 알려 줬으면 '네, …'
   if (MAKER_ASK.test(s) && isAsking(s) && self) {
     const told = earlier.some(x => makerTold(x) && x.includes(MAKER));
-    return { kind: 'self', status: 'answered', answer: told ? TALK_ANSWERS.makerKnown : TALK_ANSWERS.makerAsk };
+    return { kind: 'self', status: 'answered', answer: told ? TALK_ANSWERS.makerKnown : makerAnswer(s) };
   }
   // 만든 사람이 무엇을 했나('노준석 개발자님이 뭘 어떻게 해줬는데?' · 2026-10-05 — 업무 하나를 골라 답했다)
   if (isAsking(s) && s.includes(MAKER) && /개발자/.test(s) && /뭘|뭐|무슨|어떻게|어떤/.test(s) && /해\s?줬|해\s?준|했|만들/.test(s)) return { kind: 'self', status: 'answered', answer: TALK_ANSWERS.makerDid };
