@@ -1619,7 +1619,7 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
 }
 
 // ── 시안 2차 (2026-10-16) — 앱 링크 멘션 · 업무 링크 카드의 잠금 · 업무 창 오른쪽 빈 띠 · 잠금 판이 본문 자리를 채운다 ──────────
-// ① 같은 origin 업무 주소가 글자 그대로면 '아이콘 + 제목' 멘션(href는 주소 그대로) · 사람이 지은 링크 글자는 그대로 · 없는 업무는 주소 그대로
+// ① 같은 origin 업무 주소가 글자 그대로면 '아이콘 + 제목' 멘션(href는 주소 그대로) · 사람이 지은 링크 글자는 그대로 · 없는·못 보는 것은 중립 칩(시안 3차)
 // ② 멘션을 골라 복사하면 클립보드 글자는 주소다(멘션 안만 골라도 · 앞뒤 글과 같이 골라도)
 // ③ 잠긴 업무 카드 — 나에게 닫힌 것은 자물쇠 + 제목만, 이미 연 것(lockedOpen)은 상태·담당자·본문 첫 줄까지
 // ④ 데스크톱 업무 창의 머리줄·바닥 줄이 왼쪽 칸 오른쪽 끝까지 닿는다(본문 통의 막대 자리 때문에 빈 띠가 서지 않는다)
@@ -1632,13 +1632,15 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
     startDate: '', dueDate: '2026-09-01', position: 1, author: '노준석', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
     comments: [], activityLog: [], attachments: [], ...extra });
   const st = { currentUser: { name: '노준석', team: '임원진' },
-    projects: { byId: { p1: { id: 'p1', title: 'P1 프로젝트', pinnedLinks: [], year: 2026 } }, allIds: ['p1'] },
+    projects: { byId: { p1: { id: 'p1', title: 'P1 프로젝트', pinnedLinks: [], year: 2026 },
+      p9: { id: 'p9', title: '숨은 프로젝트', pinnedLinks: [], year: 2026, visibility: 'custom', viewers: ['조해리'], viewerTeams: [], visibilityBy: '조해리' } }, allIds: ['p1', 'p9'] },
     tasks: { byId: {
-      w1: T3('w1', '링크 단 업무', { position: 0, content: `답사 결과는 ${U('w2')} 에 있어요\n[직접 쓴 글자](${U('w2')})\n없는 업무 ${U('zz9')}\n닫힌 ${U('w3')}\n연 ${U('w4')}` }),
+      w1: T3('w1', '링크 단 업무', { position: 0, content: `답사 결과는 ${U('w2')} 에 있어요\n[직접 쓴 글자](${U('w2')})\n없는 업무 ${U('zz9')}\n닫힌 ${U('w3')}\n연 ${U('w4')}\n못 보는 업무 ${U('w5')}\n없는 프로젝트 ${URL_BASE}/s/p/pp0\n화면 ${URL_BASE}/?p=worship` }),
+      w5: T3('w5', '숨은 업무 제목', { projectId: 'p9', position: 4 }),
       w2: T3('w2', '답사 업무', { position: 1, content: '첫 줄 본문' }),
       w3: T3('w3', '닫힌 잠긴 일', { position: 2, author: '조해리', locked: true, lockedOpen: false, content: '', lockPw: { view_pw: 'x', view_pw_salt: 'y' } }),
       w4: T3('w4', '연 잠긴 일', { position: 3, author: '조해리', locked: true, lockedOpen: true, content: '연 사람만 보는 본문', lockPw: { view_pw: 'x', view_pw_salt: 'y' } }),
-    }, allIds: ['w1', 'w2', 'w3', 'w4'] } };
+    }, allIds: ['w1', 'w2', 'w3', 'w4', 'w5'] } };
   await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
@@ -1648,11 +1650,19 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   const m = await ev(`(() => { const body = document.querySelector('.fixed.z-50 [data-view-body]'); if (!body) return null;
     const ms = [...body.querySelectorAll('[data-app-mention]')];
     const links = [...body.querySelectorAll('a')].filter(a => !a.hasAttribute('data-app-mention') && !a.hasAttribute('data-task-card'));
-    return { mentions: ms.map(a => a.textContent.trim() + '|' + a.getAttribute('href').endsWith('/s/t/' + (a.textContent.includes('답사') ? 'w2' : a.textContent.includes('닫힌') ? 'w3' : 'w4'))),
+    return { mentions: ms.map(a => a.dataset.appMention + ':' + a.textContent.trim() + '|' + a.getAttribute('href').split('/s/')[1]),
+      hiddenSame: (() => { const u = ms.filter(a => a.dataset.appMention === 'unknown' && a.getAttribute('href').includes('/s/t/'));
+        return u.length === 2 && u[0].innerHTML === u[1].innerHTML && u.every(a => !a.title) && !body.textContent.includes('숨은 업무 제목'); })(),
       own: links.map(a => a.textContent.trim()),
       cards: [...body.querySelectorAll('[data-task-card]')].map(a => a.dataset.taskCard + (a.hasAttribute('data-task-card-locked') ? ':locked' : '') + ':' + !!a.querySelector('.rounded-full.border')) }; })()`);
-  check('① 글자 그대로인 업무 주소는 아이콘 + 제목 멘션(href는 주소) · 지은 링크 글자 그대로 · 없는 업무는 주소 그대로',
-    !!m && m.mentions.join(',') === '답사 업무|true,닫힌 잠긴 일|true,연 잠긴 일|true' && m.own.includes('직접 쓴 글자') && m.own.includes(U('zz9')), JSON.stringify(m));
+  check('① 글자 그대로인 업무 주소는 아이콘 + 제목 멘션(href는 주소) · 지은 링크 글자 그대로 · 화면 링크(?p=화면)는 주소 그대로',
+    !!m && ['task:답사 업무|t/w2', 'task:닫힌 잠긴 일|t/w3', 'task:연 잠긴 일|t/w4'].every(x => m.mentions.includes(x))
+      && m.own.includes('직접 쓴 글자') && m.own.includes(`${URL_BASE}/?p=worship`), JSON.stringify(m));
+  // 시안 3차 — 없는 업무·못 보는 업무·없는 프로젝트는 긴 주소 대신 중립 칩('업무 링크'·'프로젝트 링크') · 둘은 같은 모양 · 제목을 흘리지 않는다
+  // **되돌리기**: RichText AppMention의 중립 칩 갈래를 지우면(주소 그대로) 깨진다.
+  check("①-2 없는·못 보는 업무/프로젝트 링크는 중립 칩(제목·있음을 드러내지 않는다 · 두 경우 같은 모양)",
+    !!m && ['unknown:업무 링크|t/zz9', 'unknown:업무 링크|t/w5', 'unknown:프로젝트 링크|p/pp0'].every(x => m.mentions.includes(x)) && m.hiddenSame
+      && !m.own.includes(U('zz9')) && !m.own.includes(U('w5')), JSON.stringify(m));
   check('③ 잠긴 업무 카드 — 닫힌 것은 자물쇠 + 제목만, 이미 연 것은 상태 칩까지(본문 첫 줄 포함)',
     !!m && m.cards.includes('w3:locked:false') && m.cards.includes('w4:true') && m.cards.includes('w2:true'), JSON.stringify(m?.cards));
   // 헤드리스에서는 execCommand('copy')가 copy를 안 낸다 — 같은 모양의 ClipboardEvent(빈 DataTransfer)를 문서에 보내고 실린 글자를 읽는다
@@ -1662,8 +1672,10 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
     const sel = getSelection(); const a = document.querySelector('.fixed.z-50 [data-view-body] [data-app-mention]'); if (!a) return out;
     const r1 = document.createRange(); r1.selectNodeContents(a); sel.removeAllRanges(); sel.addRange(r1); copy();
     const p = a.closest('p'); const r2 = document.createRange(); r2.selectNodeContents(p); sel.removeAllRanges(); sel.addRange(r2); copy();
+    const u = document.querySelector('.fixed.z-50 [data-view-body] [data-app-mention="unknown"]');
+    if (u) { const r3 = document.createRange(); r3.selectNodeContents(u); sel.removeAllRanges(); sel.addRange(r3); copy(); }
     sel.removeAllRanges(); return out; })()`);
-  check('② 멘션을 골라 복사하면 주소가 나온다(멘션만 · 앞뒤 글과 같이)', cp[0] === U('w2') && (cp[1] || '').startsWith(`답사 결과는 ${U('w2')} 에 있어요`), JSON.stringify(cp));
+  check('② 멘션을 골라 복사하면 주소가 나온다(멘션만 · 앞뒤 글과 같이 · 중립 칩도)', cp[0] === U('w2') && (cp[1] || '').startsWith(`답사 결과는 ${U('w2')} 에 있어요`) && cp[2] === U('zz9'), JSON.stringify(cp));
   const edge = await ev(`(() => { const ov = document.querySelector('.fixed.z-50');
     const head = [...ov.querySelectorAll('span')].find(s => s.textContent.trim() === '업무 세부 정보')?.parentElement?.parentElement;
     const foot = [...ov.querySelectorAll('button')].find(b => b.textContent.trim() === '닫기')?.parentElement?.parentElement;

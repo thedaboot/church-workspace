@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { ExternalLink, CheckSquare, Hash } from 'lucide-react';
+import { ExternalLink, CheckSquare, Hash, Link2 } from 'lucide-react';
 import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE, unescapeLine } from '../services/markdown.js';
 import { youtubeVideoId, youtubeThumb, fetchVideoTitle } from '../services/worship.js';
 import { SmartImage, ImageLightbox } from './media.jsx';
@@ -83,7 +83,7 @@ function InlineLink({ href, children }) {
 // ── 앱 링크 멘션 (시안 2차 2026-10-16) ─────────────────────────────────────────────
 // 같은 origin의 업무·프로젝트 주소가 **글자 그대로** 박혀 있으면(`/s/t/<uuid>`는 60자가 넘어 본문·댓글을 갈랐다) 그 자리를
 // 노션 페이지 멘션처럼 '아이콘 + 제목' 한 칩으로 그린다 — 업무는 초록 체크(잠긴 업무는 자물쇠) · 프로젝트는 보라 #(상단 검색과 같은 표시).
-// 누르면 InlineLink와 같은 길로 앱 안에서 연다. 스토어에 없거나 나에게 안 보이는 것(직접 고른 사람에 내가 없음)은 주소 그대로다.
+// 누르면 InlineLink와 같은 길로 앱 안에서 연다. 스토어에 없거나 나에게 안 보이는 업무·프로젝트 링크는 '업무 링크'·'프로젝트 링크' 중립 칩(아래).
 // 아래 업무 링크 카드는 그대로 선다. 저장된 글(마크다운)은 주소 그대로라 수정 화면에서는 주소가 보인다.
 // **복사하면 주소가 나온다** — 문서의 copy를 한 번 듣고, 고른 구간 안의 멘션을 그 주소 글자로 바꿔 클립보드에 싣는다
 // (멘션 안만 골랐으면 그 주소 하나). 링크 복사(우클릭)는 href 그대로라 손댈 것이 없다.
@@ -120,7 +120,17 @@ function AppMention({ href, deep }) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     if (openTaskDeepLink?.(deep)) e.preventDefault();
   };
-  if (!title || !project || !canSeeProject(project, me)) return <a href={href} className={LINK_CLS} onClick={open}>{href}</a>;
+  if (!title || !project || !canSeeProject(project, me)) {
+    // 업무·프로젝트 링크인데 나에게 보이는 것이 없다(지움 · 볼 수 없음 · 없는 id) — 긴 주소 대신 **같은 모양의 중립 칩**(시안 3차).
+    // 제목도 '있다/없다'도 드러내지 않는다 — 없는 것과 못 보는 것이 같은 글자·같은 아이콘이다. 누름은 그대로(못 열면 주소로).
+    // `?p=<화면>` 같은 화면 링크(업무가 아니다)는 예전처럼 주소 그대로다.
+    if (!deep.share && !deep.taskId) return <a href={href} className={LINK_CLS} onClick={open}>{href}</a>;
+    return (
+      <a href={href} data-app-mention="unknown" className={MENTION_CLS} onClick={open}>
+        <Link2 size={12} strokeWidth={2} aria-hidden className="inline-block align-[-1px] mr-1 text-fg-muted" />{deep.taskId ? '업무 링크' : '프로젝트 링크'}
+      </a>
+    );
+  }
   const icon = deep.taskId
     ? (task.locked
       ? <LockGlyph size={12} strokeWidth={2.4} className="inline-block align-[-1px] mr-1 text-fg-muted" />
