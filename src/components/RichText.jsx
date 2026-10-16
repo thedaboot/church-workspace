@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, CheckSquare, Hash } from 'lucide-react';
 import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE, unescapeLine } from '../services/markdown.js';
 import { youtubeVideoId, youtubeThumb, fetchVideoTitle } from '../services/worship.js';
 import { SmartImage, ImageLightbox } from './media.jsx';
@@ -9,7 +9,7 @@ import { parseAppLink } from '../services/appLink.js';
 import { useStore } from '../store/workspaceStore.js';
 import { CONFIG, teamPaint } from '../config.js';
 import { Avatar } from './Avatar.jsx';
-import { CardLockMark } from './cardLock.jsx';
+import { CardLockMark, LockGlyph } from './cardLock.jsx';
 import { isCardClosed } from '../services/cardLock.js';
 import { canSeeProject } from '../services/visibility.js';
 
@@ -66,6 +66,8 @@ function InlineLink({ href, children }) {
     </>
   );
   if (!deep) return <a href={href} target="_blank" rel="noreferrer" className={LINK_CLS}>{children}</a>;
+  // 글자가 곧 주소(붙여 넣은 공유 주소 · `[주소](주소)`)면 긴 주소 대신 멘션 한 칩 — 사람이 지은 링크 글자는 그대로다
+  if (typeof children === 'string' && children.trim() === href.trim()) return <AppMention href={href} deep={deep} />;
   return (
     <a
       href={href} className={LINK_CLS}
@@ -76,6 +78,55 @@ function InlineLink({ href, children }) {
       }}
     >{children}</a>
   );
+}
+
+// ── 앱 링크 멘션 (시안 2차 2026-10-16) ─────────────────────────────────────────────
+// 같은 origin의 업무·프로젝트 주소가 **글자 그대로** 박혀 있으면(`/s/t/<uuid>`는 60자가 넘어 본문·댓글을 갈랐다) 그 자리를
+// 노션 페이지 멘션처럼 '아이콘 + 제목' 한 칩으로 그린다 — 업무는 초록 체크(잠긴 업무는 자물쇠) · 프로젝트는 보라 #(상단 검색과 같은 표시).
+// 누르면 InlineLink와 같은 길로 앱 안에서 연다. 스토어에 없거나 나에게 안 보이는 것(직접 고른 사람에 내가 없음)은 주소 그대로다.
+// 아래 업무 링크 카드는 그대로 선다. 저장된 글(마크다운)은 주소 그대로라 수정 화면에서는 주소가 보인다.
+// **복사하면 주소가 나온다** — 문서의 copy를 한 번 듣고, 고른 구간 안의 멘션을 그 주소 글자로 바꿔 클립보드에 싣는다
+// (멘션 안만 골랐으면 그 주소 하나). 링크 복사(우클릭)는 href 그대로라 손댈 것이 없다.
+let mentionCopyHooked = false;
+function hookMentionCopy() {
+  if (mentionCopyHooked || typeof document === 'undefined') return;
+  mentionCopyHooked = true;
+  document.addEventListener('copy', (e) => {
+    const sel = window.getSelection?.();
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !e.clipboardData) return;
+    const range = sel.getRangeAt(0);
+    const anc = range.commonAncestorContainer;
+    const host = (anc.nodeType === 1 ? anc : anc.parentElement)?.closest?.('[data-app-mention]');
+    if (host) { e.clipboardData.setData('text/plain', host.getAttribute('href')); e.preventDefault(); return; }
+    const frag = range.cloneContents();
+    const marks = frag.querySelectorAll('[data-app-mention]');
+    if (!marks.length) return;
+    marks.forEach(m => m.replaceWith(document.createTextNode(m.getAttribute('href'))));
+    const box = document.createElement('div');
+    box.appendChild(frag);
+    e.clipboardData.setData('text/plain', box.textContent);
+    e.clipboardData.setData('text/html', box.innerHTML);
+    e.preventDefault();
+  });
+}
+const MENTION_CLS = 'inline mx-0.5 px-1 py-px rounded-xs bg-surface-hover text-fg font-semibold no-underline hover:bg-line transition-colors [overflow-wrap:anywhere] [box-decoration-break:clone]';
+function AppMention({ href, deep }) {
+  useEffect(hookMentionCopy, []);
+  const task = useStore(s => (deep.taskId ? s.tasks.byId[deep.taskId] : null));
+  const project = useStore(s => s.projects.byId[task ? task.projectId : deep.projectId] || null);
+  const me = useStore(s => s.currentUser?.name || '');
+  const title = deep.taskId ? task?.title : project?.title;
+  const open = (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    if (openTaskDeepLink?.(deep)) e.preventDefault();
+  };
+  if (!title || !project || !canSeeProject(project, me)) return <a href={href} className={LINK_CLS} onClick={open}>{href}</a>;
+  const icon = deep.taskId
+    ? (task.locked
+      ? <LockGlyph size={12} strokeWidth={2.4} className="inline-block align-[-1px] mr-1 text-fg-muted" />
+      : <CheckSquare size={12} strokeWidth={2} aria-hidden className="inline-block align-[-1px] mr-1 text-tag-green-fg" />)
+    : <Hash size={12} strokeWidth={2} aria-hidden className="inline-block align-[-1px] mr-[3px] text-tag-purple-fg" />;
+  return <a href={href} data-app-mention={deep.taskId ? 'task' : 'project'} title={title} className={MENTION_CLS} onClick={open}>{icon}{title}</a>;
 }
 // ── 유튜브 링크 카드 (UX 다듬기 2차 C13 · 2026-10-15 · PITFALLS 59-d) ─────────────────────────────
 // 댓글·업무 본문(ytCards를 넘긴 자리만)의 유튜브 **영상** 주소 아래에 카드 한 장 — 주보 찬양 줄(worshipDetail SongThumb + 제목 링크 + ↗)과

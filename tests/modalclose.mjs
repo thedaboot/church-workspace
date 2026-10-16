@@ -1618,6 +1618,68 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await closeTask();
 }
 
+// ── 시안 2차 (2026-10-16) — 앱 링크 멘션 · 업무 링크 카드의 잠금 · 업무 창 오른쪽 빈 띠 · 잠금 판이 본문 자리를 채운다 ──────────
+// ① 같은 origin 업무 주소가 글자 그대로면 '아이콘 + 제목' 멘션(href는 주소 그대로) · 사람이 지은 링크 글자는 그대로 · 없는 업무는 주소 그대로
+// ② 멘션을 골라 복사하면 클립보드 글자는 주소다(멘션 안만 골라도 · 앞뒤 글과 같이 골라도)
+// ③ 잠긴 업무 카드 — 나에게 닫힌 것은 자물쇠 + 제목만, 이미 연 것(lockedOpen)은 상태·담당자·본문 첫 줄까지
+// ④ 데스크톱 업무 창의 머리줄·바닥 줄이 왼쪽 칸 오른쪽 끝까지 닿는다(본문 통의 막대 자리 때문에 빈 띠가 서지 않는다)
+// ⑤ 나에게 닫힌 잠긴 업무 — 잠금 판이 바닥 줄 바로 위까지 채운다(판과 바닥 줄 사이에 빈 띠 없음)
+// 되돌리기 검사(§3-5): RichText InlineLink의 AppMention 갈래를 지우면 ①②가, modals.jsx 데스크톱 왼쪽 칸에서 머리줄·바닥 줄을 구르는 통
+// 안(sticky)으로 되돌리면 ④가, LockedPanel의 flex-1(또는 TaskView 잠금 갈래의 flex)을 빼면 ⑤가 깨진다.
+{
+  const U = (id) => `${URL_BASE}/s/t/${id}`;
+  const T3 = (id, title, extra = {}) => ({ id, projectId: 'p1', title, content: '', status: '진행 중', assignees: ['노준석'], teams: ['찬양팀'],
+    startDate: '', dueDate: '2026-09-01', position: 1, author: '노준석', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
+    comments: [], activityLog: [], attachments: [], ...extra });
+  const st = { currentUser: { name: '노준석', team: '임원진' },
+    projects: { byId: { p1: { id: 'p1', title: 'P1 프로젝트', pinnedLinks: [], year: 2026 } }, allIds: ['p1'] },
+    tasks: { byId: {
+      w1: T3('w1', '링크 단 업무', { position: 0, content: `답사 결과는 ${U('w2')} 에 있어요\n[직접 쓴 글자](${U('w2')})\n없는 업무 ${U('zz9')}\n닫힌 ${U('w3')}\n연 ${U('w4')}` }),
+      w2: T3('w2', '답사 업무', { position: 1, content: '첫 줄 본문' }),
+      w3: T3('w3', '닫힌 잠긴 일', { position: 2, author: '조해리', locked: true, lockedOpen: false, content: '', lockPw: { view_pw: 'x', view_pw_salt: 'y' } }),
+      w4: T3('w4', '연 잠긴 일', { position: 3, author: '조해리', locked: true, lockedOpen: true, content: '연 사람만 보는 본문', lockPw: { view_pw: 'x', view_pw_salt: 'y' } }),
+    }, allIds: ['w1', 'w2', 'w3', 'w4'] } };
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))}); localStorage.removeItem('task_side_closed')`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=w1' }); await wait('Page.loadEventFired');
+  await sleep(1500);
+  const m = await ev(`(() => { const body = document.querySelector('.fixed.z-50 [data-view-body]'); if (!body) return null;
+    const ms = [...body.querySelectorAll('[data-app-mention]')];
+    const links = [...body.querySelectorAll('a')].filter(a => !a.hasAttribute('data-app-mention') && !a.hasAttribute('data-task-card'));
+    return { mentions: ms.map(a => a.textContent.trim() + '|' + a.getAttribute('href').endsWith('/s/t/' + (a.textContent.includes('답사') ? 'w2' : a.textContent.includes('닫힌') ? 'w3' : 'w4'))),
+      own: links.map(a => a.textContent.trim()),
+      cards: [...body.querySelectorAll('[data-task-card]')].map(a => a.dataset.taskCard + (a.hasAttribute('data-task-card-locked') ? ':locked' : '') + ':' + !!a.querySelector('.rounded-full.border')) }; })()`);
+  check('① 글자 그대로인 업무 주소는 아이콘 + 제목 멘션(href는 주소) · 지은 링크 글자 그대로 · 없는 업무는 주소 그대로',
+    !!m && m.mentions.join(',') === '답사 업무|true,닫힌 잠긴 일|true,연 잠긴 일|true' && m.own.includes('직접 쓴 글자') && m.own.includes(U('zz9')), JSON.stringify(m));
+  check('③ 잠긴 업무 카드 — 닫힌 것은 자물쇠 + 제목만, 이미 연 것은 상태 칩까지(본문 첫 줄 포함)',
+    !!m && m.cards.includes('w3:locked:false') && m.cards.includes('w4:true') && m.cards.includes('w2:true'), JSON.stringify(m?.cards));
+  // 헤드리스에서는 execCommand('copy')가 copy를 안 낸다 — 같은 모양의 ClipboardEvent(빈 DataTransfer)를 문서에 보내고 실린 글자를 읽는다
+  const cp = await ev(`(() => { const out = [];
+    const copy = () => { const dt = new DataTransfer(); document.activeElement?.dispatchEvent(new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true }));
+      out.push(dt.getData('text/plain')); };
+    const sel = getSelection(); const a = document.querySelector('.fixed.z-50 [data-view-body] [data-app-mention]'); if (!a) return out;
+    const r1 = document.createRange(); r1.selectNodeContents(a); sel.removeAllRanges(); sel.addRange(r1); copy();
+    const p = a.closest('p'); const r2 = document.createRange(); r2.selectNodeContents(p); sel.removeAllRanges(); sel.addRange(r2); copy();
+    sel.removeAllRanges(); return out; })()`);
+  check('② 멘션을 골라 복사하면 주소가 나온다(멘션만 · 앞뒤 글과 같이)', cp[0] === U('w2') && (cp[1] || '').startsWith(`답사 결과는 ${U('w2')} 에 있어요`), JSON.stringify(cp));
+  const edge = await ev(`(() => { const ov = document.querySelector('.fixed.z-50');
+    const head = [...ov.querySelectorAll('span')].find(s => s.textContent.trim() === '업무 세부 정보')?.parentElement?.parentElement;
+    const foot = [...ov.querySelectorAll('button')].find(b => b.textContent.trim() === '닫기')?.parentElement?.parentElement;
+    const col = head?.parentElement; if (!col || !foot) return null;
+    const inner = col.getBoundingClientRect().right - parseFloat(getComputedStyle(col).borderRightWidth || '0');
+    return { head: Math.round(inner - head.getBoundingClientRect().right), foot: Math.round(inner - foot.getBoundingClientRect().right), sameCol: foot.parentElement === col }; })()`);
+  check('④ 머리줄·바닥 줄이 왼쪽 칸 오른쪽 끝까지(막대 자리 빈 띠 없음)', !!edge && edge.head === 0 && edge.foot === 0 && edge.sameCol, JSON.stringify(edge));
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(500);
+  await ev(`[...document.querySelectorAll('.board-card')].find(c => c.textContent.includes('닫힌 잠긴 일'))?.click()`); await sleep(1000);
+  const fill = await ev(`(() => { const p = document.querySelector('.fixed.z-50 [data-lock-panel]'); const sc = p?.closest('.overflow-y-auto'); if (!p || !sc) return null;
+    const pr = p.getBoundingClientRect(), sr = sc.getBoundingClientRect();
+    return { gap: Math.round(sr.bottom - pr.bottom), h: Math.round(pr.height), overflow: sc.scrollHeight > sc.clientHeight + 1 }; })()`);
+  check('⑤ 잠금 판이 바닥 줄 바로 위까지 채운다(남는 띠는 본문 여백만 · 구르지 않는다)', !!fill && fill.gap <= 34 && fill.h > 300 && !fill.overflow, JSON.stringify(fill));
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(400);
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);
