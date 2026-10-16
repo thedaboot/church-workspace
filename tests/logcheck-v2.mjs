@@ -1547,17 +1547,24 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   const items = H.buildHandovers(pairs, ['msy', 'kdy']);
   const msy = items.find(i => i.from === 'msy');
   assert.ok(msy.to === 'jhr' && msy.graduate && msy.slots.join() === 'treasurer', '총무를 넘기며 졸업하면 한 건으로 합친다');
-  assert.ok(items.find(i => i.from === 'kdy').to === null, '직분 없는 졸업자는 받는 사람 미정');
+  assert.ok(items.find(i => i.from === 'kdy').to === null, '직분 없는 졸업자는 인수자 미정');
   assert.ok(!items.some(i => i.from === 'njs'), '그대로 이어 맡는 사람은 인계가 아니다');
-  assert.strictEqual(H.buildHandovers(pairs, ['kdy'], { kdy: 'swh' }).find(i => i.from === 'kdy').to, 'swh', '졸업자의 받는 사람을 고른다');
+  assert.strictEqual(H.buildHandovers(pairs, ['kdy'], { kdy: 'swh' }).find(i => i.from === 'kdy').to, 'swh', '졸업자의 인수자를 고른다');
 
   const tasks = [{ id: 1, status: '진행 중', assignees: ['문서연'] }, { id: 2, status: '완료', assignees: ['문서연'] }, { id: 3, status: '상시', assignees: ['문서연', '조해리'] }];
-  assert.deepStrictEqual(H.openTasksOf(tasks, '문서연').map(t => t.id), [1, 3], '넘길 업무 — 완료 빼고');
-  assert.deepStrictEqual(H.passAssignees(['문서연', '조해리'], '문서연', '조해리'), ['조해리'], '받는 사람이 이미 있으면 빼기만');
+  assert.deepStrictEqual(H.openTasksOf(tasks, '문서연').map(t => t.id), [1, 3], '인계할 업무 — 완료 빼고');
+  assert.deepStrictEqual(H.passAssignees(['문서연', '조해리'], '문서연', '조해리'), ['조해리'], '인수자가 이미 있으면 빼기만');
   assert.deepStrictEqual(H.passAssignees(['김', '문서연'], '문서연', '조해리'), ['김', '조해리'], '자리 그대로 바꾼다');
 
   // 배선 — 명단 칩이 이 묶음을 쓰고, 멤버 화면이 졸업 표시를 이 규칙으로 붙인다
   assert.ok(/rolesOffered\(year, roleSet\)/.test(readSrc('src/components/roster.jsx')), '명단 직분 줄은 rolesOffered로 선다');
   assert.ok(/graduatesOf\(people, year\)/.test(readSrc('src/views/membersView.jsx')), '명단 졸업 표시는 graduatesOf');
-  console.log('PASS  인수인계 시안(졸업 한국 나이 31 · 직분 짝 · 리더팀장 2026까지 · 졸업+넘김 한 건 · 업무 넘기기)');
+  // 문구(사용자 검토 3차 2026-10-17) — 새 말이 서고 옛 말이 남지 않는다 · '화면 보기'는 게스트 시연에서만.
+  // 되돌리기: 옛 문구 하나를 되살리거나 handoverOn() 갈래를 지우면 깨진다.
+  const hvUi = readSrc('src/components/handover.jsx');
+  for (const w of ['>유지<', '>인수자<', 'placeholder="인수자 선택"', '인계할 업무<', '인계받은 업무 ', '워크스페이스는 그대로 사용할 수 있어요',
+    '${FROM_YEAR}년에 리더만 볼 수 있었던 프로젝트는 ${FROM_YEAR}년 리더진들도 계속 볼 수 있어요']) assert.ok(hvUi.includes(w), `새 문구: ${w}`);
+  for (const w of ['>그대로<', '받는 사람', '넘길 업무', '넘겨받은 업무', '앱은 지금처럼', '리더도 계속 보고 고쳐요']) assert.ok(!hvUi.includes(w), `옛 문구가 남지 않는다: ${w}`);
+  assert.strictEqual((hvUi.match(/\{handoverOn\(\) && <button type="button"[^\n]*onViewAs/g) || []).length, 2, "'화면 보기' 두 자리는 게스트 시연에서만");
+  console.log('PASS  인수인계 시안(졸업 한국 나이 31 · 직분 짝 · 리더팀장 2026까지 · 졸업+넘김 한 건 · 업무 넘기기 · 문구)');
 }

@@ -15,20 +15,20 @@ import { objectParticle } from '../services/errorText.js';
 import { ROLE_LABEL, GRAD_LABEL, teamLeadLabel } from '../services/roster.js';
 import { pairRoles, graduatesOf, buildHandovers, openTasksOf, TEAM_LEAD } from '../services/handover.js';
 import {
-  useHandover, updateHandover, applyHandover, resetHandover, viewAs, viewBack, guestRoster, FROM_YEAR, TO_YEAR,
+  useHandover, updateHandover, applyHandover, resetHandover, viewAs, viewBack, guestRoster, handoverOn, FROM_YEAR, TO_YEAR,
 } from '../services/handoverStore.js';
 
 // ============================================================================
 // 인수인계(가칭) 시안 — 멤버 화면의 세 번째 탭(마스터만) + 홈 카드 둘 (게스트 전용 · 2026-10-16)
 // ----------------------------------------------------------------------------
 // 흐름(사용자가 정한 차례): 다음 해 직분은 '청년 명단'의 그 해에 넣는다 → ① 직분 짝(자리로 자동 · 고칠 수 있다)
-// → ② 졸업(한국 나이 31세 자동 목록 · 확정 · 받는 사람) → ③ 인계 내용(나가는 사람이 남길 말 · 넘길 업무)
-// → ④ 1월 1일 적용(시연 버튼) → 받는 사람이 앱을 열면 홈 맨 위에 카드(누구에게서 · 남긴 말 · 업무).
+// → ② 졸업(한국 나이 31세 자동 목록 · 확정 · 인수자) → ③ 인계 내용(나가는 사람이 남길 말 · 인계할 업무)
+// → ④ 1월 1일 적용(시연 버튼) → 인수자이 앱을 열면 홈 맨 위에 카드(누구에게서 · 남긴 말 · 업무).
 // 지난해 리더가 지난해 '리더만 보기' 프로젝트를 계속 보고 고치는 것은 ④에 한 줄로 말한다(DB는 나중).
 //
 // 규칙은 services/handover.js(순수 · logcheck-v2), 저장·시드·적용은 services/handoverStore.js.
 // 폰은 한 단계씩 한 장(아래 이전·다음) · 데스크톱은 같은 단계에 지난해 | 다음 해 두 열.
-// 부품은 앱의 것 — Segmented(단계) · MenuPick(받는 사람 고치기) · PersonPick(졸업자의 받는 사람) ·
+// 부품은 앱의 것 — Segmented(단계) · MenuPick(인수자 고치기) · PersonPick(졸업자의 인수자) ·
 // 버튼 두 단 · 아래 시트(.dc-sheet-dialog + .dc-scrim · useLeave로 걷힘 · PITFALLS 57).
 // ============================================================================
 
@@ -107,7 +107,7 @@ function PairStep({ m, onEditRoster }) {
           const to = m.byId.get(p.to);
           const changed = p.from && p.to !== p.auto;
           const pick = !m.hv.applied && p.kind !== 'new' && (
-            <MenuPick label="받는 사람" items={options.filter(o => o.id !== (p.to || ''))} onPick={(id) => setTo(p.key, id)}>
+            <MenuPick label="인수자" items={options.filter(o => o.id !== (p.to || ''))} onPick={(id) => setTo(p.key, id)}>
               {to ? '변경' : '선택'}
             </MenuPick>
           );
@@ -119,7 +119,7 @@ function PairStep({ m, onEditRoster }) {
               <span className="min-w-0">{from ? <Who person={from} /> : <Quiet>새로 맡음</Quiet>}</span>
               <span className="flex justify-center text-fg-faint"><ArrowRight size={14} /></span>
               <span className="min-w-0 flex items-center gap-1.5">
-                {p.kind === 'same' ? <><Who person={to} muted /><span className="shrink-0 text-[11px] text-fg-muted">그대로</span></>
+                {p.kind === 'same' ? <><Who person={to} muted /><span className="shrink-0 text-[11px] text-fg-muted">유지</span></>
                   : to ? <Who person={to} /> : <span className="text-[12.5px] font-semibold text-tag-orange-fg">미정</span>}
                 {changed && <span aria-hidden className="shrink-0 w-1.5 h-1.5 rounded-full bg-accent" />}
                 <span className="ml-auto shrink-0">{pick}</span>
@@ -174,8 +174,8 @@ function GradStep({ m }) {
                 </div>
                 {on && (
                   <div className="mt-2.5 flex items-center gap-2 pl-[42px]">
-                    <span className="shrink-0 text-[11px] font-semibold text-fg-muted">받는 사람</span>
-                    <PersonPick className="flex-1 min-w-0" label={`${p.name} 받는 사람`} placeholder="받는 사람 선택"
+                    <span className="shrink-0 text-[11px] font-semibold text-fg-muted">인수자</span>
+                    <PersonPick className="flex-1 min-w-0" label={`${p.name} 인수자`} placeholder="인수자 선택"
                       people={pool.filter(x => x.id !== p.id)} value={item?.to || ''} allowClear
                       onChange={(id) => setTo(p.id, id)} />
                   </div>
@@ -208,10 +208,11 @@ function ItemRow({ m, it, onWrite, onViewAs }) {
         </span>
         <span className="text-[11px] text-fg-muted tabular-nums">{`업무 ${(note?.taskIds || []).length}건`}</span>
         <span className="ml-auto flex items-center gap-1">
-          <button type="button" onClick={() => onViewAs(from)}
+          {/* '화면 보기'는 시연 전용(게스트) — 그 사람의 홈 카드를 미리 보려고만 있다. 실제 앱에는 두지 않는다 */}
+          {handoverOn() && <button type="button" onClick={() => onViewAs(from)}
             className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">
             <Eye size={13} /><span>화면 보기</span>
-          </button>
+          </button>}
           {!m.hv.applied && (
             <button type="button" className={`${BTN} inline-flex items-center gap-1`} onClick={() => onWrite(it)}>
               <PencilLine size={13} /><span>{note?.done ? '고치기' : '쓰기'}</span>
@@ -243,8 +244,8 @@ function ApplyStep({ m, onViewAs }) {
   const lines = [
     [Handshake, `직분 ${seats}자리가 ${TO_YEAR}년으로 넘어가요`],
     [ArrowRight, `업무 ${moving}건의 담당자가 바뀌어요`],
-    [GraduationCap, `졸업 ${m.grads.length}명 · 앱은 지금처럼 써요`],
-    [Eye, `${FROM_YEAR}년 리더만 보기 프로젝트는 ${FROM_YEAR}년 리더도 계속 보고 고쳐요`],
+    [GraduationCap, `졸업 ${m.grads.length}명 · 워크스페이스는 그대로 사용할 수 있어요`],
+    [Eye, `${FROM_YEAR}년에 리더만 볼 수 있었던 프로젝트는 ${FROM_YEAR}년 리더진들도 계속 볼 수 있어요`],
   ];
   const receivers = [...new Set(m.items.map(it => it.to).filter(Boolean))].map(id => m.byId.get(id)).filter(Boolean);
   const apply = () => {
@@ -276,17 +277,17 @@ function ApplyStep({ m, onViewAs }) {
       </div>
       {applied && (
         <div className="mt-5">
-          <Head title="받는 사람" count={`${receivers.length}명`} />
+          <Head title="인수자" count={`${receivers.length}명`} />
           <div className={`${CARD} overflow-hidden`} style={CARD_STYLE}>
             {receivers.map((p, i) => (
               <div key={p.id} className="flex items-center gap-2 px-3 py-2.5" style={i ? { borderTop: '1px solid var(--app-line)' } : undefined}>
                 <Who person={p} />
                 <span className="ml-auto flex items-center gap-1 shrink-0">
                   {m.items.filter(it => it.to === p.id).flatMap(itemLabels).slice(0, 2).map(l => <Badge key={l} label={l} />)}
-                  <button type="button" data-view-as={p.id} onClick={() => onViewAs(p)}
+                  {handoverOn() && <button type="button" data-view-as={p.id} onClick={() => onViewAs(p)}
                     className="ml-1 inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">
                     <Eye size={13} /><span>화면 보기</span>
-                  </button>
+                  </button>}
                 </span>
               </div>
             ))}
@@ -348,7 +349,7 @@ export function HandoverSheet({ m, item, onClose }) {
           className={`${FIELD} w-full resize-y leading-[1.6]`} />
 
         <p className="mt-4 mb-1.5 flex items-baseline gap-2 text-[11px] font-semibold text-fg-muted">
-          넘길 업무<span className="font-normal tabular-nums">{`${picked.size}/${tasks.length}`}</span>
+          인계할 업무<span className="font-normal tabular-nums">{`${picked.size}/${tasks.length}`}</span>
         </p>
         {tasks.length === 0 ? (
           <p className="py-2 text-[12px] text-fg-muted">진행 중 업무 0건</p>
@@ -432,7 +433,7 @@ export function HandoverPanel({ onEditRoster, onNavigate }) {
 }
 
 // ── 홈 카드 둘 ─────────────────────────────────────────────────────────────
-// 나가는 사람(적용 전): '인계 내용 쓰기' · 받는 사람(적용 뒤 · 확인 전): 누구에게서 · 남긴 말 · 넘겨받은 업무.
+// 나가는 사람(적용 전): '인계 내용 쓰기' · 인수자(적용 뒤 · 확인 전): 누구에게서 · 남긴 말 · 인계받은 업무.
 // 보는 사람 = 게스트 currentUser 이름(시안의 '화면 보기'가 바꾼다). 카드는 히어로 아래 · 카드 격자 위 한 줄.
 export function HandoverHomeCards({ onTaskClick }) {
   const m = useHandoverModel();
@@ -502,7 +503,7 @@ export function HandoverHomeCards({ onTaskClick }) {
                 {note?.note || <span className="text-fg-muted">남긴 말 미입력</span>}
               </blockquote>
               <div className="mt-3 md:mt-0">
-                <p className="mb-1.5 text-[11px] font-semibold text-fg-muted">{`넘겨받은 업무 ${tasks.length}건`}</p>
+                <p className="mb-1.5 text-[11px] font-semibold text-fg-muted">{`인계받은 업무 ${tasks.length}건`}</p>
                 {tasks.map(t => (
                   <button key={t.id} type="button" onClick={() => onTaskClick?.(t)}
                     className="w-full flex items-center gap-2 py-1.5 text-left rounded-md hover:bg-surface-hover transition-colors">
