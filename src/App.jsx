@@ -1011,7 +1011,7 @@ function WorkspaceShell() {
           <div key={activeMenu} className={`app-screen ${navClass} ${needsFullHeight ? 'h-full' : ''}`}>
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
-          {activeMenu === 'members' && <Suspense fallback={null}><MembersView isAdmin={isAdmin} isMaster={isMaster} /></Suspense>}
+          {activeMenu === 'members' && <Suspense fallback={null}><MembersView isAdmin={isAdmin} isMaster={isMaster} onNavigate={setActiveMenu} /></Suspense>}
           {activeMenu === 'home' && <HomeView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onOpenLink={handleOpenLink} />}
           {activeMenu === 'worship' && <Suspense fallback={null}><WorshipView onOpenBible={openBible} /></Suspense>}
           {activeMenu === 'word' && <Suspense fallback={null}><WordView initialRef={wordRef} /></Suspense>}

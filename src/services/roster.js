@@ -45,6 +45,14 @@ export const ROLE_LABEL = {
 };
 export const YEAR_ROLES = ['director', 'president', 'treasurer', 'lead_sunjang', 'lead_team', 'vision_maker'];
 export const PASTOR_LABEL = '교역자';
+// ── 시안(게스트 전용 · 2026-10-16): 팀장(팀 하나)과 졸업 표시 ──────────────────
+// 팀장은 DB CHECK(0094)에 아직 없어서 YEAR_ROLES에 넣지 않는다(넣으면 클라우드 저장이 막힌다 · tests/roster의
+// '직분 값이 DB 체크와 같은 집합'). 게스트 people_roles 줄에 `team` 칸을 얹는다 — 실제로는 0104가 값과 칸을 연다.
+// 칩 묶음·리더팀장 숨김·졸업 규칙은 services/handover.js(순수).
+export const TEAM_LEAD = 'team_lead';
+export const TEAM_LEAD_LABEL = '팀장';
+export const GRAD_LABEL = '졸업';
+export const teamLeadLabel = (team) => (team ? `${team}장` : TEAM_LEAD_LABEL);
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — tests/roster.mjs 앞부분) ───────────
 
@@ -117,10 +125,22 @@ export function rolesByPerson(roles) {
   return out;
 }
 
-// 화면에 붙는 직분 배지. 교역자가 먼저고 그다음이 그 해의 직분이다.
-export function personBadges(person, roleSet) {
+// person_id → 팀 이름(그 해 팀장 줄 · 한 사람 한 팀)
+export function teamLeadOf(roles) {
+  const out = new Map();
+  for (const r of roles || []) if (r.role === TEAM_LEAD) out.set(r.person_id, r.team || '');
+  return out;
+}
+
+// 화면에 붙는 직분 배지. 교역자가 먼저고 그다음이 그 해의 직분이다(칩 묶음 순서 —
+// 부장 · 회장·총무·리더순장·리더팀장 · OO팀장 · 비전 메이커) · 그 해 졸업이면 맨 끝에 '졸업'.
+export function personBadges(person, roleSet, { team, graduate = false } = {}) {
   const out = person?.is_pastor ? [PASTOR_LABEL] : [];
-  for (const r of YEAR_ROLES) if (roleSet?.has(r)) out.push(ROLE_LABEL[r]);
+  for (const r of YEAR_ROLES) {
+    if (r === 'vision_maker' && team != null) out.push(teamLeadLabel(team));
+    if (roleSet?.has(r)) out.push(ROLE_LABEL[r]);
+  }
+  if (graduate) out.push(GRAD_LABEL);
   return out;
 }
 
@@ -163,12 +183,12 @@ export async function loadRoster(year) {
 // ── 쓰기 ────────────────────────────────────────────────────────────────────
 const one = async (q) => { const { data, error } = await q; if (error) throw error; return data; };
 
-export async function addPerson({ name, birthday = null, teams = [] }) {
+export async function addPerson({ name, birthday = null, teams = [], birth_year = null }) {
   const row = { name: String(name || '').trim(), birthday: birthday || null, teams: teams || [] };
   if (!cloudOn()) {
     const made = {
       id: generateId(), gender: null, is_pastor: false, profile_id: null, note: null,
-      removed_at: null, created_at: new Date().toISOString(), ...row,
+      removed_at: null, created_at: new Date().toISOString(), birth_year: birth_year || null, ...row,
     };
     guestSet('people', [...guestRows('people'), made]);
     return made;
@@ -177,9 +197,11 @@ export async function addPerson({ name, birthday = null, teams = [] }) {
 }
 
 // 이름·생일·팀·note만 고친다. 계정 연결·직분은 각자의 길이 따로 있다.
+// birth_year(태어난 해)는 시안 — 게스트에만 저장한다(명단에 칸이 없다 · 0104 후보).
 export async function updatePerson(id, patch) {
   const next = {};
-  for (const k of ['name', 'birthday', 'teams', 'note']) if (k in patch) next[k] = patch[k];
+  for (const k of ['name', 'birthday', 'teams', 'note', 'birth_year']) if (k in patch) next[k] = patch[k];
+  if (cloudOn()) delete next.birth_year;
   if (!Object.keys(next).length) return null;
   if (!cloudOn()) return guestPatch(id, next);
   return one(supabase.from('people').update(next).eq('id', id).select(COLS).single());
@@ -235,4 +257,14 @@ export async function setYearRole(personId, year, role, on) {
   const { error } = await supabase.from('people_roles').delete().match(row);
   if (error) throw error;
   return null;
+}
+
+// 팀장(시안 · 게스트 전용) — 한 사람이 그 해 한 팀. team이 비면 푼다. 클라우드에는 아직 저장 자리가 없다(0104).
+export async function setTeamLead(personId, year, team) {
+  if (cloudOn()) throw new Error('팀장 직분은 아직 저장 자리가 없어요');
+  const rows = guestRows('people_roles').filter(r =>
+    !(r.person_id === personId && r.year === year && r.role === TEAM_LEAD));
+  const row = team ? { person_id: personId, year, role: TEAM_LEAD, team } : null;
+  guestSet('people_roles', row ? [...rows, row] : rows);
+  return row;
 }

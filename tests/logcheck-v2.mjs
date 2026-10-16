@@ -1487,3 +1487,63 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     && pre.indexOf('navigator.onLine === false') < pre.indexOf('sessionStorage'), '오프라인이면 online을 기다렸다 새로 고친다');
   console.log('PASS  예배·말씀·모임·청년 명단은 늦게 싣는다 · 옛 조각은 한 번 새로 고침');
 }
+
+// ── 인수인계 시안(게스트 · 2026-10-16) — 졸업 나이 · 직분 짝 · 리더팀장 숨김 · 업무 넘기기 (services/handover.js) ──
+// 졸업은 1월 1일 한국 나이 31세(해 − 태어난 해 + 1 · 2027 = 1997년생). 직분 짝은 자리(값 · 팀장은 팀까지)로 맞춘다.
+// 되돌리기: koreanAge의 `+ 1`을 지우면 1996년생이 2027 졸업으로 잡혀 깨지고, slotOf에서 팀을 빼면
+// 찬양팀장이 워십팀장과 짝지어져 깨지고, rolesOffered의 연도 조건을 지우면 2027에 리더팀장이 다시 서서 깨진다.
+{
+  const H = await loadSource('src/services/handover.js');
+  assert.strictEqual(H.koreanAge(1997, 2027), 31, '1997년생은 2027년에 한국 나이 31세');
+  assert.ok(H.isGraduateYear(1997, 2027) && !H.isGraduateYear(1996, 2027) && !H.isGraduateYear(1998, 2027), '2027 졸업은 1997년생만');
+  assert.strictEqual(H.koreanAge(null, 2027), null, '태어난 해가 없으면 나이를 모른다');
+  const people = [
+    { id: 'a', name: '문서연', birth_year: 1997 }, { id: 'b', name: '강도윤', birth_year: 1997 },
+    { id: 'c', name: '이서준', birth_year: 1996 }, { id: 'd', name: '환송', birth_year: 1997, removed_at: '2026-01-01' },
+    { id: 'e', name: '모름' },
+  ];
+  assert.deepStrictEqual(H.graduatesOf(people, 2027).map(p => p.id), ['b', 'a'], '졸업 목록 — 환송·태어난 해 없는 사람 제외 · 이름순');
+
+  const old = [
+    { person_id: 'yde', role: 'president' }, { person_id: 'msy', role: 'treasurer' }, { person_id: 'bhw', role: 'lead_team' },
+    { person_id: 'njs', role: 'team_lead', team: '찬양팀' }, { person_id: 'cyn', role: 'team_lead', team: '워십팀' },
+    { person_id: 'hjm', role: 'team_lead', team: '미디어팀' },
+  ];
+  const nu = [
+    { person_id: 'jmk', role: 'president' }, { person_id: 'jhr', role: 'treasurer' },
+    { person_id: 'njs', role: 'team_lead', team: '찬양팀' }, { person_id: 'lhb', role: 'team_lead', team: '워십팀' },
+    { person_id: 'pjh', role: 'team_lead', team: '기획팀' },
+  ];
+  const pairs = H.pairRoles(old, nu);
+  const at = (slot) => pairs.find(p => p.slot === slot);
+  assert.ok(at('treasurer').from === 'msy' && at('treasurer').to === 'jhr' && at('treasurer').kind === 'pass', '총무 → 총무');
+  assert.strictEqual(at('team_lead:찬양팀').kind, 'same', '같은 사람이 이어 맡으면 그대로');
+  assert.ok(at('team_lead:워십팀').to === 'lhb' && at('team_lead:워십팀').kind === 'pass', '팀장은 같은 팀끼리');
+  assert.strictEqual(at('team_lead:미디어팀').kind, 'open', '받는 팀장이 없으면 미정');
+  assert.ok(at('lead_team').kind === 'open', '2027에 리더팀장이 없으면 미정');
+  assert.ok(at('team_lead:기획팀').from === null && at('team_lead:기획팀').kind === 'new', '새 해에만 있는 자리는 새로 맡음');
+  assert.deepStrictEqual(pairs.map(p => p.slot).slice(0, 3), ['president', 'treasurer', 'lead_team'], '자리 순서는 칩 묶음 순서');
+  const fixed = H.pairRoles(old, nu, { 'team_lead:미디어팀<hjm': 'pjh', 'president<yde': null });
+  assert.ok(fixed.find(p => p.slot === 'team_lead:미디어팀').to === 'pjh' && fixed.find(p => p.slot === 'president').kind === 'open', '마스터가 짝을 고친다');
+
+  assert.ok(!H.rolesOffered(2027).flat().includes('lead_team') && H.rolesOffered(2026).flat().includes('lead_team'), '리더팀장은 2026까지만 고른다');
+  assert.ok(H.rolesOffered(2027, new Set(['lead_team'])).flat().includes('lead_team'), '그 해 이미 가진 사람에게는 칩이 남는다');
+  assert.deepStrictEqual(H.rolesOffered(2026).map(g => g.length), [2, 4, 1, 1], '묶음 넷 — 교역자·부장 | 임원 | 팀장 | 비전 메이커');
+
+  const items = H.buildHandovers(pairs, ['msy', 'kdy']);
+  const msy = items.find(i => i.from === 'msy');
+  assert.ok(msy.to === 'jhr' && msy.graduate && msy.slots.join() === 'treasurer', '총무를 넘기며 졸업하면 한 건으로 합친다');
+  assert.ok(items.find(i => i.from === 'kdy').to === null, '직분 없는 졸업자는 받는 사람 미정');
+  assert.ok(!items.some(i => i.from === 'njs'), '그대로 이어 맡는 사람은 인계가 아니다');
+  assert.strictEqual(H.buildHandovers(pairs, ['kdy'], { kdy: 'swh' }).find(i => i.from === 'kdy').to, 'swh', '졸업자의 받는 사람을 고른다');
+
+  const tasks = [{ id: 1, status: '진행 중', assignees: ['문서연'] }, { id: 2, status: '완료', assignees: ['문서연'] }, { id: 3, status: '상시', assignees: ['문서연', '조해리'] }];
+  assert.deepStrictEqual(H.openTasksOf(tasks, '문서연').map(t => t.id), [1, 3], '넘길 업무 — 완료 빼고');
+  assert.deepStrictEqual(H.passAssignees(['문서연', '조해리'], '문서연', '조해리'), ['조해리'], '받는 사람이 이미 있으면 빼기만');
+  assert.deepStrictEqual(H.passAssignees(['김', '문서연'], '문서연', '조해리'), ['김', '조해리'], '자리 그대로 바꾼다');
+
+  // 배선 — 명단 칩이 이 묶음을 쓰고, 멤버 화면이 졸업 표시를 이 규칙으로 붙인다
+  assert.ok(/rolesOffered\(year, roleSet\)/.test(readSrc('src/components/roster.jsx')), '명단 직분 줄은 rolesOffered로 선다');
+  assert.ok(/graduatesOf\(people, year\)/.test(readSrc('src/views/membersView.jsx')), '명단 졸업 표시는 graduatesOf');
+  console.log('PASS  인수인계 시안(졸업 한국 나이 31 · 직분 짝 · 리더팀장 2026까지 · 졸업+넘김 한 건 · 업무 넘기기)');
+}

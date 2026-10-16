@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Check, Link2, Link2Off, UserX, Undo2, Loader2, Pencil, X, Search, CalendarDays } from 'lucide-react';
+import { Plus, Check, Link2, Link2Off, UserX, Undo2, Loader2, Pencil, X, Search, CalendarDays, ChevronDown } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { Skeleton } from './media.jsx';
@@ -10,11 +10,15 @@ import { CONFIG, teamColor, teamBgColor } from '../config.js';
 import { TEAM_CHIP_ROW } from '../views/viewParts.jsx';
 import { objectParticle } from '../services/errorText.js';
 import {
-  ROLE_LABEL, YEAR_ROLES, PASTOR_LABEL, GENDERS, GENDER_LABEL,
-  parseBirthday, searchPeople, accountLinkState, sunNames, rolesByPerson, personBadges,
+  ROLE_LABEL, PASTOR_LABEL, GENDERS, GENDER_LABEL, TEAM_LEAD_LABEL, teamLeadLabel,
+  parseBirthday, searchPeople, accountLinkState, sunNames, rolesByPerson, personBadges, teamLeadOf,
 } from '../services/roster.js';
 
 import { Segmented } from './segmented.jsx';
+import { BADGE_STYLE, badgeClass, LEAD_TEAMS } from './roleBadge.js';
+import { usePopover } from '../hooks/usePopover.js';
+import { rolesOffered, TEAM_LEAD } from '../services/handover.js';
+import { isCloudEnabled } from '../services/supabaseClient.js';
 // ============================================================================
 // 청년 명단 구역의 부품 — 멤버 화면(views/membersView.jsx)의 '청년 명단' 탭이 쓴다
 // ----------------------------------------------------------------------------
@@ -89,16 +93,47 @@ function PanelClose({ onClick }) {
 const EXTRA_SEATS = ['순장', '순원'];
 const TEAM_CHIPS = Object.entries(CONFIG.TEAMS).filter(([t]) => t.endsWith('팀') || EXTRA_SEATS.includes(t));
 
-// 배지 색은 토큰만 쓴다. 교역자는 CONFIG.TEAMS의 '교역자'와 같은 계열로 맞춘다.
-const BADGE_STYLE = {
-  [PASTOR_LABEL]: 'bg-tag-red text-tag-red-fg',
-  [ROLE_LABEL.director]: 'bg-tag-orange text-tag-orange-fg',
-  [ROLE_LABEL.president]: 'bg-tag-yellow text-tag-yellow-fg',
-  [ROLE_LABEL.treasurer]: 'bg-tag-blue text-tag-blue-fg',
-  [ROLE_LABEL.lead_sunjang]: 'bg-tag-purple text-tag-purple-fg',
-  [ROLE_LABEL.lead_team]: 'bg-tag-green text-tag-green-fg',
-  [ROLE_LABEL.vision_maker]: 'bg-tag-brown text-tag-brown-fg',
-};
+
+// 직분 묶음 사이의 가는 세로선 — 프로젝트 탭 줄 앞 칸 뒤의 선과 같은 모양(글자·점 없음)
+const GroupRule = () => <span aria-hidden className="shrink-0 w-px h-4 mx-0.5" style={{ background: 'var(--app-line)' }} />;
+
+// 팀장 칩 — 누르면 팀 목록(떠 있는 판 · usePopover). 켜져 있으면 칩 글자가 'OO팀장'이고 목록 맨 아래에 '팀장 해제'.
+function TeamLeadChip({ team, disabled, onPick }) {
+  const pop = usePopover(176, 260, { gap: 6, measure: true });
+  const on = team != null;
+  const item = 'w-full h-9 flex items-center gap-2 px-2.5 rounded-[7px] text-[12.5px] text-left transition-colors hover:bg-surface-hover';
+  return (
+    <span ref={pop.rootRef} className="inline-flex shrink-0">
+      <span ref={pop.btnRef} className="inline-flex">
+        <button type="button" disabled={disabled} aria-pressed={on} aria-haspopup="menu" aria-expanded={pop.open}
+          data-team-lead={team || ''} onClick={pop.toggle}
+          className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xs text-[11px] font-semibold border transition active:scale-95 disabled:opacity-40
+            ${on ? `${badgeClass(teamLeadLabel(team))} border-transparent` : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
+          {on && <Check size={11} className="shrink-0" />}{on ? teamLeadLabel(team) : TEAM_LEAD_LABEL}
+          <ChevronDown size={11} className="shrink-0 opacity-70" />
+        </button>
+      </span>
+      {pop.panel('team-lead-menu z-[90] bg-surface border border-line rounded-[10px] shadow-elevated p-1', (
+        <div role="menu" aria-label={TEAM_LEAD_LABEL}>
+          {LEAD_TEAMS.map(t => (
+            <button key={t} type="button" role="menuitem" onClick={() => { pop.close(); if (t !== team) onPick(t); }}
+              className={`${item} ${t === team ? 'text-fg font-semibold' : 'text-fg-secondary'}`}>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: teamColor(t) }} />
+              <span className="flex-1 min-w-0 truncate">{t}</span>
+              {t === team && <Check size={13} className="shrink-0 text-accent-text" />}
+            </button>
+          ))}
+          {on && (
+            <button type="button" role="menuitem" onClick={() => { pop.close(); onPick(null); }}
+              className={`${item} text-fg-muted`}>
+              <X size={13} className="shrink-0" />{`${TEAM_LEAD_LABEL} 해제`}
+            </button>
+          )}
+        </div>
+      ))}
+    </span>
+  );
+}
 
 // 성별 칩도 같은 토큰 표를 쓴다. 자매의 pink는 직분 배지가 안 쓰는 색이고, 형제의 blue는
 // 총무와 같은 계열이지만 줄이 달라 나란히 서지 않는다(라벨이 '성별'·'직분'으로 갈린다).
@@ -178,6 +213,9 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
   const [birthday, setBirthday] = useState(initial.birthday || '');
   const [teams, setTeams] = useState(initial.teams || []);
   const [note, setNote] = useState(initial.note || '');
+  // 태어난 해 — 졸업(한국 나이 31세) 계산에 쓴다. **시안 · 게스트에만** 선다(명단에 칸이 없다 · 0104 후보)
+  const withYear = !isCloudEnabled();
+  const [birthYear, setBirthYear] = useState(initial.birth_year ? String(initial.birth_year) : '');
 
   // 고른 값은 이미 MM-DD이지만 한 번 더 통과시킨다 — 지난 시드·검사가 넣어 둔 '5-26'
   // 같은 값도 저장할 때 DB 체크(0035)와 같은 모양으로 맞춰진다.
@@ -187,7 +225,9 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
 
   const submit = () => {
     if (!ready) return;
-    onSubmit({ name: name.trim(), birthday: parsed.value, teams, ...(withNote ? { note: note.trim() || null } : {}) });
+    const by = /^(19|20)\d{2}$/.test(birthYear.trim()) ? Number(birthYear.trim()) : null;
+    onSubmit({ name: name.trim(), birthday: parsed.value, teams, ...(withYear ? { birth_year: by } : {}),
+      ...(withNote ? { note: note.trim() || null } : {}) });
   };
 
   return (
@@ -207,6 +247,13 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
             </span>
           </DatePicker>
         </LabeledField>
+        {withYear && (
+          <LabeledField label="태어난 해" className="shrink-0">
+            <input aria-label="태어난 해" value={birthYear} inputMode="numeric" maxLength={4} placeholder="예: 1997"
+              onChange={e => setBirthYear(e.target.value.replace(/[^0-9]/g, ''))}
+              className={`${FIELD} w-[5.5rem] tabular-nums`} />
+          </LabeledField>
+        )}
         {withNote && (
           <LabeledField label="메모" className="flex-1 basis-[9rem] min-w-0">
             <input aria-label="메모" value={note} onChange={e => setNote(e.target.value)} placeholder="메모"
@@ -329,7 +376,7 @@ export function ProfileLinkPanel({ account, people = [], ready = true, busy = fa
 // 무엇을 하는 자리인지 흐렸다(사용자 지적 2026-09-05 — "환송해주기도 왜 밑에 있는거야").
 // 위험한 동작이라 눈에는 띄어야 하지만 손이 지나가는 길에는 없어야 해서, 도구 줄
 // (저장 왼쪽·취소 오른쪽 — §8)에서 떼어 머리줄의 보조 동작으로 둔다. 확인 팝오버는 그대로다.
-function EditPanel({ person, linked, link, roleSet, year, busy, on }) {
+function EditPanel({ person, linked, link, roleSet, team, year, busy, on }) {
   return (
     <div className="mt-2.5 space-y-3 pl-[42px]">
       <div className="flex items-center gap-2">
@@ -369,14 +416,25 @@ function EditPanel({ person, linked, link, roleSet, year, busy, on }) {
         {/* `data-roles`: 직분 줄을 집는 표. 2026-09-22에 소속 줄에도 '교역자'를 잠깐 넣었다가
             검사가 엉뚱한 칩을 눌러 깨졌다 — 칩은 도로 뺐지만 이 표는 남긴다(글자로 찾는
             검사는 같은 이름이 하나만 있다는 가정에 기대고, 그 가정은 또 깨진다). */}
+        {/* 묶음 넷(services/handover.js ROLE_GROUPS · 시안 2026-10-16): 교역자·부장 | 회장·총무·리더순장(·리더팀장)
+            | 팀장 | 비전 메이커 — 사이에 가는 세로선. 리더팀장은 2027부터 안 선다(그 해 줄이 있는 사람만 남는다).
+            교역자만 연도와 무관한 명단 속성이다(people.is_pastor). 팀장 칩은 게스트에서만(DB 자리 0104 전). */}
         <div data-roles className={`${TEAM_CHIP_ROW} py-0.5`}>
-          {/* 교역자만 연도와 무관한 명단 속성이다(people.is_pastor) */}
-          <Chip on={!!person.is_pastor} disabled={busy} className={BADGE_STYLE[PASTOR_LABEL]}
-            onClick={() => on.pastor(person, !person.is_pastor)}>{PASTOR_LABEL}</Chip>
-          {YEAR_ROLES.map(r => (
-            <Chip key={r} on={roleSet.has(r)} disabled={busy} className={BADGE_STYLE[ROLE_LABEL[r]]}
-              onClick={() => on.role(person, r, !roleSet.has(r))}>{ROLE_LABEL[r]}</Chip>
-          ))}
+          {rolesOffered(year, roleSet).map((group, gi) => {
+            const chips = group.filter(r => r !== TEAM_LEAD || !isCloudEnabled());
+            if (!chips.length) return null;
+            return [gi > 0 && <GroupRule key={`rule-${gi}`} />, ...chips.map(r => (
+              r === 'pastor' ? (
+                <Chip key={r} on={!!person.is_pastor} disabled={busy} className={BADGE_STYLE[PASTOR_LABEL]}
+                  onClick={() => on.pastor(person, !person.is_pastor)}>{PASTOR_LABEL}</Chip>
+              ) : r === TEAM_LEAD ? (
+                <TeamLeadChip key={r} team={team} disabled={busy} onPick={(t) => on.teamLead(person, t)} />
+              ) : (
+                <Chip key={r} on={roleSet.has(r)} disabled={busy} className={BADGE_STYLE[ROLE_LABEL[r]]}
+                  onClick={() => on.role(person, r, !roleSet.has(r))}>{ROLE_LABEL[r]}</Chip>
+              )
+            ))];
+          })}
         </div>
       </PanelRow>
     </div>
@@ -402,7 +460,7 @@ function PersonRow({ person, linked, sun, badges, open, busy, right, children, d
             {linked && <Link2 size={11} aria-label="계정 연결됨" className="text-fg-faint shrink-0" />}
             {badges.map(b => (
               <span key={b} data-badge={b}
-                className={`shrink-0 px-1.5 py-px rounded-xs text-[10px] font-bold ${BADGE_STYLE[b] || 'bg-tag-gray text-tag-gray-fg'}`}>{b}</span>
+                className={`shrink-0 px-1.5 py-px rounded-xs text-[10px] font-bold ${badgeClass(b)}`}>{b}</span>
             ))}
           </p>
           <p className="text-[10.5px] text-fg-muted truncate">
@@ -426,13 +484,16 @@ function PersonRow({ person, linked, sun, badges, open, busy, right, children, d
 // ── 명단 구역 전체 ──────────────────────────────────────────────────────────
 export function RosterPanel({
   people = [], roles = [], suns = [], groupMembers = [], profiles = [], profilesReady = true,
-  year, years = [], busy = {}, loading = false, on = {}, failed = null,
+  year, years = [], busy = {}, loading = false, on = {}, failed = null, graduates = null,
 }) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState(null);
 
   const roleMap = useMemo(() => rolesByPerson(roles), [roles]);
+  const teamMap = useMemo(() => teamLeadOf(roles), [roles]);
+  // 그 해 졸업으로 확정한 사람(인수인계 시안 · handoverStore) — 배지만 붙는다(앱은 그대로 쓴다)
+  const badgesOf = (p, roleSet) => personBadges(p, roleSet, { team: teamMap.get(p.id), graduate: !!graduates?.has(p.id) });
   const sunMap = useMemo(() => sunNames(suns, groupMembers), [suns, groupMembers]);
   const profileById = useMemo(() => new Map((profiles || []).map(p => [p.id, p])), [profiles]);
   const link = useMemo(
@@ -459,6 +520,7 @@ export function RosterPanel({
     gender: (p, next) => on.gender?.(p, next),
     pastor: (p, next) => on.pastor?.(p, next),
     role: (p, role, next) => on.role?.(p, role, next),
+    teamLead: (p, team) => on.teamLead?.(p, team),
     remove: async (p, next) => { await on.remove?.(p, next); setOpenId(null); },
   };
 
@@ -507,11 +569,11 @@ export function RosterPanel({
         const open = openId === p.id;
         return (
           <PersonRow key={p.id} person={p} linked={profileById.get(p.profile_id)}
-            sun={(sunMap.get(p.id) || []).join(', ')} badges={personBadges(p, roleSet)}
+            sun={(sunMap.get(p.id) || []).join(', ')} badges={badgesOf(p, roleSet)}
             open={open} busy={!!busy[p.id]} delay={rowDelay(i, stagger)} onOpen={() => setOpenId(open ? null : p.id)}>
             {open && (
               <EditPanel person={p} linked={profileById.get(p.profile_id)} link={link}
-                roleSet={roleSet} year={year} busy={!!busy[p.id]} on={handlers} />
+                roleSet={roleSet} team={teamMap.get(p.id)} year={year} busy={!!busy[p.id]} on={handlers} />
             )}
           </PersonRow>
         );
@@ -522,7 +584,7 @@ export function RosterPanel({
           <Head title="환송한 사람" count={shownGone.length} />
           {shownGone.map((p, i) => (
             <PersonRow key={p.id} person={p} linked={profileById.get(p.profile_id)}
-              sun={(sunMap.get(p.id) || []).join(', ')} badges={personBadges(p, roleMap.get(p.id) || new Set())}
+              sun={(sunMap.get(p.id) || []).join(', ')} badges={badgesOf(p, roleMap.get(p.id) || new Set())}
               busy={!!busy[p.id]} delay={rowDelay(i, stagger)} right={
                 <button type="button" className={`${BTN_QUIET} shrink-0`} disabled={!!busy[p.id]}
                   onClick={() => on.remove?.(p, false)}>

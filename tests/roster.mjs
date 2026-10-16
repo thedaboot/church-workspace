@@ -471,9 +471,10 @@ const panel = await ev(`(() => {
   return { chips, labels, farewell: btns.indexOf('환송해주기'), save: btns.indexOf('저장'),
            cancel: btns.indexOf('취소') };
 })()`);
-check('직분 칩이 교역자·부장·회장·총무·리더순장·리더팀장·비전 메이커 한 줄',
-  JSON.stringify((panel.chips || []).slice(-7))
-    === JSON.stringify(['교역자', '부장', '회장', '총무', '리더순장', '리더팀장', '비전 메이커']),
+// 2026-10-16 시안: 묶음 넷(교역자·부장 | 임원 | 팀장 | 비전 메이커 · services/handover.js) — 팀장 칩(게스트)이 비전 메이커 앞에 선다
+check('직분 칩이 교역자·부장·회장·총무·리더순장·리더팀장·팀장·비전 메이커 한 줄',
+  JSON.stringify((panel.chips || []).slice(-8))
+    === JSON.stringify(['교역자', '부장', '회장', '총무', '리더순장', '리더팀장', '팀장', '비전 메이커']),
   JSON.stringify(panel.chips));
 check('이름·생일·메모가 한 줄에 셋', JSON.stringify(panel.labels) === '["이름","생일","메모"]',
   JSON.stringify(panel.labels));
