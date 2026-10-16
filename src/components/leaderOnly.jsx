@@ -9,6 +9,7 @@ import { ShareSwitch } from './bibleParts.jsx';
 import { Segmented } from './segmented.jsx';
 import { Avatar } from './Avatar.jsx';
 import { BTN_CONFIRM_QUIET } from './buttons.js';
+import { FIELD } from './groupsParts.jsx';
 import { CONFIG } from '../config.js';
 import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly, isRestricted, canSetVisibility, toggleViewerTeam } from '../services/visibility.js';
 import { GUEST_PEOPLE } from '../data/guestPeople.js';
@@ -32,10 +33,10 @@ import { failText } from '../services/errorText.js';
 // 저장(useSetVisibility)도 여기 한 벌 — 프로젝트 머리와 폰 상단바가 같이 쓴다.
 //
 // ── 시안 2026-10-16 '보는 사람 직접 고르기'(**게스트에서만** — 클라우드는 위 토글 그대로 · DB 칸이 없다) ──
-// 판이 `보는 사람` + 세 칸(모두 · 리더만 · 직접 고르기 — Segmented)이 된다. 직접 고르기면 팀 칩이 먼저 서고, 칩을 누르면
-// 그 팀 사람이 아래에 **다 체크된 채** 펼쳐진다(사람마다 뺄 수 있다 · 나는 못 뺀다). 다른 팀 사람은 이름 칸으로 더한다.
+// 판이 `보는 사람` + 세 칸(모두 · 리더만 · 직접 선택 — Segmented)이 된다. 직접 선택이면 팀 칩이 먼저 서고, 칩을 누르면
+// 그 팀 사람이 아래에 **다 체크된 채** 펼쳐진다(사람마다 뺄 수 있다 · 나는 못 뺀다). 다른 팀 사람은 이름 칸으로 추가한다(별도로 추가한 사람).
 // 고를 때마다 곧바로 저장한다(토글과 같은 결 — 확정 버튼 없음). 값은 프로젝트의 viewers·viewerTeams(services/visibility.js).
-// 데스크톱은 같은 자물쇠 팝오버를 넓혀서(312px · .dc-pop), 폰은 아래 시트(.dc-sheet-up + .dc-scrim · 닫힘은 .dc-out).
+// 데스크톱은 같은 자물쇠 팝오버를 넓혀서(312px · .dc-pop · 아래 남은 높이에 맞춰 고정), 폰은 보이는 창 안의 아래 시트(.dc-sheet-up + .dc-scrim · 닫힘은 .dc-out).
 // 칩 자리(데스크톱 제목 옆 · 업무 창 머리)는 '리더만' 칩과 같은 알약에 자물쇠 + 얼굴 셋 + 'N명'.
 // 사람 목록은 스토어의 members, 게스트는 비어 있어서 data/guestPeople.js.
 // ============================================================================
@@ -118,7 +119,9 @@ function useLeaderSwitch(project, onSet) {
   const pick = demo && !(enabled && !!session);
   const isMobile = useIsMobile();
   const sheet = pick && isMobile;
-  const pop = usePopover(pick ? 312 : 140, pick ? 120 : 40, { gap: 8, measure: true });
+  // 고르기 판은 아래에 남은 높이(fit · 위 한계 560)까지만 — 직접 고르기에서는 그 높이로 **고정**해서 사람이 늘고 줄어도
+  // 판이 커졌다 작아지거나 위로 밀려 올라가지 않는다(구르는 것은 판 안의 가운데 칸 하나 · 시안 2차 2026-10-16)
+  const pop = usePopover(pick ? 312 : 140, pick ? PICK_MAX_H : 40, { gap: 8, measure: true, fit: pick });
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetRef = useRef(null);
   useDismiss(sheetOpen, () => setSheetOpen(false), [sheetRef]);
@@ -139,27 +142,36 @@ function useLeaderSwitch(project, onSet) {
         리더만 보기<ShareSwitch on={on} />
       </button>
     ));
-    if (!sheet) return pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated px-3.5 pt-3 pb-3',
-      <ViewersPicker project={project} onSet={onSet} />);
+    if (!sheet) return pop.panel('z-[90] flex flex-col overflow-hidden bg-surface border border-line rounded-[10px] shadow-elevated',
+      <ViewersPicker project={project} onSet={onSet} />,
+      isCustomOnly(project) && pop.pos.maxHeight ? { height: Math.min(PICK_MAX_H, pop.pos.maxHeight) } : null);
     if (!sheetShown) return null;
+    // 폰 시트는 **보이는 창(--app-vh · App.jsx)** 안에 선다 — 업무 창과 같은 길이다(inset-0이면 키보드가 올라와도 시트 바닥이
+    // 키보드 밑에 남아 '이름으로 추가하기' 칸이 가렸다). 칸에 초점이 가면 App의 커서 따라가기가 시트 가운데 칸(하나뿐인 구르는 칸)을 민다.
+    // 직접 고르기에서는 시트 높이를 고정한다(사람이 늘고 줄어도 시트 머리가 오르내리지 않게).
     return createPortal(
-      <div className={`fixed inset-0 z-[95] flex items-end bg-black/50 dc-scrim${sheetLeaving ? ' dc-out' : ''}`} aria-hidden={sheetLeaving || undefined}>
+      <div className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-[95] flex items-end bg-black/50 dc-scrim${sheetLeaving ? ' dc-out' : ''}`} aria-hidden={sheetLeaving || undefined}>
         <div ref={sheetRef} role="dialog" aria-label="보는 사람" data-viewers-sheet=""
-          className={`w-full max-h-[88dvh] overflow-y-auto flex flex-col gap-3 px-4 pt-2.5 rounded-t-2xl bg-surface dc-sheet-up${sheetLeaving ? ' dc-out' : ''}`}
-          style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
-          <span className="self-center w-9 h-1 rounded-full bg-line" />
-          <ViewersPicker project={project} onSet={onSet} big />
-          <button type="button" onClick={() => setSheetOpen(false)} className={`${BTN_CONFIRM_QUIET} w-full`}>닫기</button>
+          className={`w-full flex flex-col overflow-hidden rounded-t-2xl bg-surface dc-sheet-up${sheetLeaving ? ' dc-out' : ''} ${
+            isCustomOnly(project) ? 'h-[min(88%,680px)]' : 'max-h-[88%]'}`}>
+          <span className="shrink-0 self-center w-9 h-1 mt-2.5 rounded-full bg-line" />
+          <ViewersPicker project={project} onSet={onSet} big
+            foot={<button type="button" onClick={() => setSheetOpen(false)} className={`${BTN_CONFIRM_QUIET} w-full`}>닫기</button>} />
         </div>
       </div>, document.body);
   };
   return { pop, on: isRestricted(project), open, toggle, panel };
 }
 
-// 보는 사람 고르기 판(시안 · 게스트) — 세 칸 · 팀 칩 · 팀별 사람 체크 · 팀 밖에서 더한 사람 · 이름 칸.
-// big: 폰 시트(줄이 조금 크다). 고를 때마다 onSet으로 곧바로 저장한다.
-const PICK_ITEMS = [['all', '모두'], [LEADERS, '리더만'], [CUSTOM, '직접 고르기']];
-function ViewersPicker({ project, onSet, big = false }) {
+// 보는 사람 고르기 판(시안 · 게스트) — 세 칸 · 팀 칩 · 이름 칸 · 팀별 사람 체크 · 별도로 추가한 사람.
+// big: 폰 시트(줄이 조금 크다). 고를 때마다 onSet으로 곧바로 저장한다. foot: 바닥 줄 아래에 붙일 것(폰 시트의 닫기).
+// **구르는 칸은 하나다**(시안 2차 2026-10-16 — 판 안 목록과 판 자신이 따로 굴러 사람이 늘 때마다 화면이 뛰었다):
+//   머리(제목 · 세 칸 · 팀 칩 · 이름 칸 — 늘 보인다) / 가운데(팀별 사람 · 별도로 추가한 사람 · 치는 동안은 찾은 사람만 —
+//   overscroll-contain으로 바깥까지 굴리지 않는다) / 바닥(N명이 볼 수 있어요 · 폰은 닫기). 판의 높이는 부르는 쪽이 정한다.
+// 이름 칸은 앱의 표준 칸(groupsParts FIELD)과 같은 글자·여백·테두리다.
+const PICK_ITEMS = [['all', '모두'], [LEADERS, '리더만'], [CUSTOM, '직접 선택']];
+const PICK_MAX_H = 560;
+function ViewersPicker({ project, onSet, big = false, foot = null }) {
   const me = useStore(s => s.currentUser?.name || '');
   const storeMembers = useStore(selectMembers);
   const people = storeMembers.length ? storeMembers : GUEST_PEOPLE;
@@ -188,25 +200,46 @@ function ViewersPicker({ project, onSet, big = false }) {
       {p.name === me && <span className="shrink-0 text-[11px] text-fg-muted">나</span>}
     </label>
   );
+  const custom = mode === CUSTOM;
+  const padX = big ? 'px-4' : 'px-3.5';
   return (
-    <div data-viewers-picker="" className="flex flex-col gap-2.5 min-w-0">
-      <div className={`${big ? 'text-[14px]' : 'text-[12.5px]'} font-bold text-fg`}>보는 사람</div>
-      <Segmented className="flex p-[3px] rounded-md" value={mode} onPick={pickMode}
-        btnClassName={`flex-1 px-2 rounded-sm font-bold transition-colors whitespace-nowrap ${big ? 'py-[7px] text-[13px]' : 'py-[5px] text-[12px]'}`}
-        items={PICK_ITEMS.map(([v, label]) => [v, label, { 'data-visibility-pick': v }])} />
-      {mode === CUSTOM && (
-        <>
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="팀">
-            {teams.map(t => {
-              const sel = viewerTeams.includes(t);
-              return (
-                <button key={t} type="button" onClick={() => setTeam(t)} aria-pressed={sel} data-viewer-team-chip={t}
-                  className={`rounded-full font-bold border transition active:scale-95 ${big ? 'px-3 py-[5px] text-[12.5px]' : 'px-2.5 py-1 text-[11.5px]'} ${sel
-                    ? `${CONFIG.TEAMS[t]} border-transparent` : 'border-line text-fg-muted hover:bg-surface-hover'}`}>{t}</button>
-              );
-            })}
-          </div>
-          <div className={`flex flex-col gap-2 min-w-0 ${big ? '' : 'max-h-[min(340px,50dvh)] overflow-y-auto -mr-2 pr-2'}`}>
+    <div data-viewers-picker="" className="flex-1 min-h-0 flex flex-col min-w-0">
+      <div className={`shrink-0 flex flex-col gap-2.5 ${padX} ${big ? 'pt-3' : 'pt-3'} ${custom ? 'pb-2.5 border-b border-line' : 'pb-3'}`}>
+        <div className={`${big ? 'text-[14px]' : 'text-[12.5px]'} font-bold text-fg`}>보는 사람</div>
+        <Segmented className="flex p-[3px] rounded-md" value={mode} onPick={pickMode}
+          btnClassName={`flex-1 px-2 rounded-sm font-bold transition-colors whitespace-nowrap ${big ? 'py-[7px] text-[13px]' : 'py-[5px] text-[12px]'}`}
+          items={PICK_ITEMS.map(([v, label]) => [v, label, { 'data-visibility-pick': v }])} />
+        {custom && (
+          <>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="팀">
+              {teams.map(t => {
+                const sel = viewerTeams.includes(t);
+                return (
+                  <button key={t} type="button" onClick={() => setTeam(t)} aria-pressed={sel} data-viewer-team-chip={t}
+                    className={`rounded-full font-bold border transition active:scale-95 ${big ? 'px-3 py-[5px] text-[12.5px]' : 'px-2.5 py-1 text-[11.5px]'} ${sel
+                      ? `${CONFIG.TEAMS[t]} border-transparent` : 'border-line text-fg-muted hover:bg-surface-hover'}`}>{t}</button>
+                );
+              })}
+            </div>
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="이름으로 추가하기" aria-label="이름으로 추가하기" data-viewer-search=""
+              enterKeyHint="search" className={`${FIELD} w-full`} />
+          </>
+        )}
+      </div>
+      {custom && (
+        <div data-viewers-scroll="" className={`flex-1 min-h-0 overflow-y-auto overscroll-contain ${padX} py-2`}>
+          {q.trim() ? (
+            found.map(p => (
+              <button key={p.name} type="button" data-viewer-add={p.name} onClick={() => { save({ viewers: [...viewers, p.name] }); setQ(''); }}
+                className={`w-full flex items-center gap-2.5 px-1.5 rounded-md hover:bg-surface-hover text-left ${row}`}>
+                <Avatar name={p.name} className={`flex ${face}`} />
+                <span className="font-semibold text-fg truncate">{p.name}</span>
+                <span className="flex-1 min-w-0 truncate text-[11px] text-fg-muted">{(p.teams || []).join(' · ')}</span>
+                <Plus size={14} className="shrink-0 text-accent-text" aria-hidden />
+              </button>
+            ))
+          ) : (
+          <div className="flex flex-col gap-2 min-w-0">
             {viewerTeams.map(t => {
               const members = people.filter(p => (p.teams || []).includes(t));
               const n = members.filter(p => has.has(p.name)).length;
@@ -222,26 +255,20 @@ function ViewersPicker({ project, onSet, big = false }) {
             })}
             {extras.length > 0 && (
               <div data-viewer-extra="" className="min-w-0">
-                <div className="px-1.5 pb-0.5 text-[11px] font-bold text-fg-muted">다른 팀에서 더한 사람</div>
+                <div className="px-1.5 pb-0.5 text-[11px] font-bold text-fg-muted">별도로 추가한 사람</div>
                 {extras.map(p => person(p, `x:${p.name}`))}
               </div>
             )}
           </div>
-          <div className="flex flex-col gap-1 min-w-0">
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="이름으로 더하기" aria-label="이름으로 더하기" data-viewer-search=""
-              className={`w-full px-2.5 rounded-lg bg-surface-2 text-fg placeholder:text-fg-muted outline-none border border-line focus:border-accent ${big ? 'h-10 text-[16px]' : 'h-[34px] text-[13px]'}`} />
-            {found.map(p => (
-              <button key={p.name} type="button" data-viewer-add={p.name} onClick={() => { save({ viewers: [...viewers, p.name] }); setQ(''); }}
-                className={`flex items-center gap-2.5 px-1.5 rounded-md hover:bg-surface-hover text-left ${row}`}>
-                <Avatar name={p.name} className={`flex ${face}`} />
-                <span className="font-semibold text-fg truncate">{p.name}</span>
-                <span className="flex-1 min-w-0 truncate text-[11px] text-fg-muted">{(p.teams || []).join(' · ')}</span>
-                <Plus size={14} className="shrink-0 text-accent-text" aria-hidden />
-              </button>
-            ))}
-          </div>
-          <div className="text-[11.5px] text-fg-muted tabular-nums" data-viewer-count="">{viewers.length}명이 볼 수 있어요</div>
-        </>
+          )}
+        </div>
+      )}
+      {(custom || foot) && (
+        <div data-viewers-foot="" className={`shrink-0 flex flex-col gap-2.5 ${padX} ${custom ? 'pt-2.5 border-t border-line' : ''} ${big ? '' : 'pb-3'}`}
+          style={big ? { paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' } : null}>
+          {custom && <div className="text-[11.5px] text-fg-muted tabular-nums" data-viewer-count="">{viewers.length}명이 볼 수 있어요</div>}
+          {foot}
+        </div>
       )}
     </div>
   );

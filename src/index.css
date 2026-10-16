@@ -966,6 +966,9 @@ svg.lucide { stroke-width: 1.4px; }
    그 칸(약 120px)이 키보드 위 띠를 먹어 작은 폰(SE)에서는 목록 칸이 90px만 남았고, 답글 칸(칸 + 버튼 97px)이 끝내 다 못 들어갔다.
    쓰는 곳은 목록 안이라 아래 칸은 그동안 할 일이 없다 — 초점이 빠지거나 키보드가 내려가면 그대로 돌아온다. */
 html[data-kb] :has(> [data-cmt-box] :focus) > .cmt-input { display: none; }
+/* 보는 사람 고르기 폰 시트(시안 2차 · leaderOnly.jsx) — '이름으로 추가하기'에 치는 동안 키보드가 떠 있으면 바닥 줄(N명 · 닫기)은 비켜 준다.
+   시트는 보이는 창 안이라 키보드 위로 줄어드는데, 바닥 줄이 그 띠를 먹으면 찾은 사람 줄이 한두 줄밖에 안 남았다. */
+html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers-foot] { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .dab-thumb-pop, .dab-thumb-shake, .dab-burst i, .dab-hop, .dab-droop, .wiki-in-fwd, .wiki-in-back { animation: none !important; }
 }

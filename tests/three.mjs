@@ -912,6 +912,58 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
   check('리더만: 끄면 칩·제목 자물쇠가 걷히고 공개로 저장', off.chips === 0 && !off.titleLock && off.saved === 'all', JSON.stringify(off));
 }
 
+// ── 시안 2차(2026-10-16) 보는 사람 고르기 — 구르는 칸 하나 · 바닥 줄 고정 · 사람이 늘어도 판이 안 뛴다 · 표준 칸 모양 · 폰 시트는 보이는 창 안 ──
+// 시연 데이터 표시(demo)가 있는 게스트에서만 서는 판이라 그 표시를 심는다(사람은 data/guestPeople.js).
+// **되돌리기**: leaderOnly의 팝오버 높이 고정(panel 셋째 인자)을 빼면 '판이 안 뛴다'가, 시트 바깥을 `fixed inset-0`으로 되돌리면
+// '보이는 창 안'이, 이름 칸을 손으로 그린 클래스로 되돌리면 '표준 칸'이 깨진다.
+{
+  const { readFileSync } = await import('node:fs');
+  const FIELD = readFileSync(new URL('../src/components/groupsParts.jsx', import.meta.url), 'utf8').match(/export const FIELD = '([^']+)'/)[1];
+  const demo = { ...st, demo: true, projects: { ...st.projects, byId: { ...st.projects.byId,
+    p1: { ...st.projects.byId.p1, visibility: 'custom', viewers: ['노준석'], viewerTeams: [] } } } };
+  const seed = async (metrics) => {
+    await send('Emulation.setDeviceMetricsOverride', metrics);
+    await send('Emulation.setTouchEmulationEnabled', { enabled: !!metrics.mobile, maxTouchPoints: 5 });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(demo))}); localStorage.setItem('theme','light')`);
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
+  };
+  const box = (host) => ev(`(() => { const h = ${host}; if (!h) return null; const r = h.getBoundingClientRect();
+    const rolls = [...h.querySelectorAll('*')].filter(n => /auto|scroll/.test(getComputedStyle(n).overflowY));
+    const foot = h.querySelector('[data-viewer-count]')?.getBoundingClientRect();
+    return { top: Math.round(r.top), h: Math.round(r.height), bottom: Math.round(r.bottom), rolls: rolls.length,
+      contain: rolls[0] ? getComputedStyle(rolls[0]).overscrollBehaviorY : null, footIn: !!foot && foot.bottom <= r.bottom + 0.5 && foot.top >= r.top }; })()`);
+  const chipTap = (t) => ev(`document.querySelector('[data-viewer-team-chip="${t}"]')?.click()`);
+  // 데스크톱 팝오버
+  await seed(DESK);
+  await ev(`document.querySelector('button[data-leader-lock]').click()`); await sleep(500);
+  const POP = `document.querySelector('[data-viewers-picker]')?.parentElement`;
+  const p0 = await box(POP);
+  for (const t of ['웰컴팀', '찬양팀', '미디어팀', '임원진', '워십팀']) { await chipTap(t); await sleep(150); }
+  const p1 = await box(POP);
+  check('보는 사람(시안 2차): 데스크톱 판 — 구르는 칸 하나(overscroll contain) · 바닥 줄이 판 안 · 사람이 늘어도 판 자리·높이 그대로',
+    !!p0 && !!p1 && p1.rolls === 1 && p1.contain === 'contain' && p1.footIn && p0.top === p1.top && p0.h === p1.h, JSON.stringify({ p0, p1 }));
+  const field = await ev(`(() => { const i = document.querySelector('[data-viewer-search]'); const ref = document.createElement('input'); ref.className = ${JSON.stringify(FIELD)};
+    document.body.appendChild(ref); const pick = (el) => { const c = getComputedStyle(el); return [c.fontSize, c.paddingTop, c.paddingLeft, c.borderTopWidth, c.borderTopColor, c.borderRadius, c.backgroundColor, c.color].join(' '); };
+    const out = { mine: i ? pick(i) : null, std: pick(ref) }; ref.remove(); return out; })()`);
+  check('보는 사람(시안 2차): 이름 칸은 앱의 표준 칸(groupsParts FIELD)과 같은 글자·여백·테두리·바탕', !!field.mine && field.mine === field.std, JSON.stringify(field));
+  // 폰 시트 — 키보드가 올라온 셈(--app-vh를 줄인다 · App이 하는 일) · 시트 바닥과 이름 칸이 그 안
+  await seed(MOB);
+  await ev(`document.querySelector('button[data-title-lock]')?.click()`); await sleep(600);
+  const SHEET = `document.querySelector('[data-viewers-sheet]')`;
+  const s0 = await box(SHEET);
+  for (const t of ['웰컴팀', '찬양팀', '미디어팀']) { await chipTap(t); await sleep(150); }
+  const s1 = await box(SHEET);
+  check('보는 사람(시안 2차): 폰 시트 — 구르는 칸 하나 · 바닥 줄이 시트 안 · 사람이 늘어도 시트 머리가 그대로', !!s0 && !!s1 && s1.rolls === 1 && s1.footIn && s0.top === s1.top && s0.h === s1.h,
+    JSON.stringify({ s0, s1 }));
+  await ev(`document.documentElement.style.setProperty('--app-vh', '480px')`); await sleep(300);
+  const kb = await ev(`(() => { const s = ${SHEET}?.getBoundingClientRect(); const i = document.querySelector('[data-viewer-search]')?.getBoundingClientRect();
+    return s && i ? { sheetBottom: Math.round(s.bottom), inputBottom: Math.round(i.bottom), inputTop: Math.round(i.top), pageY: Math.round(scrollY) } : null; })()`);
+  check('보는 사람(시안 2차): 폰 — 보이는 창이 줄면(키보드) 시트 바닥이 그 위 · 이름 칸이 보이는 자리 · 문서는 안 굴렀다',
+    !!kb && kb.sheetBottom <= 480 && kb.inputBottom <= 480 && kb.inputTop >= 0 && kb.pageY === 0, JSON.stringify(kb));
+  await ev(`document.documentElement.style.removeProperty('--app-vh')`);
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n'+logs.slice(0,5).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);
