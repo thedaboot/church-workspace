@@ -348,7 +348,7 @@ export function ProjectModal({ onClose, onSave, onArchive, onDuplicate, project 
                 </span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-[13px] font-semibold text-fg">복제</span>
-                  <span className="block text-[11px] text-fg-muted mt-px text-pretty">다른 해에 같은 업무 짜임새로 새로 만들어요</span>
+                  <span className="block text-[11px] text-fg-muted mt-px text-pretty">다른 연도에 같은 업무 구조로 새로 만들어요</span>
                 </span>
               </button>
             )}
@@ -391,7 +391,7 @@ function DuplicateStep({ project, thisYear, onCancel, onConfirm }) {
         onChange={e => { setTitle(e.target.value); setTouched(true); }}
         onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && clean) onConfirm(clean, year); }}
         className="w-full border border-line p-2.5 rounded-xs mb-4 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none shrink-0" />
-      <p className="text-xs font-semibold text-fg-muted mb-1.5 shrink-0">옮겨 갈 업무 <span className="font-normal tabular-nums">{list.length}건</span></p>
+      <p className="text-xs font-semibold text-fg-muted mb-1.5 shrink-0">옮겨질 업무 <span className="font-normal tabular-nums">{list.length}건</span></p>
       <ul data-copy-preview="" className="flex-1 min-h-[96px] overflow-y-auto overscroll-contain border border-line rounded-md divide-y divide-line/70 mb-5">
         {list.map(t => {
           const d = droppedOf(t);

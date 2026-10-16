@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { LayoutDashboard, CheckSquare, Hash, Pencil, Users, Archive, CalendarDays, Church, BookOpen, HeartHandshake, Home, Briefcase } from 'lucide-react';
-import { StarToggle } from './starToggle.jsx';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable,
@@ -14,14 +13,14 @@ import {
 import { projectYear } from '../utils.js';
 import { useProjectYear } from '../hooks/useProjectYear.js';
 import { pickProjectToOpen } from '../services/tabRank.js';
-import { useTabStars } from '../services/tabStars.js';
+import { useTabOrder } from '../services/tabOrder.js';
 import { useTrashItems } from '../services/trash.js';
 import { TrashEntry, TrashDialog } from './trash.jsx';
 import { isOpen } from '../services/taskCounts.js';
 import { DaboutiFace } from './dabooti.jsx';
 import { showToast } from './Toast.jsx';
 import { CHURCH_MENUS, ProfileMenu, ViewerFaces } from './layout.jsx';
-import { TAB_DIVIDER, FreshDot, useFreshProjects, moveTabStar, useYearTabs, YearPicker } from './navParts.jsx';
+import { FreshDot, useFreshProjects, moveTab, useYearTabs, YearPicker } from './navParts.jsx';
 import { SearchBox } from './searchBox.jsx';
 import { NotificationBell } from './notificationBell.jsx';
 import { LeaderTitleLock, TabLock, useSetVisibility } from './leaderOnly.jsx';
@@ -54,9 +53,9 @@ export function scrollMainTop() {
 // ============================================================================
 // 폰 내비 — 상단바(MobileTopBar: 화면 이름 + 아이콘 줄 + 프로젝트 탭 줄)와 하단 바(MobileTabBar: 교회 층 ↔ 업무 층).
 // 19차 묶음 D에서 layout.jsx에서 갈라 왔다(동작·모양은 그대로). 데스크톱 TopNav는 layout.jsx에 있다.
-//   · 탭 계산(고른 해 · 즐겨찾기 · 보관 탭)은 데스크톱과 한 벌(navParts.useYearTabs) · 폰은 전부 그리므로 더보기가 없다
-//     → 휴지통 입구는 연도 고르기 목록 맨 아래(trash.jsx) · 즐겨찾기 별은 제목 줄 연필 뒤(starToggle.jsx)
-//   · 즐겨찾기 차례는 길게 눌러 끈다(dnd-kit TouchSensor 300ms) · 저장은 데스크톱과 같은 moveTabStar(내 차례만)
+//   · 탭 계산(고른 해 · 내 탭 차례 · 보관 탭)은 데스크톱과 한 벌(navParts.useYearTabs) · 폰은 전부 그리므로 더보기가 없다
+//     → 휴지통 입구는 연도 고르기 목록 맨 아래(trash.jsx)
+//   · 탭 차례는 길게 눌러 끈다(dnd-kit TouchSensor 300ms) · 저장은 데스크톱과 같은 moveTab(내 차례만)
 //   · 상단바는 flex 항목 z-20이라 쌓임 맥락을 만든다 — **안에 fixed 판을 새로 두지 말 것**(검색 판은 body 포털 · PITFALLS 9-cb)
 //   · 하단 바는 두 층을 겹쳐 그리고 업무 층의 왼쪽 끝만 움직인다(index.css `.tab-bar-work`) · 실제 높이를 --mobile-tab-bar-h로
 // ============================================================================
@@ -72,13 +71,13 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
   // 끌어올릴지 정하고, 제목 줄과 탭 줄이 설지 정한다. 예전에는 같은 조회가 두 벌이었다.
   // 프로젝트 탭 줄은 프로젝트를 보고 있을 때만 — 내 업무·대시보드에서는 쓸 일이 없고
   // 좁은 화면에서 한 줄이 그대로 낭비된다(다른 프로젝트로는 하단 '프로젝트' 탭으로 간다)
-  // 즐겨찾기(데스크톱 TopNav와 같은 규칙 · services/tabRank.js) — 계산은 한 벌(navParts.useYearTabs).
+  // 내 탭 차례(데스크톱 TopNav와 같은 규칙 · services/tabRank.js) — 계산은 한 벌(navParts.useYearTabs).
   // 폰은 보관된 지금 프로젝트를 posSource에 끌어올리지 않는다(liftArchived: false) — 아래에서 보관 탭 앞에 한 번 넣는다.
   // 그 해의 보관 프로젝트(archivedTail)는 지금 열어 둔 것을 빼고 온다 — **빼지 않으면 같은 프로젝트가 두 번 선다**
   // (보관된 것을 열어 두면 아래 줄이 이미 탭으로 끌어올리기 때문이다 · 데스크톱 archivedForMore가 같은 함정 · navsmoke가 잡았다).
   const {
     project, year, setYear, years, yearCounts,
-    tabSource: base, starIds, starOrder, archivedForYear: archivedTail,
+    tabSource: base, tabOrder, archivedForYear: archivedTail,
   } = useYearTabs(activeMenu, { liftArchived: false });
   const projectsList = project?.archived ? [...base, project, ...archivedTail] : [...base, ...archivedTail];
   const currentUser = useStore(selectCurrentUser);
@@ -94,12 +93,10 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
             {/* 리더만 보는 프로젝트(0092) — 제목 **앞** 자물쇠 하나(칩은 좁은 폰에서 제목 자리를 먹었다 · PITFALLS 51-b).
                 누르면 프로젝트 머리 자물쇠와 같은 '리더만 보기' 팝오버 · 이름 바꾸기 버튼 밖이다(버튼 안에 버튼을 두지 않는다) */}
             <LeaderTitleLock project={project} onSet={setVisibility} />
-            <button onClick={() => onRenameProject?.(project)} className="min-w-0 flex items-baseline gap-1.5 text-left transition active:scale-[0.98]" title="프로젝트 이름 수정">
+            <button onClick={() => onRenameProject?.(project)} className="flex-1 min-w-0 flex items-baseline gap-1.5 text-left transition active:scale-[0.98]" title="프로젝트 이름 수정">
               <span className="min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</span>
               <Pencil size={12} className="text-fg-faint shrink-0" />
             </button>
-            {/* 즐겨찾기 — 이름 바꾸기 버튼 **밖**(버튼 안에 버튼을 두지 않는다) · 남는 폭은 별 뒤로 간다 */}
-            <StarToggle projectId={project.id} className="ml-0.5 mr-auto" />
           </div>
         ) : (
           <h2 className="flex-1 min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</h2>
@@ -128,7 +125,7 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
           projectsList={projectsList} activeMenu={activeMenu} setActiveMenu={setActiveMenu}
           onOpenProject={onOpenProject}
           year={year} setYear={setYear} years={years} yearCounts={yearCounts}
-          starIds={starIds} starOrder={starOrder} freshIds={freshIds}
+          tabOrder={tabOrder} freshIds={freshIds}
         />
       )}
     </div>
@@ -141,11 +138,11 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
 // 모바일 프로젝트 탭 한 개 — 끌 수도 있고(길게 누르기) 놓을 수도 있다.
 // dnd-kit은 ref를 하나만 받으므로 두 훅의 ref를 손으로 합친다(보드 카드와 같은 방식).
 // 'tab:' 접두사로 끌고 있는 것(active.id = 프로젝트 id)과 놓는 자리를 가른다.
-// **즐겨찾기 탭만 끌고 놓는다** — 끌어서 바꾸는 것은 내 별 차례뿐이다(navParts.moveTabStar). 나머지 탭은
-// 모두가 같이 보는 position 순서라 끌 수도 놓을 자리도 될 수 없다(disabled). 보관된 탭은 별 줄에 서지 않는다.
+// 끌어서 바꾸는 것은 **내 탭 차례**다(navParts.moveTab — 모두의 position은 그대로). **보관된 탭은 끌 수도, 놓을
+// 자리도 될 수 없다**(disabled) — 줄 끝에 이어 세울 뿐 차례에 끼지 않는다.
 // fresh — 지난 방문 이후 남이 움직였다(왼쪽 점)
-function MobileProjectTab({ project, active, archived = false, starred = false, fresh = false, onSelect }) {
-  const locked = archived || !starred;
+function MobileProjectTab({ project, active, archived = false, fresh = false, onSelect }) {
+  const locked = archived;
   const nodeRef = useRef(null);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: project.id, disabled: locked });
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `tab:${project.id}`, disabled: locked, data: { el: nodeRef } });
@@ -162,7 +159,6 @@ function MobileProjectTab({ project, active, archived = false, starred = false, 
   return (
     <button
       ref={setRefs} {...dragProps}
-      data-starred={starred ? '' : undefined}
       onClick={() => onSelect(project.id)}
       className={`relative shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${active ? 'text-fg border-fg' : archived ? 'text-fg-faint border-transparent' : 'text-fg-muted border-transparent'} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'bg-accent-weak rounded-t-md' : ''}`}
     >
@@ -186,7 +182,7 @@ function MobileProjectTab({ project, active, archived = false, starred = false, 
 // 스크롤과 드래그가 같은 제스처를 두고 싸운다. 그래서 TouchSensor의 delay로 가른다.
 const MobileProjectTabs = React.memo(({
   projectsList, activeMenu, setActiveMenu, onOpenProject,
-  year, setYear, years, yearCounts, starIds, starOrder, freshIds = null,
+  year, setYear, years, yearCounts, tabOrder, freshIds = null,
 }) => {
   const [dragId, setDragId] = useState(null);
   const trashCount = useTrashItems().length;
@@ -204,8 +200,8 @@ const MobileProjectTabs = React.memo(({
     setDragId(null);
     if (!over) return;
     const targetId = String(over.id).replace(/^tab:/, '');
-    // 번호는 **내 별 차례 전체**(starOrder — 다른 해 것까지)로 매긴다(데스크톱 dropTab과 같은 moveTabStar)
-    moveTabStar(starOrder, String(active.id), targetId);
+    // 번호는 **내 차례로 세운 전체**(다른 해 것까지)로 매긴다(데스크톱 dropTab과 같은 moveTab)
+    moveTab(tabOrder, String(active.id), targetId);
   };
   return (
     <DndContext
@@ -224,15 +220,9 @@ const MobileProjectTabs = React.memo(({
         {/* 폰은 더보기가 없다 — 휴지통 입구는 연도 목록 맨 아래(휴지통이 비면 서지 않는다) */}
         <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact
           footer={trashCount ? (close) => <TrashEntry count={trashCount} onOpen={() => { close(); setTrashOpen(true); }} /> : null} />
-        {projectsList.map((p, i) => (
-          <React.Fragment key={p.id}>
-            <MobileProjectTab project={p} active={activeMenu === p.id} archived={!!p.archived} starred={!!starIds?.has(p.id)}
-              fresh={!!freshIds?.has(p.id)} onSelect={setActiveMenu} />
-            {/* 즐겨찾기 뒤 세로선 — 마지막 별 탭 바로 뒤, 뒤에 탭이 더 있을 때만 */}
-            {starIds?.has(p.id) && i < projectsList.length - 1 && !starIds.has(projectsList[i + 1].id) && (
-              <span aria-hidden data-tab-divider className={TAB_DIVIDER} />
-            )}
-          </React.Fragment>
+        {projectsList.map((p) => (
+          <MobileProjectTab key={p.id} project={p} active={activeMenu === p.id} archived={!!p.archived}
+            fresh={!!freshIds?.has(p.id)} onSelect={setActiveMenu} />
         ))}
         {/* 데스크톱과 같은 이유로 투명 2px을 깐다(§6의 항목 참고) */}
         <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
@@ -265,18 +255,18 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   const myTasksCount = useStore(selectMyTasks).filter(isOpen).length;
   const isProject = allProjects.some(p => p.id === activeMenu);
   const [year] = useProjectYear();
-  const starIds = useTabStars();
+  const tabOrder = useTabOrder();
   // 마지막으로 본 프로젝트 — 아래 '업무' 탭의 lastWork와 같은 결(이번 세션 동안만 기억한다)
   const lastProject = useRef(null);
   useEffect(() => { if (isProject) lastProject.current = activeMenu; }, [activeMenu, isProject]);
   const myTeam = (currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean)[0];
   // '프로젝트' 탭(2026-09-25 · tabRank.pickProjectToOpen): 마지막으로 본 것이 고른 해에 있으면 그것,
-  // 아니면 **고른 해의 탭 순서 첫 프로젝트**(내 즐겨찾기 → position — 위 탭 줄과 같은 순서), 그 해가 비면
+  // 아니면 **고른 해의 탭 순서 첫 프로젝트**(내 탭 차례 · 없으면 position — 위 탭 줄과 같은 순서), 그 해가 비면
   // 가장 최근 해의 첫 것, 아무것도 없으면 새로 만들기. 예전에는 해를 안 보고 position 첫 것을 열어서
   // 작년 프로젝트가 앞이면 그걸 열고 연도 선택까지 작년으로 끌려갔다.
   const goProject = () => {
     if (isProject) { scrollMainTop(); return; }   // 켜진 탭을 다시 누름(아래 go 주석)
-    const id = pickProjectToOpen({ active: projectsList, all: allProjects, year, lastId: lastProject.current, starIds, yearOf: projectYear });
+    const id = pickProjectToOpen({ active: projectsList, all: allProjects, year, lastId: lastProject.current, order: tabOrder, yearOf: projectYear });
     if (id) setActiveMenu(id);
     else onOpenProject();
   };

@@ -14,8 +14,8 @@ import { CONFIG } from '../config.js';
 // 바깥 클릭 / Esc 로 닫히는 팝오버(프로필 메뉴·프로젝트 더보기·연도·알림) 껍데기 한 벌
 import { usePopover } from '../hooks/usePopover.js';
 import {
-  splitProjectTabs, TAB_DIVIDER, FreshDot, useFreshProjects,
-  useTabFit, moveTabStar, useYearTabs, YearPicker, YearFolders,
+  splitProjectTabs, FreshDot, useFreshProjects,
+  useTabFit, moveTab, useYearTabs, YearPicker, YearFolders,
 } from './navParts.jsx';
 import { TrashEntry, TrashDialog } from './trash.jsx';
 import { useTrashItems } from '../services/trash.js';
@@ -39,7 +39,7 @@ export { SearchHint } from './searchBox.jsx';
 //
 // 이 파일이 맡는 것: 데스크톱 상단 TopNav · 프로필 메뉴(ProfileMenu — 폰 상단바도 쓴다) · 보고 있는 사람 얼굴
 // (ViewerFaces — 보드 카드도 쓴다) · 교회 축 목록(CHURCH_MENUS). 나머지는 갈라 두었다(19차 묶음 D):
-//   navParts.jsx          탭 줄 공용(고른 해의 탭 · 연도 · 더보기 폴더 · 폭 재기 · 즐겨찾기 차례 · 점)
+//   navParts.jsx          탭 줄 공용(고른 해의 탭 · 연도 · 더보기 폴더 · 폭 재기 · 내 탭 차례 · 점)
 //   trash.jsx             휴지통(입구는 더보기 맨 아래 · 창)
 //   mobileNav.jsx         폰 상단바 · 프로젝트 탭 줄(길게 눌러 끌기) · 하단 바 두 층 · 화면 이름
 //   searchBox.jsx         통합 검색(인라인 · 폰 전체 판) · 돌아가는 안내 문구 · 관련된 업무 내용
@@ -179,13 +179,13 @@ export const TopNav = React.memo(({
   // (활성 프로젝트가 보관돼 있으면 splitProjectTabs가 탭에 끌어올려 준다 — 지금 어디
   //  있는지 알 수 없게 되면 안 되므로 보관된 것을 열어 둔 경우도 탭에 보인다)
   // 연도 고르기 — 고른 해의 프로젝트만 탭에. 지금 보고 있는 것은 해가 달라도, 보관됐어도 남긴다.
-  // 즐겨찾기 · 끌어올리기 · 그 해 보관함 계산은 폰 상단바와 한 벌이다(navParts.useYearTabs 머리말).
+  // 내 탭 차례 · 끌어올리기 · 그 해 보관함 계산은 폰 상단바와 한 벌이다(navParts.useYearTabs 머리말).
   // 더보기에는 **고른 해의 것만** 들어간다 — 보관된 프로젝트도 그 해 것만
   // (사용자 결정 2026-09-01, 2026-08-24의 "모든 해" 결정을 대체). 다른 해는
   // 연도 버튼으로 바꿔 보고, 검색·알림으로 열면 useTabYear가 그 해로 따라간다.
   const {
     allProjects, project: activeProject, year, setYear, years, yearCounts,
-    tabSource, starred, starIds, starOrder, archivedForYear: archivedForMore,
+    tabSource, tabOrder, archivedForYear: archivedForMore,
   } = useYearTabs(activeMenu);
   const trashCount = useTrashItems().length;
   const [trashOpen, setTrashOpen] = useState(false);
@@ -194,14 +194,10 @@ export const TopNav = React.memo(({
   // 들어가도 '더보기'는 남아야 하므로 그 폭까지 계산에 넣는다.
   const tabRowRef = useRef(null);
   const measureRef = useRef(null);
-  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0 || trashCount > 0, starred.length > 0);
+  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0 || trashCount > 0);
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
   // 더보기 맨 아래가 휴지통 입구다(trash.jsx) — 휴지통에 무언가 있으면 탭이 다 들어가도 더보기가 선다
   const showMore = rest.length > 0 || archivedForMore.length > 0 || trashCount > 0;
-  // 세로선은 **마지막 즐겨찾기 탭 바로 뒤**에 한 번 — 뒤에 무언가(뒤쪽 탭이나 더보기)가 설 때만.
-  // 폭이 좁아 지금 보는 탭이 마지막 칸에 끌어올려지면(splitProjectTabs) 그 탭이 '뒤'라 선이 그 앞에 선다.
-  const lastStarIdx = shown.reduce((k, p, i) => (starIds.has(p.id) ? i : k), -1);
-  const dividerAfter = lastStarIdx >= 0 && (lastStarIdx < shown.length - 1 || showMore) ? lastStarIdx : -1;
   const freshIds = useFreshProjects(activeMenu, !!activeProject);
   // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(홈·예배·말씀·모임)에서는 접힌다
   const showProjectRow = !CHURCH_MENUS.includes(activeMenu) && activeMenu !== 'wiki';
@@ -211,13 +207,13 @@ export const TopNav = React.memo(({
   // 46px로 눌린 찾기 칸이 메뉴 위를 덮던 자리다(PITFALLS 51-a). 1024부터는 지금 그대로.
   const narrow = useIsNarrowDesk();
 
-  // 탭 드래그로 **내 즐겨찾기 차례**를 바꾼다(시안 2026-10-16 · navParts.moveTabStar) — 네이티브 HTML5 DnD.
-  // 별이 아닌 탭은 끌 수도 놓을 자리도 될 수 없다: 그 차례는 모두가 같이 보는 position이다(옛 0021 끌기는 그것을 고쳤다).
-  // 모바일은 가로 스크롤과 부딪히지 않게 **길게 눌러** 시작한다(MobileTopBar) — 끼워 넣기·저장은 같은 moveTabStar.
+  // 탭 드래그로 **내 탭 차례**를 바꾼다(시안 2026-10-16 · navParts.moveTab) — 네이티브 HTML5 DnD. 어느 탭이든 끈다.
+  // 모두의 position은 바뀌지 않는다(옛 0021 끌기는 그것을 고쳤다). 보관된 탭(끌어올린 지금 프로젝트)은 차례에 끼지 않는다.
+  // 모바일은 가로 스크롤과 부딪히지 않게 **길게 눌러** 시작한다(MobileTopBar) — 끼워 넣기·저장은 같은 moveTab.
   const [dragTabId, setDragTabId] = useState(null);
   const dropTab = (targetId) => {
     if (!dragTabId || dragTabId === targetId) return;
-    moveTabStar(starOrder, dragTabId, targetId);
+    moveTab(tabOrder, dragTabId, targetId);
   };
 
   // 교회 생활(홈·예배·말씀·모임) | 업무(대시보드·내 업무·일정) — 두 축을 구분선으로 가른다
@@ -293,18 +289,15 @@ export const TopNav = React.memo(({
               **맨 뒤**에 둔다: 앞에 끼우면 useTabFit의 kids 인덱스가 통째로 밀려
               탭 폭이 엉뚱하게 잡힌다(800px에서 8개가 다 들어간다고 나왔다). */}
           <span className="shrink-0 inline-flex items-center gap-1 pr-1.5 pt-2.5 pb-2 text-[13px] font-semibold tabular-nums">{year} <ChevronDown size={13} /></span>
-          {/* 즐겨찾기 뒤 세로선 — 연도 **뒤**에 둔다(kids 인덱스를 밀지 않게) */}
-          <span className={TAB_DIVIDER} />
         </div>
         <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} />
-        {shown.map((p, i) => (
+        {shown.map((p) => (
           <React.Fragment key={p.id}>
           <button
             onClick={() => setActiveMenu(p.id)}
-            data-starred={starIds.has(p.id) ? '' : undefined}
-            draggable={starIds.has(p.id)}
+            draggable={!p.archived}
             onDragStart={() => setDragTabId(p.id)}
-            onDragOver={(e) => { if (starIds.has(p.id) && dragTabId) e.preventDefault(); }}
+            onDragOver={(e) => { if (!p.archived && dragTabId) e.preventDefault(); }}
             onDrop={(e) => { e.preventDefault(); dropTab(p.id); }}
             onDragEnd={() => setDragTabId(null)}
             // truncate(overflow-hidden)를 버튼에 직접 주면 **경계에 걸친 얼굴이 잘린다**
@@ -328,7 +321,6 @@ export const TopNav = React.memo(({
                 z-[1]: 뒤 형제 탭이 나중에 그려져 걸친 부분을 덮는 것을 막는다. */}
             <ViewerFaces projectId={p.id} className="absolute top-1 -right-1 z-[1]" />
           </button>
-          {i === dividerAfter && <span aria-hidden data-tab-divider className={TAB_DIVIDER} />}
           </React.Fragment>
         ))}
         {showMore && (

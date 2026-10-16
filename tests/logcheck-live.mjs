@@ -763,29 +763,31 @@ import { loadSource, readSplit } from './_load.mjs';
   console.log('PASS  15초 재조회 생략·날짜 열쇠 정리 17가지');
 }
 
-// ── 프로젝트 탭 줄 즐겨찾기(시안 2026-10-16 — 옛 앞 칸을 대신) · 업무 실시간 재접속 따라잡기 · 폰 '프로젝트' 버튼 ──
+// ── 프로젝트 탭 줄 내 차례(시안 2026-10-16 — 옛 앞 칸을 대신) · 업무 실시간 재접속 따라잡기 · 폰 '프로젝트' 버튼 ──
 {
   const R = await import(new URL('../src/services/tabRank.js', import.meta.url).href);
   const S = await import(new URL('../src/services/realtimeStatus.js', import.meta.url).href);
   const now = Date.parse('2026-09-25T12:00:00Z');
   const ago = (h) => new Date(now - h * 3600000).toISOString();
   const P = (id, extra = {}) => ({ id, title: id, ...extra });
-  const list = ['p5', 'p4', 'p2', 'p9', 'p3', 'p1'].map(id => P(id));   // position 순
-  // 별 단 것이 **내 차례로** 맨 앞 · 나머지는 position 순 그대로(별 단 것은 빠진다)
-  // **되돌리기**: splitStarredTabs가 starIds 차례 대신 list 차례로 고르면(별을 position 순으로 세우면) 첫 줄이 깨진다.
-  const sp = R.splitStarredTabs(list, ['p1', 'p4']);
-  assert.deepStrictEqual(sp.starred.map(p => p.id), ['p1', 'p4'], '별은 내가 정한 차례 — position 순이 아니다');
-  assert.deepStrictEqual(sp.rest.map(p => p.id), ['p5', 'p2', 'p9', 'p3'], '나머지는 position 순 그대로 · 별 단 것은 빠진다');
-  assert.deepStrictEqual(R.splitStarredTabs(list, []).rest.map(p => p.id), list.map(p => p.id), '별이 없으면 지금 순서 그대로');
-  assert.deepStrictEqual(R.splitStarredTabs(list, null).starred, [], '별 목록이 없어도 던지지 않는다');
-  // 후보는 지금 줄 안에서만 — 다른 해·보관·안 보이는(리더만) 프로젝트의 별은 칸을 먹지 않는다 · 같은 id는 한 번
-  assert.deepStrictEqual(R.splitStarredTabs([P('p2'), P('p9')], ['hidden', 'p9', 'p9', 'p2']).starred.map(p => p.id), ['p9', 'p2'],
-    '별 후보는 지금 탭 줄 안에서만 · 같은 id는 한 번');
-  // 켜고 끄기 — 새로 켠 것은 별 줄 맨 뒤 · 원래 배열은 그대로
-  const base = ['a', 'b'];
-  assert.deepStrictEqual(R.toggleStarId(base, 'c'), ['a', 'b', 'c'], '새 별은 맨 뒤');
-  assert.deepStrictEqual(R.toggleStarId(base, 'a'), ['b'], '다시 누르면 끈다');
-  assert.deepStrictEqual(base, ['a', 'b'], '원래 배열은 건드리지 않는다');
+  const ids = (l) => l.map(p => p.id);
+  const list = ['p5', 'p4', 'p2', 'p9', 'p3', 'p1'].map(id => P(id));   // position 순(모두의 순서)
+  // 끈 적이 없으면 모두의 순서 그대로
+  assert.deepStrictEqual(ids(R.applyTabOrder(list, [])), ids(list), '내 차례가 없으면 position 순');
+  assert.deepStrictEqual(ids(R.applyTabOrder(list, null)), ids(list), '차례가 없어도 던지지 않는다');
+  // 내 차례 그대로 · 내 차례에 없는 것(그 뒤에 새로 생긴 것)은 맨 뒤에 position 순
+  // **되돌리기**: applyTabOrder가 자리 없는 것을 앞에 붙이면(...src.filter 먼저) 둘째 줄이 깨진다.
+  assert.deepStrictEqual(ids(R.applyTabOrder(list, ['p1', 'p3', 'p9', 'p2', 'p4', 'p5'])), ['p1', 'p3', 'p9', 'p2', 'p4', 'p5'], '내 차례 그대로');
+  assert.deepStrictEqual(ids(R.applyTabOrder(list, ['p1', 'p3'])), ['p1', 'p3', 'p5', 'p4', 'p2', 'p9'], '아직 자리 없는 것은 맨 뒤에 position 순');
+  // 후보는 지금 줄 안에서만 — 다른 해·보관·안 보이는(리더만)·지운 프로젝트의 id는 끼지 않는다 · 같은 id는 한 번
+  assert.deepStrictEqual(ids(R.applyTabOrder([P('p2'), P('p9')], ['hidden', 'p9', 'p9', 'p2'])), ['p9', 'p2'], '지금 줄 안에서만 · 같은 id는 한 번');
+  // 끌기 — 내 차례 전체(다른 해 것까지)를 세운 뒤 옮긴다 · 뒤로 끌면 놓은 것 뒤(12-a)
+  const all = [P('a'), P('b'), P('c'), P('x')];          // x는 다른 해
+  assert.deepStrictEqual(R.moveInTabOrder(all, [], 'a', 'c'), ['b', 'c', 'a', 'x'], '처음 끌면 모두의 순서에서 시작 · 뒤로 끌면 놓은 것 뒤');
+  assert.deepStrictEqual(R.moveInTabOrder(all, ['x', 'c', 'b', 'a'], 'a', 'b'), ['x', 'c', 'a', 'b'], '앞으로 끌면 놓은 것 앞 · 다른 해 것의 자리는 그대로');
+  assert.deepStrictEqual(R.moveInTabOrder([...all, P('n')], ['c', 'b', 'a', 'x'], 'n', 'c'), ['n', 'c', 'b', 'a', 'x'], '자리 없던 새 프로젝트도 끌면 자리를 얻는다');
+  assert.strictEqual(R.moveInTabOrder(all, [], 'a', 'a'), null, '제자리는 null');
+  assert.strictEqual(R.moveInTabOrder(all, [], 'a', 'gone'), null, '없는 탭은 null');
   assert.strictEqual(R.FRONT_DAYS, 7, '탭 점이 읽는 활동 창은 7일');
   assert.strictEqual(R.activityStats, undefined, '옛 앞 칸 셈(activityStats)은 지웠다');
   assert.strictEqual(R.splitFrontTabs, undefined, '옛 앞 칸 고르기(splitFrontTabs)는 지웠다');
@@ -800,11 +802,11 @@ import { loadSource, readSplit } from './_load.mjs';
   // 폰 '프로젝트' 버튼이 열 곳
   const yr = (p) => p.year;
   const act = [{ id: 'old1', year: '2026' }, { id: 'n1', year: '2027' }, { id: 'n2', year: '2027' }];
-  const all = [...act, { id: 'arch', year: '2027', archived: true }];
-  const pick = (o) => R.pickProjectToOpen({ active: act, all, yearOf: yr, starIds: [], lastId: null, ...o });
+  const allP = [...act, { id: 'arch', year: '2027', archived: true }];
+  const pick = (o) => R.pickProjectToOpen({ active: act, all: allP, yearOf: yr, order: [], lastId: null, ...o });
   assert.strictEqual(pick({ year: '2027' }), 'n1', '고른 해의 첫 것 — position 첫 것(작년)이 아니다');
-  assert.strictEqual(pick({ year: '2027', starIds: ['n2'] }), 'n2', '별이 있으면 그것이 첫 것');
-  assert.strictEqual(pick({ year: '2027', starIds: ['old1'] }), 'n1', '다른 해의 별은 이 해의 첫 것을 못 먹는다');
+  assert.strictEqual(pick({ year: '2027', order: ['n2', 'n1'] }), 'n2', '내 차례가 있으면 그 첫 것');
+  assert.strictEqual(pick({ year: '2027', order: ['old1'] }), 'n1', '다른 해의 차례는 이 해의 첫 것을 못 먹는다');
   assert.strictEqual(pick({ year: '2027', lastId: 'n2' }), 'n2', '마지막으로 본 것이 고른 해에 있으면 그것');
   assert.strictEqual(pick({ year: '2027', lastId: 'old1' }), 'n1', '마지막으로 본 것이 다른 해면 고른 해의 첫 것');
   assert.strictEqual(pick({ year: '2027', lastId: 'gone' }), 'n1', '지워진 것은 건너뛴다');
@@ -813,7 +815,7 @@ import { loadSource, readSplit } from './_load.mjs';
   // 리더만 보는 프로젝트(0092) — 리더가 아니면 그 프로젝트는 스토어에 없다(RLS). 마지막으로 본 것·활동 숫자에 그 id가
   // 남아 있어도(리더였다가 내려왔다 · 다른 기기 · 숫자를 잰 뒤에 바뀌었다) 그냥 건너뛴다 — 없는 프로젝트와 같은 길.
   assert.strictEqual(pick({ year: '2027', lastId: 'hidden' }), 'n1', '안 보이는 프로젝트를 마지막으로 봤어도 고른 해의 첫 것');
-  assert.strictEqual(pick({ year: '2027', starIds: ['hidden'] }), 'n1', '안 보이는 프로젝트의 별은 첫 것을 못 먹는다');
+  assert.strictEqual(pick({ year: '2027', order: ['hidden'] }), 'n1', '안 보이는 프로젝트의 차례는 첫 것을 못 먹는다');
   // '공개 → 리더만'은 리더가 아닌 사람에게 postgres_changes로 오지 않는다 → 바꾼 리더가 공개 채널에 id를 알리고, 받은 쪽은
   // projects 변경처럼 전체 재조회(다시 읽으면 RLS가 걷는다). **되돌리기**: notify.js의 broadcast 줄이나 cloudSync의
   // announceProjectVisibility 부르기를 빼면 아래가 깨진다.
@@ -848,10 +850,10 @@ import { loadSource, readSplit } from './_load.mjs';
   const calls = appSrc.match(/refreshTabFront\(/g) || [];
   assert.strictEqual(calls.length, 2, '탭 점의 활동 줄은 첫 로드 뒤 한 번 + 보일 때 한 번 — 실시간 경로에서 부르지 않는다');
   assert.ok(/if \(!document\.hidden\) refreshTabFront\(cloudMode\)/.test(appSrc), '다시 보일 때만');
-  assert.ok(/draggable=\{starIds\.has\(p\.id\)\}/.test(laySrc2), '데스크톱은 별 탭만 끈다(나머지는 모두의 position)');
-  assert.ok(/const locked = archived \|\| !starred;/.test(mobSrc), '폰도 별 탭만 끌고 놓는다');
-  assert.ok(/moveTabStar\(starOrder, dragTabId, targetId\)/.test(laySrc2) && /moveTabStar\(starOrder, String\(active\.id\), targetId\)/.test(mobSrc),
-    '끌기는 내 별 차례 전체로 매긴다(데스크톱·폰 한 길)');
+  assert.ok(/draggable=\{!p\.archived\}/.test(laySrc2), '데스크톱은 어느 탭이든 끈다(보관된 것만 빼고)');
+  assert.ok(/const locked = archived;/.test(mobSrc), '폰도 보관된 탭만 막는다');
+  assert.ok(/moveTab\(tabOrder, dragTabId, targetId\)/.test(laySrc2) && /moveTab\(tabOrder, String\(active\.id\), targetId\)/.test(mobSrc),
+    '끌기는 내 차례로 매긴다(데스크톱·폰 한 길)');
   assert.ok(!/saveTabOrder/.test(laySrc2 + mobSrc), '탭 끌기가 모두의 position을 고치지 않는다');
   // 프로젝트 복제(시안 2026-10-16 · services/projectCopy.js) — 짜임새만 옮긴다
   const C = await import(new URL('../src/services/projectCopy.js', import.meta.url).href);
@@ -874,7 +876,7 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.deepStrictEqual(two.dependsOn, [cp[0].id], '선후관계는 새 id로 다시 잇는다');
   assert.ok(!('comments' in two) && two.attachments.length === 0, '댓글·첨부는 옮기지 않는다');
   assert.deepStrictEqual(C.droppedOf(src[0]), { assignees: 1, due: '2026-07-01', comments: 1, attachments: 1 }, '미리보기가 지울 글자로 보여 줄 것');
-  console.log('PASS  탭 줄 즐겨찾기(tabRank — 내 차례·나머지 position·지금 줄 안에서만) · 폰 프로젝트 버튼 · 프로젝트 복제 · 업무 채널 재접속 따라잡기');
+  console.log('PASS  탭 줄 내 차례(tabRank — 끈 적 없으면 position·새 것은 맨 뒤·전체로 끌기·지금 줄 안에서만) · 폰 프로젝트 버튼 · 프로젝트 복제 · 업무 채널 재접속 따라잡기');
 }
 
 

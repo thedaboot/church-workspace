@@ -123,10 +123,14 @@ export function TrashDialog({ onClose }) {
           {chips.map(([id, c]) => chip(filter === id, c.title, c.n, () => setFilter(id), id))}
         </div>
       )}
-      <ul className="mt-2 flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1">
-        {shown.map(it => <TrashRow key={it.id} item={it} me={me} isMaster={isMaster} />)}
-        {!shown.length && <li className="py-10 text-center text-[13px] text-fg-muted">휴지통이 비어 있어요</li>}
-      </ul>
+      {/* 비면 남은 높이의 가운데(폰 시트는 화면 높이라 위에 붙으면 빈 판처럼 보인다 · 데스크톱은 py-10만큼) */}
+      {shown.length ? (
+        <ul className="mt-2 flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1">
+          {shown.map(it => <TrashRow key={it.id} item={it} me={me} isMaster={isMaster} />)}
+        </ul>
+      ) : (
+        <p data-trash-empty="" className="flex-1 flex items-center justify-center py-10 text-center text-[13px] text-fg-muted">휴지통이 비어 있어요</p>
+      )}
     </>
   );
 

@@ -2,11 +2,11 @@ import React, { useState, useEffect, useLayoutEffect, useMemo } from 'react';
 import { ChevronDown, Hash, Archive } from 'lucide-react';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectProjectsList, selectActiveProjectsList, selectArchivedProjectsList } from '../store/selectors.js';
-import { projectYear, reorderIds } from '../utils.js';
+import { projectYear } from '../utils.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
-import { splitStarredTabs } from '../services/tabRank.js';
+import { applyTabOrder, moveInTabOrder } from '../services/tabRank.js';
 import { useTabActivityRows } from '../services/tabFront.js';
-import { useTabStars, setTabStars } from '../services/tabStars.js';
+import { useTabOrder, setTabOrder } from '../services/tabOrder.js';
 import { useSeenBase, useOpenedProjects, markProjectOpened } from '../services/sinceSeen.js';
 import { freshProjectIds } from '../services/traces.js';
 import { usePopover } from '../hooks/usePopover.js';
@@ -15,10 +15,10 @@ import { TabLock } from './leaderOnly.jsx';
 // ============================================================================
 // 프로젝트 탭 줄의 공용 부품 — 데스크톱 TopNav(layout.jsx)와 폰 MobileTopBar(mobileNav.jsx)가 같이 쓴다.
 // 19차 묶음 D에서 layout.jsx에서 갈라 왔다(동작·모양은 그대로).
-//   · 고른 해의 탭 목록(useYearTabs — 내 즐겨찾기 · 끌어올린 지금 프로젝트 · 그 해 보관함) · 연도 고르기(YearPicker)
-//     · 더보기 연도 폴더(YearFolders) · 탭 폭 재기(useTabFit) · 즐겨찾기 차례 바꾸기(moveTabStar — 데스크톱·폰 한 길)
-//   · 즐겨찾기 뒤 세로선(TAB_DIVIDER) · 지난 방문 뒤의 점(FreshDot)
-// 옛 '앞 칸'(최근 활동 순 · 넛지 말풍선)은 즐겨찾기로 바꾸며 걷었다(시안 2026-10-16 · services/tabRank.js 머리말).
+//   · 고른 해의 탭 목록(useYearTabs — 내 탭 차례 · 끌어올린 지금 프로젝트 · 그 해 보관함) · 연도 고르기(YearPicker)
+//     · 더보기 연도 폴더(YearFolders) · 탭 폭 재기(useTabFit) · 내 탭 차례 바꾸기(moveTab — 데스크톱·폰 한 길)
+//   · 지난 방문 뒤의 점(FreshDot)
+// 옛 '앞 칸'(최근 활동 순 · 세로선 · 넛지 말풍선)은 사람마다의 탭 차례로 바꾸며 걷었다(시안 2026-10-16 · services/tabRank.js 머리말).
 // YearPicker는 대시보드·모임 화면도 쓴다 — 그쪽은 layout.jsx의 재수출로 들인다.
 // ============================================================================
 
@@ -33,10 +33,6 @@ export function splitProjectTabs(projectsList, activeMenu, max) {
   const shownIds = new Set(shown.map(p => p.id));
   return { shown, rest: projectsList.filter(p => !shownIds.has(p.id)) };
 }
-
-// 즐겨찾기와 나머지 사이의 얇은 세로선(데스크톱·폰 한 벌 · 옛 앞 칸 선 그대로). 줄이 items-end라 self-center로 글자
-// 높이에 맞춘다 — 점·라벨·안내 문구는 두지 않는다(사용자 결정 2026-09-25).
-export const TAB_DIVIDER = 'shrink-0 self-center w-px h-4 mx-1 bg-line';
 
 // ── 지난 방문 이후 남이 움직인 프로젝트의 옅은 점(사용자 결정 2026-09-25 · 목업 권장안) ──
 // 탭 **왼쪽**에 5px accent 60%. 절대 위치라 탭 폭이 변하지 않는다 — useTabFit의 측정 줄은 그대로고,
@@ -62,7 +58,7 @@ export function useFreshProjects(activeMenu, isProject) {
 // 전체 탭 + '더보기' + '+ 프로젝트'를 같은 클래스로 그려 두고, 줄 폭 안에서
 // "탭 k개 + (남는 게 있으면) 더보기 + '+ 프로젝트'"가 들어가는 최대 k를 고른다.
 // 글자 폭 추정(폰트 상수 곱하기)으로 하지 않는 이유: 제목 길이가 제각각이라 반드시 어긋난다.
-export function useTabFit(tabRowRef, measureRef, count, alwaysMore, withDivider = false) {
+export function useTabFit(tabRowRef, measureRef, count, alwaysMore) {
   const [fit, setFit] = useState(count);
   useLayoutEffect(() => {
     const row = tabRowRef.current;
@@ -75,13 +71,10 @@ export function useTabFit(tabRowRef, measureRef, count, alwaysMore, withDivider 
       const moreW = kids[count]?.offsetWidth || 0;
       const plusW = kids[count + 1]?.offsetWidth || 0;
       const yearW = kids[count + 2]?.offsetWidth || 0;   // 줄 맨 앞의 연도 버튼(항상 있다)
-      // 즐겨찾기와 나머지 사이의 세로선(tabRank.js) — 별이 있을 때만 선다. 넘쳐서 안 설 때도
-      // 빼 두면 한 칸이 모자랄 수는 있어도 넘치지는 않는다.
-      const divW = withDivider ? (kids[count + 3]?.getBoundingClientRect().width || 0) + 8 : 0;
       const cs = getComputedStyle(row);
       // -16: 측정 span과 실제 button 렌더 사이의 미세 오차(서브픽셀·보더) 여유.
       // 딱 맞는 경계(800px에 670px 탭)에서 몇 px 넘쳐 '+ 프로젝트'가 잘렸다.
-      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - divW - 16;
+      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - 16;
       let used = 0, k = 0;
       for (let i = 0; i < count; i++) {
         const needMore = alwaysMore || i < count - 1;  // 이 뒤에 더보기가 서야 하나
@@ -99,18 +92,17 @@ export function useTabFit(tabRowRef, measureRef, count, alwaysMore, withDivider 
     document.fonts?.ready?.then(calc);
     window.addEventListener('resize', calc);
     return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
-  }, [tabRowRef, measureRef, count, alwaysMore, withDivider]);
+  }, [tabRowRef, measureRef, count, alwaysMore]);
   return fit;
 }
 
-// 즐겨찾기 차례 바꾸기 — 데스크톱 드래그(네이티브 DnD)와 폰 길게 눌러 끌기(dnd-kit)가 **같은 길**이다.
-// 끼워 넣기는 utils.reorderIds(PITFALLS 12-a — 뒤로 끌면 놓은 것 뒤). 번호는 **내 별 차례 전체**(다른 해 것까지)로
-// 매긴다 — 지금 줄에 선 것만으로 다시 매기면 다른 해의 별 차례가 맨 뒤로 밀린다(12-f와 같은 결).
-// 별이 아닌 탭은 끌 수도 놓을 자리도 될 수 없다 — 그 차례는 모두가 같이 보는 position이다(옛 saveTabOrder는 지웠다).
-export function moveTabStar(starIds, fromId, toId) {
-  if (!starIds.includes(fromId) || !starIds.includes(toId)) return;
-  const next = reorderIds(starIds, fromId, toId);
-  if (next) setTabStars(next);
+// 내 탭 차례 바꾸기 — 데스크톱 드래그(네이티브 DnD)와 폰 길게 눌러 끌기(dnd-kit)가 **같은 길**이다.
+// **내 차례(tabOrder.js)만** 바꾼다 — projects.position(모두의 순서)은 끌기로 바뀌지 않는다(옛 saveTabOrder는 지웠다 ·
+// cloudSync.projectOrderCloud는 남겨 두었지만 아무도 부르지 않는다). 번호는 보관 안 한 **전체**(다른 해 것까지)를 지금 내
+// 차례로 세운 줄로 매긴다(tabRank.moveInTabOrder · PITFALLS 12-a·12-f와 같은 결 — 지금 줄만으로 매기면 다른 해 차례가 밀린다).
+export function moveTab(order, fromId, toId) {
+  const next = moveInTabOrder(selectActiveProjectsList(store.getState()), order, fromId, toId);
+  if (next) setTabOrder(next);
 }
 
 // ── 연도 고르기 ────────────────────────────────────────────────────────────
@@ -145,8 +137,9 @@ function useTabYear(allProjects, activeMenu) {
 //   posSource  + 지금 보고 있는 것이 해가 달라 빠졌으면 끝에 한 번 끌어올린다 — 어디 있는지 표시가 화면에서
 //              사라지면 안 된다. **한 번만 더한다**(갈래를 둘로 쓰면 보관된 것을 다른 해에서 열었을 때 같은 탭이
 //              두 번 들어갔다 — navsmoke가 잡았다).
-//   tabSource  내 즐겨찾기(services/tabRank.js · tabStars.js — 후보는 고른 해의 것뿐)를 내 차례로 맨 앞에 세운 순서.
-//   starIds    고른 해 줄에 선 별(Set — 세로선·끌기 판정) · starOrder 내 별 차례 전체(끌기 번호의 기준)
+//   tabSource  yearList를 내 탭 차례(services/tabRank.applyTabOrder · tabOrder.js)로 세운 줄 + 끌어올린 것 — 끈 적이 없으면
+//              position 순 그대로 · 내 차례에 아직 없는 프로젝트(새로 생긴 것)는 맨 뒤에 position 순.
+//   tabOrder   내 차례 전체(끌기 번호의 기준 · moveTab에 넘긴다)
 //   archivedForYear  고른 해의 보관 프로젝트(사용자 결정 2026-09-01 — 그 해 것만) · **지금 보고 있는 것은 뺀다**:
 //              위에서 탭으로 끌어올렸으니 거기에도 두면 같은 프로젝트가 두 번 선다(실제로 그렇게 보였다).
 // liftArchived — 보관된 지금 프로젝트도 posSource에 끌어올리나. 데스크톱은 그렇다. 폰은 아니다: 폰은 보관 탭을
@@ -160,12 +153,10 @@ export function useYearTabs(activeMenu, { liftArchived = true } = {}) {
   const yearList = activeList.filter(p => projectYear(p) === year);
   const lift = project && (liftArchived || !project.archived) && !yearList.some(p => p.id === activeMenu);
   const posSource = lift ? [...yearList, project] : yearList;
-  const starOrder = useTabStars();
-  const { starred } = splitStarredTabs(yearList, starOrder);
-  const starIds = new Set(starred.map(p => p.id));
-  const tabSource = starred.length ? [...starred, ...posSource.filter(p => !starIds.has(p.id))] : posSource;
+  const tabOrder = useTabOrder();
+  const tabSource = lift ? [...applyTabOrder(yearList, tabOrder), project] : applyTabOrder(yearList, tabOrder);
   const archivedForYear = archived.filter(p => p.id !== activeMenu && projectYear(p) === year);
-  return { allProjects, project, year, setYear, years, yearCounts, posSource, tabSource, starred, starIds, starOrder, archivedForYear };
+  return { allProjects, project, year, setYear, years, yearCounts, posSource, tabSource, tabOrder, archivedForYear };
 }
 
 // 연도 버튼 + 목록. 팝오버는 body 포털이 기본이다(§6-1).

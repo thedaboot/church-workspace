@@ -1118,7 +1118,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   const stamp = app.indexOf('cloudSync.markSeen(0)');
   assert.ok(cap > 0 && stamp > cap, '지난 방문 기준 시각은 첫 찍기(markSeen(0)) 전에 붙잡는다');
   const lay = src('components/navParts.jsx');
-  // 앞 칸 넛지(말풍선)는 탭 줄 앞이 즐겨찾기로 바뀌며 걷었다(시안 2026-10-16) — 다시 서지 않는다
+  // 앞 칸 넛지(말풍선)는 탭 줄이 사람마다의 차례로 바뀌며 걷었다(시안 2026-10-16) — 다시 서지 않는다
   assert.ok(!/최근 활발한 프로젝트/.test(lay) && !/front_nudge_seen/.test(lay) && !/FrontNudge/.test(lay), '옛 앞 칸 넛지가 없다');
   const mod = src('modals/taskLists.jsx');   // SubtaskList(19차 묶음 E에서 옮김)
   assert.ok(/dc-check-now/.test(mod) && /dc-strike-now/.test(mod), '하위 업무 체크의 선 그리기·취소선');
