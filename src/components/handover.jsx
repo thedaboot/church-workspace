@@ -33,7 +33,7 @@ import {
 // ============================================================================
 
 const ONE_LINE = 'block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap';
-const STEPS = [[1, '직분 짝'], [2, '졸업'], [3, '인계 내용'], [4, '적용']];
+const STEPS = [[1, '직분'], [2, '졸업'], [3, '인계 내용'], [4, '적용']];
 
 export const slotLabel = (slot) => {
   if (slot === 'graduate') return GRAD_LABEL;
@@ -108,7 +108,7 @@ function PairStep({ m, onEditRoster }) {
           const changed = p.from && p.to !== p.auto;
           const pick = !m.hv.applied && p.kind !== 'new' && (
             <MenuPick label="받는 사람" items={options.filter(o => o.id !== (p.to || ''))} onPick={(id) => setTo(p.key, id)}>
-              {to ? '바꾸기' : '고르기'}
+              {to ? '변경' : '선택'}
             </MenuPick>
           );
           return (
@@ -130,7 +130,7 @@ function PairStep({ m, onEditRoster }) {
       </div>
       {!m.hv.applied && (
         <button type="button" className={`${BTN_SOFT} mt-3 inline-flex items-center gap-1.5`} onClick={() => onEditRoster?.(TO_YEAR)}>
-          <PencilLine size={13} /><span>{`명단에서 ${TO_YEAR}년 직분 고치기`}</span>
+          <PencilLine size={13} /><span>{`명단에서 ${TO_YEAR}년 직분 수정`}</span>
         </button>
       )}
     </section>
@@ -175,7 +175,7 @@ function GradStep({ m }) {
                 {on && (
                   <div className="mt-2.5 flex items-center gap-2 pl-[42px]">
                     <span className="shrink-0 text-[11px] font-semibold text-fg-muted">받는 사람</span>
-                    <PersonPick className="flex-1 min-w-0" label={`${p.name} 받는 사람`} placeholder="받는 사람 고르기"
+                    <PersonPick className="flex-1 min-w-0" label={`${p.name} 받는 사람`} placeholder="받는 사람 선택"
                       people={pool.filter(x => x.id !== p.id)} value={item?.to || ''} allowClear
                       onChange={(id) => setTo(p.id, id)} />
                   </div>

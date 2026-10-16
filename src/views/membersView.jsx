@@ -476,7 +476,9 @@ export function MembersView({ isAdmin, isMaster, onNavigate }) {
       showToast(`${made.name}${objectParticle(made.name)} 청년 명단에 올렸어요`);
     }, '청년 명단에 올리지 못했어요'),
 
-    save: (p, patch) => write(p.id, () => roster.updatePerson(p.id, patch), () => {
+    save: (p, patch) => write(p.id, () => roster.updatePerson(p.id, patch, {
+      ledTeam: (shownBook?.roles || []).find(r => r.person_id === p.id && r.role === roster.TEAM_LEAD)?.team || null,
+    }), () => {
       patchPerson(p.id, patch);
       showToast(`${patch.name || p.name} 정보를 저장했어요`);
     }, '저장하지 못했어요'),

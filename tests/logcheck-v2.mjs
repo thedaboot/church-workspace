@@ -1530,7 +1530,19 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
 
   assert.ok(!H.rolesOffered(2027).flat().includes('lead_team') && H.rolesOffered(2026).flat().includes('lead_team'), '리더팀장은 2026까지만 고른다');
   assert.ok(H.rolesOffered(2027, new Set(['lead_team'])).flat().includes('lead_team'), '그 해 이미 가진 사람에게는 칩이 남는다');
-  assert.deepStrictEqual(H.rolesOffered(2026).map(g => g.length), [2, 4, 1, 1], '묶음 넷 — 교역자·부장 | 임원 | 팀장 | 비전 메이커');
+  assert.deepStrictEqual(H.rolesOffered(2026).map(g => g.length), [1, 1, 4, 1, 1], '묶음 다섯 — 교역자 | 부장 | 임원 | 팀장 | 비전 메이커');
+
+  // 자리 겹침(2026-10-16): 순장은 순원일 수 없고, 팀장은 그 팀의 팀원일 수 없다.
+  // 되돌리기: blockedSeats의 SUN_PAIR 갈래를 지우면 '순장이면 순원 칩이 막힌다'가, ledTeam 줄을 지우면 '이끄는 팀 칩이 막힌다'가 깨진다.
+  assert.ok(H.blockedSeats(['순장']).has('순원') && H.blockedSeats(['순원']).has('순장'), '순장이면 순원 칩이 막힌다(거꾸로도)');
+  assert.ok(H.blockedSeats(['미디어팀'], '찬양팀').has('찬양팀') && !H.blockedSeats(['미디어팀'], '찬양팀').has('미디어팀'), '이끄는 팀 칩이 막힌다(다른 팀은 그대로)');
+  assert.ok(H.blockedLeadTeams(['찬양팀', '순장']).has('찬양팀') && !H.blockedLeadTeams(['찬양팀', '순장']).has('순장'), '팀원인 팀은 팀장으로 못 고른다');
+  assert.ok(!H.seatsValid(['순장', '순원']) && !H.seatsValid(['찬양팀'], '찬양팀') && H.seatsValid(['찬양팀'], '워십팀') && H.seatsValid([]), '저장 길도 같은 판정');
+  const rosterSvc = readSrc('src/services/roster.js');
+  assert.ok(/if \('teams' in patch && !seatsValid\(patch\.teams \|\| \[\], ledTeam\)\) throw/.test(rosterSvc)
+    && /if \(team && !seatsValid\(me\?\.teams \|\| \[\], team\)\) throw/.test(rosterSvc), '게스트 저장(소속 · 팀장)이 겹침을 막는다');
+  const rosterUi2 = readSrc('src/components/roster.jsx');
+  assert.ok(/disabled=\{!teams\.includes\(t\) && blocked\.has\(t\)\}/.test(rosterUi2) && /blocked=\{blockedLeadTeams\(person\.teams \|\| \[\]\)\}/.test(rosterUi2), '화면은 겹치는 칩을 비활성으로');
 
   const items = H.buildHandovers(pairs, ['msy', 'kdy']);
   const msy = items.find(i => i.from === 'msy');

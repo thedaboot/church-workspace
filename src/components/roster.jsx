@@ -17,7 +17,7 @@ import {
 import { Segmented } from './segmented.jsx';
 import { BADGE_STYLE, badgeClass, LEAD_TEAMS } from './roleBadge.js';
 import { usePopover } from '../hooks/usePopover.js';
-import { rolesOffered, TEAM_LEAD } from '../services/handover.js';
+import { rolesOffered, TEAM_LEAD, blockedSeats, blockedLeadTeams } from '../services/handover.js';
 import { isCloudEnabled } from '../services/supabaseClient.js';
 // ============================================================================
 // 청년 명단 구역의 부품 — 멤버 화면(views/membersView.jsx)의 '청년 명단' 탭이 쓴다
@@ -98,7 +98,7 @@ const TEAM_CHIPS = Object.entries(CONFIG.TEAMS).filter(([t]) => t.endsWith('팀'
 const GroupRule = () => <span aria-hidden className="shrink-0 w-px h-4 mx-0.5" style={{ background: 'var(--app-line)' }} />;
 
 // 팀장 칩 — 누르면 팀 목록(떠 있는 판 · usePopover). 켜져 있으면 칩 글자가 'OO팀장'이고 목록 맨 아래에 '팀장 해제'.
-function TeamLeadChip({ team, disabled, onPick }) {
+function TeamLeadChip({ team, disabled, blocked = new Set(), onPick }) {
   const pop = usePopover(176, 260, { gap: 6, measure: true });
   const on = team != null;
   const item = 'w-full h-9 flex items-center gap-2 px-2.5 rounded-[7px] text-[12.5px] text-left transition-colors hover:bg-surface-hover';
@@ -116,8 +116,8 @@ function TeamLeadChip({ team, disabled, onPick }) {
       {pop.panel('team-lead-menu z-[90] bg-surface border border-line rounded-[10px] shadow-elevated p-1', (
         <div role="menu" aria-label={TEAM_LEAD_LABEL}>
           {LEAD_TEAMS.map(t => (
-            <button key={t} type="button" role="menuitem" onClick={() => { pop.close(); if (t !== team) onPick(t); }}
-              className={`${item} ${t === team ? 'text-fg font-semibold' : 'text-fg-secondary'}`}>
+            <button key={t} type="button" role="menuitem" disabled={blocked.has(t)} onClick={() => { pop.close(); if (t !== team) onPick(t); }}
+              className={`${item} disabled:opacity-40 disabled:hover:bg-transparent ${t === team ? 'text-fg font-semibold' : 'text-fg-secondary'}`}>
               <span className="w-2 h-2 rounded-full shrink-0" style={{ background: teamColor(t) }} />
               <span className="flex-1 min-w-0 truncate">{t}</span>
               {t === team && <Check size={13} className="shrink-0 text-accent-text" />}
@@ -205,7 +205,7 @@ const PanelRow = ({ label, sub, children }) => (
 // **생일은 우리 데이트피커로 고른다**(사용자 지시 2026-09-05). 글자로 받던 자리다 —
 // '예: 05-26' 안내와 '생일은 05-26처럼 적어주세요' 오류 줄이 같이 있었는데, 고르게
 // 하면 틀린 값이 아예 만들어지지 않아 그 두 줄이 필요 없다. 연도는 없다(yearless).
-function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withNote = false }) {
+function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withNote = false, ledTeam = null }) {
   // **계정이 연결된 사람은 initial.name이 계정 표시명이다**(people.js withDisplayName).
   // 그대로 두면 저장 한 번에 people.name이 표시명으로 덮여 0037이 실명으로 고친 것이
   // 되돌아간다(명단 '임재훈' → 표시명 '말감이'). 명단에 적힌 이름은 roster_name이다.
@@ -222,6 +222,8 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
   const parsed = parseBirthday(birthday);
   const ready = !!name.trim();
   const toggleTeam = (t) => setTeams(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]));
+  // 겹치는 자리는 비활성(순장 ↔ 순원 · 이끄는 팀 — services/handover.js blockedSeats · 안내 줄 없음)
+  const blocked = blockedSeats(teams, ledTeam);
 
   const submit = () => {
     if (!ready) return;
@@ -248,10 +250,10 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
           </DatePicker>
         </LabeledField>
         {withYear && (
-          <LabeledField label="태어난 해" className="shrink-0">
-            <input aria-label="태어난 해" value={birthYear} inputMode="numeric" maxLength={4} placeholder="예: 1997"
+          <LabeledField label="태어난 연도" className="shrink-0">
+            <input aria-label="태어난 연도" value={birthYear} inputMode="numeric" maxLength={4} placeholder="예: 1997년"
               onChange={e => setBirthYear(e.target.value.replace(/[^0-9]/g, ''))}
-              className={`${FIELD} w-[5.5rem] tabular-nums`} />
+              className={`${FIELD} w-[6.5rem] tabular-nums`} />
           </LabeledField>
         )}
         {withNote && (
@@ -268,7 +270,7 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
         </label>
         <div className={TEAM_CHIP_ROW}>
           {TEAM_CHIPS.map(([t, color]) => (
-            <Chip key={t} on={teams.includes(t)} onClick={() => toggleTeam(t)} className={color}>{t}</Chip>
+            <Chip key={t} on={teams.includes(t)} disabled={!teams.includes(t) && blocked.has(t)} onClick={() => toggleTeam(t)} className={color}>{t}</Chip>
           ))}
         </div>
       </div>
@@ -391,7 +393,7 @@ function EditPanel({ person, linked, link, roleSet, team, year, busy, on }) {
         </ConfirmPopover>
       </div>
 
-      <PersonForm initial={person} submitLabel="저장" busy={busy} withNote
+      <PersonForm initial={person} submitLabel="저장" busy={busy} withNote ledTeam={team || null}
         onSubmit={(patch) => on.save(person, patch)} onCancel={() => on.close()} />
 
       <PanelRow label="계정">
@@ -416,7 +418,7 @@ function EditPanel({ person, linked, link, roleSet, team, year, busy, on }) {
         {/* `data-roles`: 직분 줄을 집는 표. 2026-09-22에 소속 줄에도 '교역자'를 잠깐 넣었다가
             검사가 엉뚱한 칩을 눌러 깨졌다 — 칩은 도로 뺐지만 이 표는 남긴다(글자로 찾는
             검사는 같은 이름이 하나만 있다는 가정에 기대고, 그 가정은 또 깨진다). */}
-        {/* 묶음 넷(services/handover.js ROLE_GROUPS · 시안 2026-10-16): 교역자·부장 | 회장·총무·리더순장(·리더팀장)
+        {/* 묶음 다섯(services/handover.js ROLE_GROUPS · 시안 2026-10-16): 교역자 | 부장 | 회장·총무·리더순장(·리더팀장)
             | 팀장 | 비전 메이커 — 사이에 가는 세로선. 리더팀장은 2027부터 안 선다(그 해 줄이 있는 사람만 남는다).
             교역자만 연도와 무관한 명단 속성이다(people.is_pastor). 팀장 칩은 게스트에서만(DB 자리 0104 전). */}
         <div data-roles className={`${TEAM_CHIP_ROW} py-0.5`}>
@@ -428,7 +430,7 @@ function EditPanel({ person, linked, link, roleSet, team, year, busy, on }) {
                 <Chip key={r} on={!!person.is_pastor} disabled={busy} className={BADGE_STYLE[PASTOR_LABEL]}
                   onClick={() => on.pastor(person, !person.is_pastor)}>{PASTOR_LABEL}</Chip>
               ) : r === TEAM_LEAD ? (
-                <TeamLeadChip key={r} team={team} disabled={busy} onPick={(t) => on.teamLead(person, t)} />
+                <TeamLeadChip key={r} team={team} disabled={busy} blocked={blockedLeadTeams(person.teams || [])} onPick={(t) => on.teamLead(person, t)} />
               ) : (
                 <Chip key={r} on={roleSet.has(r)} disabled={busy} className={BADGE_STYLE[ROLE_LABEL[r]]}
                   onClick={() => on.role(person, r, !roleSet.has(r))}>{ROLE_LABEL[r]}</Chip>

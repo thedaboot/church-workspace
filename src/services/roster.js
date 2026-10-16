@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, guestStore, HONORIFIC } from './people.js';
 import { generateId } from '../utils.js';
+import { seatsValid } from './handover.js';
 
 // ============================================================================
 // v2 명단(people) 쓰기 계층 — 멤버 화면의 '명단' 구역이 쓴다 (docs/V2.md §1 결정 1·13)
@@ -198,7 +199,8 @@ export async function addPerson({ name, birthday = null, teams = [], birth_year 
 
 // 이름·생일·팀·note만 고친다. 계정 연결·직분은 각자의 길이 따로 있다.
 // birth_year(태어난 해)는 시안 — 게스트에만 저장한다(명단에 칸이 없다 · 0104 후보).
-export async function updatePerson(id, patch) {
+export async function updatePerson(id, patch, { ledTeam = null } = {}) {
+  if ('teams' in patch && !seatsValid(patch.teams || [], ledTeam)) throw new Error('겹치는 자리');
   const next = {};
   for (const k of ['name', 'birthday', 'teams', 'note', 'birth_year']) if (k in patch) next[k] = patch[k];
   if (cloudOn()) delete next.birth_year;
@@ -262,6 +264,8 @@ export async function setYearRole(personId, year, role, on) {
 // 팀장(시안 · 게스트 전용) — 한 사람이 그 해 한 팀. team이 비면 푼다. 클라우드에는 아직 저장 자리가 없다(0104).
 export async function setTeamLead(personId, year, team) {
   if (cloudOn()) throw new Error('팀장 직분은 아직 저장 자리가 없어요');
+  const me = guestRows('people').find(p => p.id === personId);
+  if (team && !seatsValid(me?.teams || [], team)) throw new Error('겹치는 자리');
   const rows = guestRows('people_roles').filter(r =>
     !(r.person_id === personId && r.year === year && r.role === TEAM_LEAD));
   const row = team ? { person_id: personId, year, role: TEAM_LEAD, team } : null;

@@ -4,8 +4,8 @@
 // **import가 없다** — 노드에서 그대로 들여 검사한다(tests/logcheck-v2 '인수인계' 블록).
 // 저장 자리(게스트 localStorage · 시드)는 services/handoverStore.js, 화면은 components/handover.jsx.
 //
-// 직분 줄의 묶음(사용자 요청 "기존 직분들 정렬도 구분되게"):
-//   교역자·부장  |  임원 — 회장·총무·리더순장(·리더팀장)  |  팀장(팀 하나)  |  비전 메이커
+// 직분 줄의 묶음(사용자 요청 "기존 직분들 정렬도 구분되게" · 2026-10-16 순서 확정):
+//   교역자  |  부장  |  임원 — 회장·총무·리더순장(·리더팀장)  |  팀장(팀 하나)  |  비전 메이커
 // 리더팀장(lead_team)은 지우지 않는다 — **2027부터 고르는 줄에 안 서고**(사용자 결정) 지난해 줄은 그대로다.
 // 그 해에 이미 리더팀장 줄이 있는 사람에게는 칩이 남는다(풀 길이 있어야 한다).
 //
@@ -21,7 +21,8 @@ export const TEAM_LEAD = 'team_lead';
 
 // 칩 묶음 — 'pastor'는 연도와 무관한 명단 속성(is_pastor)이고 나머지는 people_roles 값이다
 export const ROLE_GROUPS = [
-  ['pastor', 'director'],
+  ['pastor'],
+  ['director'],
   ['president', 'treasurer', 'lead_sunjang', 'lead_team'],
   [TEAM_LEAD],
   ['vision_maker'],
@@ -31,6 +32,23 @@ export const ROLE_GROUPS = [
 export function rolesOffered(year, held = new Set()) {
   return ROLE_GROUPS.map(g => g.filter(r => r !== 'lead_team' || Number(year) <= LEAD_TEAM_LAST_YEAR || held.has(r)));
 }
+
+// ── 자리 겹침(사용자 결정 2026-10-16) ─────────────────────────────────────
+// 순장은 순원일 수 없고(어느 순이든 — 소속 칩 '순장'·'순원'은 한 사람에게 하나), 팀장은 그 팀의 팀원일 수 없다
+// (소속 칩의 그 팀). 화면은 겹치는 칩을 비활성으로 두고(안내 줄 없음), 게스트 저장 길도 같은 판정으로 막는다.
+const SUN_PAIR = { '순장': '순원', '순원': '순장' };
+// 소속 칩 중 지금 고를 수 없는 것 — teams = 그 사람의 소속 · ledTeam = 그 해 팀장인 팀(없으면 null)
+export function blockedSeats(teams = [], ledTeam = null) {
+  const out = new Set();
+  for (const t of teams) if (SUN_PAIR[t]) out.add(SUN_PAIR[t]);
+  if (ledTeam) out.add(ledTeam);
+  return out;
+}
+// 팀장으로 고를 수 없는 팀 — 이미 그 팀의 팀원(소속)인 팀
+export const blockedLeadTeams = (teams = []) => new Set(teams.filter(t => t.endsWith('팀')));
+// 저장해도 되나 — 순장·순원을 같이 들었거나 이끄는 팀을 소속으로도 들었으면 false
+export const seatsValid = (teams = [], ledTeam = null) =>
+  !(teams.includes('순장') && teams.includes('순원')) && !(ledTeam && teams.includes(ledTeam));
 
 // ── 졸업 ────────────────────────────────────────────────────────────────────
 export const koreanAge = (birthYear, year) => (Number(birthYear) ? Number(year) - Number(birthYear) + 1 : null);

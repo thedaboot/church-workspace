@@ -107,6 +107,9 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
   // 한 번만 부른다 — 같은 컨텍스트를 두 번 읽던 자리였다(값이 갈릴 수는 없지만 읽는 곳이
   // 둘이면 나중에 조건이 붙을 때 한쪽만 고쳐진다)
   const { enabled, session, signOut, isAdmin } = useAuth();
+  // 게스트 시연(시안 2026-10-16 · domain.MockFactory의 demo 표시)에서는 세션이 없어도 마스터(홍길동)가 멤버 관리를 연다 —
+  // 인수인계 시안이 그 안에 있다. 클라우드(enabled)에서는 지금 그대로다.
+  const demo = useStore(s => !!s.demo) && !enabled;
   // measure: 판의 실제 높이로 위치를 다시 잡는다 — 추정 높이로만 잡으면
   // 아래에서 위로 뜨는 모바일 탭바 메뉴가 탭바에서 한참 떨어져 떠 보였다
   const pop = usePopover(224, 200, { gap: 8, measure: true });
@@ -136,7 +139,7 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
           <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 설정</button>
           {/* 멤버는 관리자에게만. 하단 탭 네 자리는 핸드오프 규격이라 다섯 번째를
               끼우지 않는다 — 설정·전체 일정과 같은 처리다(§4.6). */}
-          {isAdmin && enabled && session && onOpenMembers && (
+          {isAdmin && ((enabled && session) || demo) && onOpenMembers && (
             <button className={item} onClick={go(onOpenMembers)}><Users size={15} /> 멤버 관리</button>
           )}
           <ThemeMenuItem className={item} />

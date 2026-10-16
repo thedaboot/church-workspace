@@ -35,7 +35,9 @@ writeFileSync(join(tmp, 'people.mjs'), [
 const rosterSrc = readFileSync(new URL('src/services/roster.js', ROOT), 'utf8')
   .replace("import { supabase } from './supabaseClient.js';", 'const supabase = null;')
   .replace("from './people.js';", "from './people.mjs';")
-  .replace("from '../utils.js';", `from '${new URL('src/utils.js', ROOT).href}';`);
+  .replace("from '../utils.js';", `from '${new URL('src/utils.js', ROOT).href}';`)
+  // 자리 겹침 판정(시안 2026-10-16) — import가 없는 순수 모듈이라 그대로 가리킨다
+  .replace("from './handover.js';", `from '${new URL('src/services/handover.js', ROOT).href}';`);
 writeFileSync(join(tmp, 'roster.mjs'), rosterSrc);
 const R = await import(pathToFileURL(join(tmp, 'roster.mjs')).href);
 
