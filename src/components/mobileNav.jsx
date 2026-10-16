@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { LayoutDashboard, CheckSquare, Hash, Pencil, Users, Archive, CalendarDays, Church, BookOpen, HeartHandshake, Home, Briefcase } from 'lucide-react';
+import { StarToggle } from './starToggle.jsx';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable,
@@ -10,15 +11,17 @@ import { useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsList, selectActiveProjectsList, selectProjectsMap, selectMyTasks,
 } from '../store/selectors.js';
-import { projectYear, reorderIds } from '../utils.js';
+import { projectYear } from '../utils.js';
 import { useProjectYear } from '../hooks/useProjectYear.js';
 import { pickProjectToOpen } from '../services/tabRank.js';
-import { useTabFrontStats } from '../services/tabFront.js';
+import { useTabStars } from '../services/tabStars.js';
+import { useTrashItems } from '../services/trash.js';
+import { TrashEntry, TrashDialog } from './trash.jsx';
 import { isOpen } from '../services/taskCounts.js';
 import { DaboutiFace } from './dabooti.jsx';
 import { showToast } from './Toast.jsx';
 import { CHURCH_MENUS, ProfileMenu, ViewerFaces } from './layout.jsx';
-import { tabDividerCls, FreshDot, useFreshProjects, useFrontNudge, FrontNudge, saveTabOrder, useYearTabs, YearPicker } from './navParts.jsx';
+import { TAB_DIVIDER, FreshDot, useFreshProjects, moveTabStar, useYearTabs, YearPicker } from './navParts.jsx';
 import { SearchBox } from './searchBox.jsx';
 import { NotificationBell } from './notificationBell.jsx';
 import { LeaderTitleLock, TabLock, useSetVisibility } from './leaderOnly.jsx';
@@ -51,8 +54,9 @@ export function scrollMainTop() {
 // ============================================================================
 // 폰 내비 — 상단바(MobileTopBar: 화면 이름 + 아이콘 줄 + 프로젝트 탭 줄)와 하단 바(MobileTabBar: 교회 층 ↔ 업무 층).
 // 19차 묶음 D에서 layout.jsx에서 갈라 왔다(동작·모양은 그대로). 데스크톱 TopNav는 layout.jsx에 있다.
-//   · 탭 계산(고른 해 · 앞 칸 · 보관 탭)은 데스크톱과 한 벌(navParts.useYearTabs) · 폰은 전부 그리므로 더보기가 없다
-//   · 탭 순서는 길게 눌러 끈다(dnd-kit TouchSensor 300ms · PITFALLS 12-g) · 저장은 데스크톱과 같은 saveTabOrder
+//   · 탭 계산(고른 해 · 즐겨찾기 · 보관 탭)은 데스크톱과 한 벌(navParts.useYearTabs) · 폰은 전부 그리므로 더보기가 없다
+//     → 휴지통 입구는 연도 고르기 목록 맨 아래(trash.jsx) · 즐겨찾기 별은 제목 줄 연필 뒤(starToggle.jsx)
+//   · 즐겨찾기 차례는 길게 눌러 끈다(dnd-kit TouchSensor 300ms) · 저장은 데스크톱과 같은 moveTabStar(내 차례만)
 //   · 상단바는 flex 항목 z-20이라 쌓임 맥락을 만든다 — **안에 fixed 판을 새로 두지 말 것**(검색 판은 body 포털 · PITFALLS 9-cb)
 //   · 하단 바는 두 층을 겹쳐 그리고 업무 층의 왼쪽 끝만 움직인다(index.css `.tab-bar-work`) · 실제 높이를 --mobile-tab-bar-h로
 // ============================================================================
@@ -68,13 +72,13 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
   // 끌어올릴지 정하고, 제목 줄과 탭 줄이 설지 정한다. 예전에는 같은 조회가 두 벌이었다.
   // 프로젝트 탭 줄은 프로젝트를 보고 있을 때만 — 내 업무·대시보드에서는 쓸 일이 없고
   // 좁은 화면에서 한 줄이 그대로 낭비된다(다른 프로젝트로는 하단 '프로젝트' 탭으로 간다)
-  // 앞 칸(데스크톱 TopNav와 같은 규칙 · services/tabRank.js) — 계산은 한 벌(navParts.useYearTabs).
-  // 폰은 보관된 지금 프로젝트를 posBase에 끌어올리지 않는다(liftArchived: false) — 아래에서 보관 탭 앞에 한 번 넣는다.
+  // 즐겨찾기(데스크톱 TopNav와 같은 규칙 · services/tabRank.js) — 계산은 한 벌(navParts.useYearTabs).
+  // 폰은 보관된 지금 프로젝트를 posSource에 끌어올리지 않는다(liftArchived: false) — 아래에서 보관 탭 앞에 한 번 넣는다.
   // 그 해의 보관 프로젝트(archivedTail)는 지금 열어 둔 것을 빼고 온다 — **빼지 않으면 같은 프로젝트가 두 번 선다**
   // (보관된 것을 열어 두면 아래 줄이 이미 탭으로 끌어올리기 때문이다 · 데스크톱 archivedForMore가 같은 함정 · navsmoke가 잡았다).
   const {
-    allProjects: allForYear, project, year, setYear, years, yearCounts,
-    posSource: posBase, tabSource: base, frontIds, frontStats, archivedForYear: archivedTail,
+    project, year, setYear, years, yearCounts,
+    tabSource: base, starIds, starOrder, archivedForYear: archivedTail,
   } = useYearTabs(activeMenu, { liftArchived: false });
   const projectsList = project?.archived ? [...base, project, ...archivedTail] : [...base, ...archivedTail];
   const currentUser = useStore(selectCurrentUser);
@@ -90,10 +94,12 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
             {/* 리더만 보는 프로젝트(0092) — 제목 **앞** 자물쇠 하나(칩은 좁은 폰에서 제목 자리를 먹었다 · PITFALLS 51-b).
                 누르면 프로젝트 머리 자물쇠와 같은 '리더만 보기' 팝오버 · 이름 바꾸기 버튼 밖이다(버튼 안에 버튼을 두지 않는다) */}
             <LeaderTitleLock project={project} onSet={setVisibility} />
-            <button onClick={() => onRenameProject?.(project)} className="flex-1 min-w-0 flex items-baseline gap-1.5 text-left transition active:scale-[0.98]" title="프로젝트 이름 수정">
+            <button onClick={() => onRenameProject?.(project)} className="min-w-0 flex items-baseline gap-1.5 text-left transition active:scale-[0.98]" title="프로젝트 이름 수정">
               <span className="min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</span>
               <Pencil size={12} className="text-fg-faint shrink-0" />
             </button>
+            {/* 즐겨찾기 — 이름 바꾸기 버튼 **밖**(버튼 안에 버튼을 두지 않는다) · 남는 폭은 별 뒤로 간다 */}
+            <StarToggle projectId={project.id} className="ml-0.5 mr-auto" />
           </div>
         ) : (
           <h2 className="flex-1 min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</h2>
@@ -120,9 +126,9 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
       {project && (
         <MobileProjectTabs
           projectsList={projectsList} activeMenu={activeMenu} setActiveMenu={setActiveMenu}
-          onOpenProject={onOpenProject} allProjects={allForYear} cloudMode={cloudMode}
+          onOpenProject={onOpenProject}
           year={year} setYear={setYear} years={years} yearCounts={yearCounts}
-          frontIds={frontIds} orderIds={posBase.map(p => p.id)} frontStats={frontStats} freshIds={freshIds}
+          starIds={starIds} starOrder={starOrder} freshIds={freshIds}
         />
       )}
     </div>
@@ -135,36 +141,14 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
 // 모바일 프로젝트 탭 한 개 — 끌 수도 있고(길게 누르기) 놓을 수도 있다.
 // dnd-kit은 ref를 하나만 받으므로 두 훅의 ref를 손으로 합친다(보드 카드와 같은 방식).
 // 'tab:' 접두사로 끌고 있는 것(active.id = 프로젝트 id)과 놓는 자리를 가른다.
-// **보관된 탭은 끌 수도, 놓을 자리도 될 수 없다**(disabled) — 순서는 projects.position에
-// 저장되는데 보관된 것은 그 순서에 끼지 않기로 되어 있다(saveTabOrder 주석).
-// **앞 칸 탭(front)도 같다** — 그 자리는 활동이 정하므로 끌어도 position이 바뀌면 안 된다.
-// 앞 칸 탭은 **놓을 자리로는 켜 둔다**(끌기만 막는다 · PITFALLS 12-g) — 뒤쪽 탭을 그 위로 가져왔을 때 넛지를 띄우려면
-// dnd-kit이 over로 알려 줘야 한다. 놓아도 순서는 안 바뀐다(MobileProjectTabs.onDragEnd가 거른다).
-// fresh — 지난 방문 이후 남이 움직였다(왼쪽 점) · onLongPress — 앞 칸 탭을 길게 눌렀다(넛지)
-function MobileProjectTab({ project, active, archived = false, front = false, fresh = false, onSelect, onLongPress }) {
-  const locked = archived || front;
+// **즐겨찾기 탭만 끌고 놓는다** — 끌어서 바꾸는 것은 내 별 차례뿐이다(navParts.moveTabStar). 나머지 탭은
+// 모두가 같이 보는 position 순서라 끌 수도 놓을 자리도 될 수 없다(disabled). 보관된 탭은 별 줄에 서지 않는다.
+// fresh — 지난 방문 이후 남이 움직였다(왼쪽 점)
+function MobileProjectTab({ project, active, archived = false, starred = false, fresh = false, onSelect }) {
+  const locked = archived || !starred;
   const nodeRef = useRef(null);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: project.id, disabled: locked });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `tab:${project.id}`, disabled: archived, data: { el: nodeRef } });
-  // 앞 칸 탭 길게 누르기 — 끌기 센서와 같은 300ms · 8px(아래 MobileProjectTabs 주석). 눌러 둔 뒤 손을
-  // 떼면 click이 한 번 오는데, 그건 여는 뜻이 아니라서 한 번 삼킨다.
-  const hold = useRef(null);
-  const held = useRef(false);
-  const holdProps = front && onLongPress ? {
-    onTouchStart: (e) => {
-      const t = e.touches[0];
-      held.current = false;
-      clearTimeout(hold.current?.timer);
-      hold.current = { x: t.clientX, y: t.clientY, timer: setTimeout(() => { held.current = true; onLongPress(nodeRef.current, project.id); }, 300) };
-    },
-    onTouchMove: (e) => {
-      const s = hold.current; const t = e.touches[0];
-      if (s && Math.hypot(t.clientX - s.x, t.clientY - s.y) > 8) { clearTimeout(s.timer); hold.current = null; }
-    },
-    onTouchEnd: () => { clearTimeout(hold.current?.timer); hold.current = null; },
-    onTouchCancel: () => { clearTimeout(hold.current?.timer); hold.current = null; },
-  } : {};
-  useEffect(() => () => clearTimeout(hold.current?.timer), []);
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `tab:${project.id}`, disabled: locked, data: { el: nodeRef } });
   // **ref 콜백에 조건을 넣지 않는다** — 콜백 신원이 바뀌면 React가 ref를 떼었다 다시
   // 붙이는데, 끄는 도중이면 dnd-kit이 들고 있던 노드가 그 순간 사라진다.
   const setRefs = useCallback((el) => { nodeRef.current = el; setNodeRef(el); setDropRef(el); }, [setNodeRef, setDropRef]);
@@ -177,10 +161,10 @@ function MobileProjectTab({ project, active, archived = false, front = false, fr
   const dragProps = locked ? {} : { ...attributes, ...listeners };
   return (
     <button
-      ref={setRefs} {...dragProps} {...holdProps}
-      data-front={front ? '' : undefined}
-      onClick={() => { if (held.current) { held.current = false; return; } onSelect(project.id); }}
-      className={`relative shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${active ? 'text-fg border-fg' : archived ? 'text-fg-faint border-transparent' : 'text-fg-muted border-transparent'} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging && !front ? 'bg-accent-weak rounded-t-md' : ''} ${front ? 'select-none [-webkit-touch-callout:none]' : ''}`}
+      ref={setRefs} {...dragProps}
+      data-starred={starred ? '' : undefined}
+      onClick={() => onSelect(project.id)}
+      className={`relative shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${active ? 'text-fg border-fg' : archived ? 'text-fg-faint border-transparent' : 'text-fg-muted border-transparent'} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'bg-accent-weak rounded-t-md' : ''}`}
     >
       {fresh && <FreshDot className="left-[4px]" />}
       {/* 보관 표시는 데스크톱 연도 폴더와 같다 — 흐린 글자 + Archive 아이콘.
@@ -201,11 +185,12 @@ function MobileProjectTab({ project, active, archived = false, front = false, fr
 // 데스크톱처럼 누르는 즉시 끌기로 두면 줄을 밀 수가 없다: 손이 닿는 자리가 곧 탭이라
 // 스크롤과 드래그가 같은 제스처를 두고 싸운다. 그래서 TouchSensor의 delay로 가른다.
 const MobileProjectTabs = React.memo(({
-  projectsList, activeMenu, setActiveMenu, onOpenProject, allProjects, cloudMode,
-  year, setYear, years, yearCounts, frontIds, orderIds, frontStats = null, freshIds = null,
+  projectsList, activeMenu, setActiveMenu, onOpenProject,
+  year, setYear, years, yearCounts, starIds, starOrder, freshIds = null,
 }) => {
   const [dragId, setDragId] = useState(null);
-  const [nudge, showNudge] = useFrontNudge();
+  const trashCount = useTrashItems().length;
+  const [trashOpen, setTrashOpen] = useState(false);
   // 터치와 마우스는 센서를 분리한다(§6-12) — 하나로 합치면 모바일에서 드래그가 아예
   // 시작되지 않거나 스크롤과 싸운다. 터치는 **300ms**로 보드(200ms)보다 길게 잡는다:
   // 이 줄의 기본 동작이 가로로 미는 것이라, 짧으면 넘기려던 손이 탭을 집어 든다.
@@ -219,12 +204,8 @@ const MobileProjectTabs = React.memo(({
     setDragId(null);
     if (!over) return;
     const targetId = String(over.id).replace(/^tab:/, '');
-    // 순서를 매기는 목록은 **position 순 전체**(orderIds — 보관된 탭은 없다)다. 보관된 탭은
-    // 줄 끝에 이어 세울 뿐 position에 끼지 않고(saveTabOrder 주석), 앞 칸 탭은 position 안의
-    // 제자리를 지킨다(데스크톱 dropTab과 같은 이유). 둘 다 끌기·놓기가 막혀 있다(disabled).
-    if (frontIds?.has(String(active.id)) || frontIds?.has(targetId)) return;
-    const next = reorderIds(orderIds, String(active.id), targetId);
-    if (next) saveTabOrder(next, allProjects, cloudMode);
+    // 번호는 **내 별 차례 전체**(starOrder — 다른 해 것까지)로 매긴다(데스크톱 dropTab과 같은 moveTabStar)
+    moveTabStar(starOrder, String(active.id), targetId);
   };
   return (
     <DndContext
@@ -234,33 +215,29 @@ const MobileProjectTabs = React.memo(({
       // 탭으로 옮기려면 먼저 줄을 밀어 그 탭을 보이게 하면 된다.
       autoScroll={false}
       onDragStart={(e) => setDragId(String(e.active.id))}
-      // 뒤쪽 탭을 앞 칸 위로 가져왔다 — 놓을 자리가 아니라고 말해 준다(앞 칸 넛지)
-      onDragOver={({ over }) => {
-        const target = over ? String(over.id).replace(/^tab:/, '') : '';
-        if (target && frontIds?.has(target)) showNudge(over.data?.current?.el?.current, 'back');
-      }}
       onDragEnd={onDragEnd} onDragCancel={() => setDragId(null)}
     >
       {/* x-scroll-lock: 가로로 밀 때 세로 스크롤이 같이 딸려가지 않게 (index.css) */}
       <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
         {/* 연도는 미는 칸 **안**에 둔다 — 같은 종류가 이어지는 줄이고(§8), 밖으로
             빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
-        <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact />
+        {/* 폰은 더보기가 없다 — 휴지통 입구는 연도 목록 맨 아래(휴지통이 비면 서지 않는다) */}
+        <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact
+          footer={trashCount ? (close) => <TrashEntry count={trashCount} onOpen={() => { close(); setTrashOpen(true); }} /> : null} />
         {projectsList.map((p, i) => (
           <React.Fragment key={p.id}>
-            <MobileProjectTab project={p} active={activeMenu === p.id} archived={!!p.archived} front={!!frontIds?.has(p.id)}
-              fresh={!!freshIds?.has(p.id)} onSelect={setActiveMenu}
-              onLongPress={(el, pid) => showNudge(el, 'front', frontStats?.[pid]?.people || 0)} />
-            {/* 앞 칸 뒤 세로선 — 마지막 앞 칸 탭 바로 뒤, 뒤에 탭이 더 있을 때만 */}
-            {frontIds?.has(p.id) && i < projectsList.length - 1 && !frontIds.has(projectsList[i + 1].id) && (
-              <span aria-hidden data-tab-divider className={tabDividerCls(!!nudge)} />
+            <MobileProjectTab project={p} active={activeMenu === p.id} archived={!!p.archived} starred={!!starIds?.has(p.id)}
+              fresh={!!freshIds?.has(p.id)} onSelect={setActiveMenu} />
+            {/* 즐겨찾기 뒤 세로선 — 마지막 별 탭 바로 뒤, 뒤에 탭이 더 있을 때만 */}
+            {starIds?.has(p.id) && i < projectsList.length - 1 && !starIds.has(projectsList[i + 1].id) && (
+              <span aria-hidden data-tab-divider className={TAB_DIVIDER} />
             )}
           </React.Fragment>
         ))}
         {/* 데스크톱과 같은 이유로 투명 2px을 깐다(§6의 항목 참고) */}
         <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
       </div>
-      <FrontNudge nudge={nudge} />
+      {trashOpen && <TrashDialog onClose={() => setTrashOpen(false)} />}
       {/* 들어 올린 탭이 손가락을 따라온다. body 포털이 기본이다(§6-1) — 조상에 걸린
           transform이 fixed의 기준 박스가 되면 미리보기가 엉뚱한 자리에 뜬다. */}
       {createPortal(
@@ -288,18 +265,18 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   const myTasksCount = useStore(selectMyTasks).filter(isOpen).length;
   const isProject = allProjects.some(p => p.id === activeMenu);
   const [year] = useProjectYear();
-  const frontStats = useTabFrontStats();
+  const starIds = useTabStars();
   // 마지막으로 본 프로젝트 — 아래 '업무' 탭의 lastWork와 같은 결(이번 세션 동안만 기억한다)
   const lastProject = useRef(null);
   useEffect(() => { if (isProject) lastProject.current = activeMenu; }, [activeMenu, isProject]);
   const myTeam = (currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean)[0];
   // '프로젝트' 탭(2026-09-25 · tabRank.pickProjectToOpen): 마지막으로 본 것이 고른 해에 있으면 그것,
-  // 아니면 **고른 해의 탭 순서 첫 프로젝트**(앞 칸 → position — 위 탭 줄과 같은 순서), 그 해가 비면
+  // 아니면 **고른 해의 탭 순서 첫 프로젝트**(내 즐겨찾기 → position — 위 탭 줄과 같은 순서), 그 해가 비면
   // 가장 최근 해의 첫 것, 아무것도 없으면 새로 만들기. 예전에는 해를 안 보고 position 첫 것을 열어서
   // 작년 프로젝트가 앞이면 그걸 열고 연도 선택까지 작년으로 끌려갔다.
   const goProject = () => {
     if (isProject) { scrollMainTop(); return; }   // 켜진 탭을 다시 누름(아래 go 주석)
-    const id = pickProjectToOpen({ active: projectsList, all: allProjects, year, lastId: lastProject.current, stats: frontStats, yearOf: projectYear });
+    const id = pickProjectToOpen({ active: projectsList, all: allProjects, year, lastId: lastProject.current, starIds, yearOf: projectYear });
     if (id) setActiveMenu(id);
     else onOpenProject();
   };

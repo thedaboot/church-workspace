@@ -763,60 +763,48 @@ import { loadSource, readSplit } from './_load.mjs';
   console.log('PASS  15초 재조회 생략·날짜 열쇠 정리 17가지');
 }
 
-// ── 프로젝트 탭 줄 앞 칸 · 업무 실시간 재접속 따라잡기 · 폰 '프로젝트' 버튼 (2026-09-25) ──
+// ── 프로젝트 탭 줄 즐겨찾기(시안 2026-10-16 — 옛 앞 칸을 대신) · 업무 실시간 재접속 따라잡기 · 폰 '프로젝트' 버튼 ──
 {
   const R = await import(new URL('../src/services/tabRank.js', import.meta.url).href);
   const S = await import(new URL('../src/services/realtimeStatus.js', import.meta.url).href);
   const now = Date.parse('2026-09-25T12:00:00Z');
   const ago = (h) => new Date(now - h * 3600000).toISOString();
-  const rows = [
-    // p1: 셋(가장 많음)
-    { projectId: 'p1', actor: 'a', at: ago(1) }, { projectId: 'p1', actor: 'b', at: ago(30) }, { projectId: 'p1', actor: 'c', at: ago(50) },
-    // p2: 둘 · 마지막 2시간 전 / p3: 둘 · 마지막 1시간 전 → p3이 앞
-    { projectId: 'p2', actor: 'a', at: ago(2) }, { projectId: 'p2', actor: 'b', at: ago(5) },
-    { projectId: 'p3', actor: 'a', at: ago(1) }, { projectId: 'p3', actor: 'c', at: ago(9) },
-    // p4: 한 사람이 여러 번 — 사람 수 1이라 앞 칸에 못 든다
-    { projectId: 'p4', actor: 'a', at: ago(1) }, { projectId: 'p4', actor: 'a', at: ago(2) }, { projectId: 'p4', actor: 'a', at: ago(3) },
-    // p5: 둘인데 하나가 8일 전 — 창 밖이라 1명
-    { projectId: 'p5', actor: 'a', at: ago(3) }, { projectId: 'p5', actor: 'b', at: ago(24 * 8) },
-    // 주인·프로젝트 없는 줄은 버린다
-    { projectId: null, actor: 'a', at: ago(1) }, { projectId: 'p1', actor: null, at: ago(1) },
-  ];
-  const st = R.activityStats(rows, now);
-  assert.deepStrictEqual(st.p1, { people: 3, lastAt: now - 3600000 });
-  assert.strictEqual(st.p4.people, 1, '같은 사람은 한 번');
-  assert.strictEqual(st.p5.people, 1, '7일 밖은 세지 않는다');
-  assert.strictEqual(R.FRONT_DAYS, 7); assert.strictEqual(R.FRONT_MAX, 5); assert.strictEqual(R.FRONT_MIN_PEOPLE, 2);
-  const P = (id) => ({ id, title: id });
-  const list = ['p5', 'p4', 'p2', 'p9', 'p3', 'p1'].map(P);   // position 순
-  const sp = R.splitFrontTabs(list, st);
-  assert.deepStrictEqual(sp.front.map(p => p.id), ['p1', 'p3', 'p2'], '사람 수 많은 순 · 같으면 최근 활동이 앞 · 2명 이상만');
-  assert.deepStrictEqual(sp.rest.map(p => p.id), ['p5', 'p4', 'p9'], '나머지는 position 순 그대로 · 앞 칸 것은 빠진다');
-  assert.deepStrictEqual(R.splitFrontTabs(list, null).front, [], '숫자가 없으면(게스트 첫 화면 · 못 읽음) 앞 칸 없음');
-  assert.deepStrictEqual(R.splitFrontTabs(list, {}).rest.map(p => p.id), list.map(p => p.id), '앞 칸 0개 = 지금 순서 그대로');
-  // 다섯까지
-  const many = {}; const mlist = [];
-  for (let i = 0; i < 7; i++) { many['q' + i] = { people: 2 + i, lastAt: i }; mlist.push(P('q' + i)); }
-  const ms = R.splitFrontTabs(mlist, many);
-  assert.deepStrictEqual(ms.front.map(p => p.id), ['q6', 'q5', 'q4', 'q3', 'q2'], '다섯까지');
-  assert.deepStrictEqual(ms.rest.map(p => p.id), ['q0', 'q1']);
-  // 후보는 목록(고른 해·보관 제외) 안에서만 — 목록에 없는 바쁜 프로젝트가 칸을 먹지 않는다
-  assert.deepStrictEqual(R.splitFrontTabs([P('p2'), P('p9')], st).front.map(p => p.id), ['p2']);
-  // 게스트 — 스토어 업무의 activityLog로 같은 줄
+  const P = (id, extra = {}) => ({ id, title: id, ...extra });
+  const list = ['p5', 'p4', 'p2', 'p9', 'p3', 'p1'].map(id => P(id));   // position 순
+  // 별 단 것이 **내 차례로** 맨 앞 · 나머지는 position 순 그대로(별 단 것은 빠진다)
+  // **되돌리기**: splitStarredTabs가 starIds 차례 대신 list 차례로 고르면(별을 position 순으로 세우면) 첫 줄이 깨진다.
+  const sp = R.splitStarredTabs(list, ['p1', 'p4']);
+  assert.deepStrictEqual(sp.starred.map(p => p.id), ['p1', 'p4'], '별은 내가 정한 차례 — position 순이 아니다');
+  assert.deepStrictEqual(sp.rest.map(p => p.id), ['p5', 'p2', 'p9', 'p3'], '나머지는 position 순 그대로 · 별 단 것은 빠진다');
+  assert.deepStrictEqual(R.splitStarredTabs(list, []).rest.map(p => p.id), list.map(p => p.id), '별이 없으면 지금 순서 그대로');
+  assert.deepStrictEqual(R.splitStarredTabs(list, null).starred, [], '별 목록이 없어도 던지지 않는다');
+  // 후보는 지금 줄 안에서만 — 다른 해·보관·안 보이는(리더만) 프로젝트의 별은 칸을 먹지 않는다 · 같은 id는 한 번
+  assert.deepStrictEqual(R.splitStarredTabs([P('p2'), P('p9')], ['hidden', 'p9', 'p9', 'p2']).starred.map(p => p.id), ['p9', 'p2'],
+    '별 후보는 지금 탭 줄 안에서만 · 같은 id는 한 번');
+  // 켜고 끄기 — 새로 켠 것은 별 줄 맨 뒤 · 원래 배열은 그대로
+  const base = ['a', 'b'];
+  assert.deepStrictEqual(R.toggleStarId(base, 'c'), ['a', 'b', 'c'], '새 별은 맨 뒤');
+  assert.deepStrictEqual(R.toggleStarId(base, 'a'), ['b'], '다시 누르면 끈다');
+  assert.deepStrictEqual(base, ['a', 'b'], '원래 배열은 건드리지 않는다');
+  assert.strictEqual(R.FRONT_DAYS, 7, '탭 점이 읽는 활동 창은 7일');
+  assert.strictEqual(R.activityStats, undefined, '옛 앞 칸 셈(activityStats)은 지웠다');
+  assert.strictEqual(R.splitFrontTabs, undefined, '옛 앞 칸 고르기(splitFrontTabs)는 지웠다');
+  // 게스트 — 스토어 업무의 activityLog로 탭 점·작년 이맘때가 보는 줄
   const gt = { allIds: ['t1', 't2', 't3'], byId: {
     t1: { projectId: 'g1', activityLog: [{ author: '가', timestamp: ago(1) }, { author: '나', timestamp: ago(2) }] },
     t2: { projectId: 'g1', activityLog: [{ author: '가', timestamp: ago(3) }] },
     t3: { projectId: null, activityLog: [{ author: '다', timestamp: ago(1) }] } } };
   const gr = R.guestActivityRows(gt);
   assert.strictEqual(gr.length, 3, '프로젝트 없는 업무는 버린다');
-  assert.deepStrictEqual(R.activityStats(gr, now).g1, { people: 2, lastAt: now - 3600000 });
+  assert.deepStrictEqual(gr[0], { projectId: 'g1', actor: '가', at: ago(1) });
   // 폰 '프로젝트' 버튼이 열 곳
   const yr = (p) => p.year;
   const act = [{ id: 'old1', year: '2026' }, { id: 'n1', year: '2027' }, { id: 'n2', year: '2027' }];
   const all = [...act, { id: 'arch', year: '2027', archived: true }];
-  const pick = (o) => R.pickProjectToOpen({ active: act, all, yearOf: yr, stats: null, lastId: null, ...o });
+  const pick = (o) => R.pickProjectToOpen({ active: act, all, yearOf: yr, starIds: [], lastId: null, ...o });
   assert.strictEqual(pick({ year: '2027' }), 'n1', '고른 해의 첫 것 — position 첫 것(작년)이 아니다');
-  assert.strictEqual(pick({ year: '2027', stats: { n2: { people: 2, lastAt: 1 } } }), 'n2', '앞 칸이 있으면 그것이 첫 것');
+  assert.strictEqual(pick({ year: '2027', starIds: ['n2'] }), 'n2', '별이 있으면 그것이 첫 것');
+  assert.strictEqual(pick({ year: '2027', starIds: ['old1'] }), 'n1', '다른 해의 별은 이 해의 첫 것을 못 먹는다');
   assert.strictEqual(pick({ year: '2027', lastId: 'n2' }), 'n2', '마지막으로 본 것이 고른 해에 있으면 그것');
   assert.strictEqual(pick({ year: '2027', lastId: 'old1' }), 'n1', '마지막으로 본 것이 다른 해면 고른 해의 첫 것');
   assert.strictEqual(pick({ year: '2027', lastId: 'gone' }), 'n1', '지워진 것은 건너뛴다');
@@ -825,9 +813,7 @@ import { loadSource, readSplit } from './_load.mjs';
   // 리더만 보는 프로젝트(0092) — 리더가 아니면 그 프로젝트는 스토어에 없다(RLS). 마지막으로 본 것·활동 숫자에 그 id가
   // 남아 있어도(리더였다가 내려왔다 · 다른 기기 · 숫자를 잰 뒤에 바뀌었다) 그냥 건너뛴다 — 없는 프로젝트와 같은 길.
   assert.strictEqual(pick({ year: '2027', lastId: 'hidden' }), 'n1', '안 보이는 프로젝트를 마지막으로 봤어도 고른 해의 첫 것');
-  assert.strictEqual(pick({ year: '2027', stats: { hidden: { people: 9, lastAt: 9 } } }), 'n1', '안 보이는 프로젝트의 활동 숫자는 앞 칸을 못 먹는다');
-  assert.deepStrictEqual(R.splitFrontTabs([P('p1'), P('p2')], { hidden: { people: 5, lastAt: 5 }, p2: { people: 2, lastAt: 1 } }).front.map(p => p.id), ['p2'],
-    '앞 칸 후보는 지금 탭 줄 안에서만');
+  assert.strictEqual(pick({ year: '2027', starIds: ['hidden'] }), 'n1', '안 보이는 프로젝트의 별은 첫 것을 못 먹는다');
   // '공개 → 리더만'은 리더가 아닌 사람에게 postgres_changes로 오지 않는다 → 바꾼 리더가 공개 채널에 id를 알리고, 받은 쪽은
   // projects 변경처럼 전체 재조회(다시 읽으면 RLS가 걷는다). **되돌리기**: notify.js의 broadcast 줄이나 cloudSync의
   // announceProjectVisibility 부르기를 빼면 아래가 깨진다.
@@ -860,12 +846,35 @@ import { loadSource, readSplit } from './_load.mjs';
   // 기기가 다시 연결되면(online) 같은 길로 한 번(2026-10-15 · PITFALLS 55-c) — 되돌리기: online 줄을 지우면 깨진다
   assert.ok(/window\.addEventListener\('online', refetchAll\);/.test(appSrc) && /window\.removeEventListener\('online', refetchAll\)/.test(appSrc), 'online도 재접속과 같은 재조회');
   const calls = appSrc.match(/refreshTabFront\(/g) || [];
-  assert.strictEqual(calls.length, 2, '앞 칸 숫자는 첫 로드 뒤 한 번 + 보일 때 한 번 — 실시간 경로에서 부르지 않는다');
+  assert.strictEqual(calls.length, 2, '탭 점의 활동 줄은 첫 로드 뒤 한 번 + 보일 때 한 번 — 실시간 경로에서 부르지 않는다');
   assert.ok(/if \(!document\.hidden\) refreshTabFront\(cloudMode\)/.test(appSrc), '다시 보일 때만');
-  assert.ok(/draggable=\{!frontIds\.has\(p\.id\)\}/.test(laySrc2), '데스크톱 앞 칸 탭은 끌 수 없다');
-  assert.ok(/const locked = archived \|\| front;/.test(mobSrc), '폰 앞 칸 탭도 끌기·놓기가 막힌다');
-  assert.ok(/reorderIds\(posSource\.map\(p => p\.id\), dragTabId, targetId\)/.test(laySrc2), '번호는 position 순 전체로 매긴다');
-  console.log('PASS  탭 줄 앞 칸(tabRank — 사람 수·최근·2명 이상·다섯·게스트 줄) · 폰 프로젝트 버튼 · 업무 채널 재접속 따라잡기');
+  assert.ok(/draggable=\{starIds\.has\(p\.id\)\}/.test(laySrc2), '데스크톱은 별 탭만 끈다(나머지는 모두의 position)');
+  assert.ok(/const locked = archived \|\| !starred;/.test(mobSrc), '폰도 별 탭만 끌고 놓는다');
+  assert.ok(/moveTabStar\(starOrder, dragTabId, targetId\)/.test(laySrc2) && /moveTabStar\(starOrder, String\(active\.id\), targetId\)/.test(mobSrc),
+    '끌기는 내 별 차례 전체로 매긴다(데스크톱·폰 한 길)');
+  assert.ok(!/saveTabOrder/.test(laySrc2 + mobSrc), '탭 끌기가 모두의 position을 고치지 않는다');
+  // 프로젝트 복제(시안 2026-10-16 · services/projectCopy.js) — 짜임새만 옮긴다
+  const C = await import(new URL('../src/services/projectCopy.js', import.meta.url).href);
+  assert.strictEqual(C.retitleForYear('2026 하계 수련회', 2027), '2027 하계 수련회');
+  assert.strictEqual(C.retitleForYear('새신자 초청 주일', 2027), '새신자 초청 주일', '앞에 연도가 없으면 그대로');
+  assert.strictEqual(C.retitleForYear('20260 기금', 2027), '20260 기금', '다섯 자리 숫자는 연도가 아니다');
+  let n2 = 0; const gid = () => 'n' + (++n2);
+  const src = [
+    { id: 'a', title: '둘째', position: 1, teams: ['찬양팀'], assignees: ['홍길동'], status: '완료', dueDate: '2026-07-01', startDate: '2026-06-01', content: '본문',
+      subtasks: [{ id: 's', title: '단계', done: true, assignee: '홍길동', due: '2026-06-30' }], comments: [{ id: 'c' }], attachments: [{ id: 'f' }], dependsOn: ['b'] },
+    { id: 'b', title: '첫째', position: 0, status: '상시', teams: [] },
+  ];
+  const cp = C.copyTasks(src, 'P2', gid);
+  assert.deepStrictEqual(cp.map(t => t.title), ['첫째', '둘째'], '보드 순서대로');
+  const two = cp[1];
+  assert.deepStrictEqual([two.projectId, two.status, two.assignees, two.startDate, two.dueDate, two.content, two.teams],
+    ['P2', '시작 전', [], '', '', '본문', ['찬양팀']], '담당자·날짜·상태는 비우고 팀·본문은 옮긴다');
+  assert.deepStrictEqual(two.subtasks.map(s => [s.title, s.done, s.assignee]), [['단계', false, undefined]], '하위 업무는 제목만');
+  assert.strictEqual(cp[0].status, '상시', '상시는 상시 그대로');
+  assert.deepStrictEqual(two.dependsOn, [cp[0].id], '선후관계는 새 id로 다시 잇는다');
+  assert.ok(!('comments' in two) && two.attachments.length === 0, '댓글·첨부는 옮기지 않는다');
+  assert.deepStrictEqual(C.droppedOf(src[0]), { assignees: 1, due: '2026-07-01', comments: 1, attachments: 1 }, '미리보기가 지울 글자로 보여 줄 것');
+  console.log('PASS  탭 줄 즐겨찾기(tabRank — 내 차례·나머지 position·지금 줄 안에서만) · 폰 프로젝트 버튼 · 프로젝트 복제 · 업무 채널 재접속 따라잡기');
 }
 
 

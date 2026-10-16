@@ -418,8 +418,8 @@ function WorkspaceShell() {
     return () => window.removeEventListener('online', onOnline);
   }, [cloudMode, loadError, retryLoad]);
 
-  // 프로젝트 탭 줄 앞 칸(services/tabFront.js) — **첫 로드 뒤 한 번 + 앱이 다시 보일 때만** 잰다.
-  // 보고 있는 동안에는 다시 재지 않는다: 남의 활동으로 탭이 움직이면 누르려던 탭이 손가락 밑에서 튄다.
+  // 프로젝트 탭 왼쪽 점의 활동 줄(services/tabFront.js) — **첫 로드 뒤 한 번 + 앱이 다시 보일 때만** 읽는다.
+  // 보고 있는 동안에는 다시 읽지 않는다: 남의 활동 하나에 점이 보는 동안 튀지 않게.
   // 클라우드는 첫 로드(프로필 — 합친 계정 풀기)가 끝난 뒤에 잰다.
   useEffect(() => {
     if (!cloudReady) return undefined;
@@ -1071,6 +1071,11 @@ function WorkspaceShell() {
           onArchive={(id, archived) => {
             controller.handleArchiveProject(id, archived);
             if (archived && activeMenu === id) setActiveMenu('dashboard');
+          }}
+          // 복제(시안 2026-10-16)하면 새 프로젝트로 간다 — 탭 줄의 해도 따라간다(navParts.useTabYear)
+          onDuplicate={(srcId, title, year) => {
+            const newId = controller.handleDuplicateProject(srcId, title, year);
+            if (newId) setActiveMenu(newId);
           }}
           onClose={() => { setIsProjectModalOpen(false); setRenameTarget(null); }}
           onSave={(title, year) => {

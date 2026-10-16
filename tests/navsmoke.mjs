@@ -92,7 +92,7 @@ check('1줄: 전역 메뉴 2개(대시보드·내 업무)', nav.hasDash && nav.h
 check('사용 가이드는 내비에서 사라졌다', nav.hasGuide === false, JSON.stringify(nav));
 check('넓은 화면(1440px)에서는 8개가 다 탭으로', nav.projTabs === 8 && !nav.hasMore, `탭 ${nav.projTabs}개, 더보기 ${nav.hasMore}`);
 check('2줄: + 프로젝트', nav.hasAddProject);
-check('활동이 없으면 앞 칸도 세로선도 없다(지금 순서 그대로)', (await ev(`document.querySelectorAll('[data-tab-divider]').length`)) === 0);
+check('즐겨찾기가 없으면 세로선도 없다(모두의 순서 그대로)', (await ev(`document.querySelectorAll('[data-tab-divider]').length`)) === 0);
 
 // 좁히면(리로드 없이 — §6-41) 들어가는 만큼만 남고 나머지는 더보기로
 await send('Emulation.setDeviceMetricsOverride', { width: 800, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -580,25 +580,21 @@ check('reduced-motion에서 화면 전환 모션이 꺼진다',
 await send('Emulation.setEmulatedMedia', { features: [] });
 await send('Emulation.clearDeviceMetricsOverride');
 
-// 탭 줄 앞 칸(2026-09-25 · services/tabRank.js) — 게스트는 스토어 업무의 activityLog로 센다.
-// 최근 7일에 두 사람이 움직인 프로젝트가 맨 앞에 서고, 그 뒤에 세로선 하나, 그 뒤가 position 순이다.
-// 앞 칸 탭은 끌 수 없다. 폰 하단 '프로젝트'는 고른 해의 탭 순서 첫 것을 연다(작년 것이 position 앞이어도).
+// 탭 줄 즐겨찾기(시안 2026-10-16 · services/tabRank.js · tabStars.js — 옛 '앞 칸'을 대신한다).
+// 내가 별을 단 프로젝트가 **내 차례로** 맨 앞에 서고, 세로선 하나 뒤가 모두의 position 순이다. 끌기는 별 탭끼리만이고
+// 내 차례(tab_stars_v1)만 바뀐다 — 모두의 position은 그대로다. 폰 하단 '프로젝트'는 고른 해의 탭 순서 첫 것을 연다.
+// **되돌리기**: tabRank.splitStarredTabs가 별을 position 순으로 세우면(starIds 차례를 무시) 첫 check가 'p3 p6 |'로 깨진다.
 {
-  const hAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
   const s2 = JSON.parse(JSON.stringify(st));
-  // p1은 작년 것(position 맨 앞) — 폰 '프로젝트' 버튼이 이걸 열면 안 된다
+  // p1은 작년 것(position 맨 앞) — 폰 '프로젝트' 버튼이 이걸 열면 안 된다 · 작년 것의 별은 이 해 줄에 끼지 않는다
   s2.projects.byId.p1.year = THIS_YEAR - 1;
-  const mk = (id, pid, logs) => { s2.tasks.byId[id] = { ...s2.tasks.byId.t0, id, projectId: pid, title: id, activityLog: logs }; s2.tasks.allIds.push(id); };
-  mk('f1', 'p3', [{ id: 'l1', action: 'x', author: '노준석', timestamp: hAgo(5) }, { id: 'l2', action: 'x', author: '조해리', timestamp: hAgo(4) }]);
-  mk('f2', 'p6', [{ id: 'l3', action: 'x', author: '노준석', timestamp: hAgo(2) }, { id: 'l4', action: 'x', author: '임재훈', timestamp: hAgo(1) }]);
-  mk('f3', 'p4', [{ id: 'l5', action: 'x', author: '노준석', timestamp: hAgo(1) }, { id: 'l6', action: 'x', author: '노준석', timestamp: hAgo(2) }]);   // 한 사람 — 앞 칸 아님
-  mk('f4', 'p5', [{ id: 'l7', action: 'x', author: '노준석', timestamp: hAgo(1) }, { id: 'l8', action: 'x', author: '조해리', timestamp: hAgo(24 * 9) }]);   // 9일 전은 창 밖
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await send('Emulation.setTouchEmulationEnabled', { enabled: false });
-  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(s2))}); localStorage.removeItem('tab_year')`);
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(s2))}); localStorage.removeItem('tab_year');
+    localStorage.setItem('tab_stars_v1', JSON.stringify(['p6', 'p1', 'p3']))`);
   await send('Page.navigate', { url: URL_BASE + '/?p=p2' });
   await wait('Page.loadEventFired'); await sleep(1500);
-  const deskTabs = await ev(`(() => {
+  const readDesk = `(() => {
     const desk = [...document.querySelectorAll('div')].find(d => /hidden md:block/.test(d.className) && d.querySelector('button[title="설정"]'));
     const row = desk && desk.querySelector('[class*="items-end"][class*="border-t"]');
     if (!row) return null;
@@ -608,27 +604,42 @@ await send('Emulation.clearDeviceMetricsOverride');
     const btn = (n) => [...row.querySelectorAll('button')].find(b => b.textContent.trim() === '프로젝트 ' + n);
     return { seq: seq.join(' '), drag6: btn(6)?.draggable, drag3: btn(3)?.draggable, drag2: btn(2)?.draggable,
       divs: row.querySelectorAll('[data-tab-divider]').length };
-  })()`);
-  check('데스크톱 앞 칸: 두 사람 이상 · 최근 순 → 세로선 → position 순(작년 p1은 탭에 없다)',
+  })()`;
+  const deskTabs = await ev(readDesk);
+  check('데스크톱 즐겨찾기: 내 차례(p6 → p3) → 세로선 → position 순(작년 p1은 별이어도 탭에 없다)',
     deskTabs?.seq === 'p6 p3 | p2 p4 p5 p7 p8', JSON.stringify(deskTabs));
-  check('앞 칸 탭은 끌 수 없고 뒤쪽 탭은 끈다', deskTabs?.drag6 === false && deskTabs?.drag3 === false && deskTabs?.drag2 === true, JSON.stringify(deskTabs));
+  check('별 탭만 끌고 나머지는 못 끈다', deskTabs?.drag6 === true && deskTabs?.drag3 === true && deskTabs?.drag2 === false, JSON.stringify(deskTabs));
   check('세로선은 하나', deskTabs?.divs === 1, JSON.stringify(deskTabs));
-  // 뒤쪽 탭을 앞 칸 탭 위에 놓아도 순서가 안 바뀐다(앞 칸은 놓을 자리가 아니다)
-  const dropRes = await ev(`(async () => {
+  // 별 탭끼리 끌면 내 차례만 바뀐다(모두의 position은 그대로) · 별 아닌 탭을 별 위에 놓아도 아무 일 없다
+  const dragRes = await ev(`(async () => {
     const desk = [...document.querySelectorAll('div')].find(d => /hidden md:block/.test(d.className) && d.querySelector('button[title="설정"]'));
     const btn = (n) => [...desk.querySelectorAll('button')].find(b => b.textContent.trim() === '프로젝트 ' + n);
-    const before = JSON.stringify(Object.values(JSON.parse(localStorage.getItem('church_app_v4')).projects.byId).map(p => p.position ?? 0));
-    const dt = new DataTransfer();
-    btn(7).dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
-    await new Promise(r => setTimeout(r, 50));
-    btn(6).dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-    btn(6).dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
-    btn(7).dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
-    await new Promise(r => setTimeout(r, 400));
-    const after = JSON.stringify(Object.values(JSON.parse(localStorage.getItem('church_app_v4')).projects.byId).map(p => p.position ?? 0));
-    return { same: before === after, before, after };
+    const pos = () => JSON.stringify(Object.values(JSON.parse(localStorage.getItem('church_app_v4')).projects.byId).map(p => p.position ?? 0));
+    const before = pos();
+    const drag = async (from, to) => {
+      const dt = new DataTransfer();
+      btn(from).dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+      await new Promise(r => setTimeout(r, 50));
+      btn(to).dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      btn(to).dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      btn(from).dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+      await new Promise(r => setTimeout(r, 400));
+    };
+    await drag(7, 6);
+    const afterRest = localStorage.getItem('tab_stars_v1');
+    await drag(6, 3);
+    return { stars: localStorage.getItem('tab_stars_v1'), afterRest, same: before === pos() };
   })()`, true);
-  check('앞 칸 탭에 놓으면 position이 안 바뀐다', dropRes?.same === true, JSON.stringify(dropRes));
+  check('별 아닌 탭을 별 위에 놓아도 별 차례가 그대로', dragRes?.afterRest === JSON.stringify(['p6', 'p1', 'p3']), JSON.stringify(dragRes));
+  check('별 탭끼리 끌면 내 차례만 바뀐다(뒤로 끌면 놓은 탭 뒤 · 다른 해 별은 제자리)', dragRes?.stars === JSON.stringify(['p1', 'p3', 'p6']), JSON.stringify(dragRes));
+  check('끌어도 모두의 position은 그대로', dragRes?.same === true, JSON.stringify(dragRes));
+  // 머리 제목 옆 별로 켜면 별 줄 맨 뒤에 선다
+  await ev(`document.querySelector('[data-star-toggle]')?.click()`); await sleep(400);
+  const afterStar = await ev(readDesk);
+  check('머리의 별을 켜면 그 프로젝트가 별 줄 맨 뒤에', afterStar?.seq === 'p3 p6 p2 | p4 p5 p7 p8', JSON.stringify(afterStar));
+  await ev(`document.querySelector('[data-star-toggle]')?.click()`); await sleep(400);
+  check('다시 누르면 끈다', (await ev(readDesk))?.seq === 'p3 p6 | p2 p4 p5 p7 p8');
+  await ev(`localStorage.setItem('tab_stars_v1', JSON.stringify(['p6', 'p1', 'p3']))`);
 
   // 폰 — 같은 순서 · 세로선 하나 · 하단 '프로젝트'가 고른 해의 첫 것을 연다
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
@@ -642,15 +653,16 @@ await send('Emulation.clearDeviceMetricsOverride');
     const seq = [...row.children].filter(el => el.matches('button, [data-tab-divider]'))
       .map(el => el.hasAttribute('data-tab-divider') ? '|' : el.textContent.trim().replace(/^프로젝트 /, 'p'))
       .filter(t => /^p[0-9]$|^\\|$/.test(t));
-    return { seq: seq.join(' '), front: [...row.querySelectorAll('[data-front]')].map(b => b.textContent.trim()) };
+    return { seq: seq.join(' '), starred: [...row.querySelectorAll('[data-starred]')].map(b => b.textContent.trim()),
+      star: !!top.querySelector('[data-star-toggle]') };
   })()`);
-  check('폰 앞 칸: 같은 순서 · 세로선 하나', mob?.seq === 'p6 p3 | p2 p4 p5 p7 p8', JSON.stringify(mob));
+  check('폰 즐겨찾기: 같은 순서 · 세로선 하나 · 제목 옆 별', mob?.seq === 'p6 p3 | p2 p4 p5 p7 p8' && mob.star === true, JSON.stringify(mob));
   await send('Page.navigate', { url: URL_BASE + '/' });
   await wait('Page.loadEventFired'); await sleep(1400);
   await tapIn('/^업무/'); await sleep(500);
   await tapIn('/^프로젝트/'); await sleep(700);
   const opened = await ev(`(() => { const b = document.querySelector('button[title="프로젝트 이름 수정"]'); return b ? b.textContent.trim() : null; })()`);
-  check("폰 하단 '프로젝트'는 고른 해의 탭 순서 첫 것(앞 칸)을 연다", opened === '프로젝트 6', String(opened));
+  check("폰 하단 '프로젝트'는 고른 해의 탭 순서 첫 것(내 별)을 연다", opened === '프로젝트 6', String(opened));
   // 마지막으로 본 것이 고른 해에 있으면 그것
   await ev(`(() => { const b = [...document.querySelectorAll('.scrollbar-hide button')].find(x => x.textContent.trim() === '프로젝트 4'); b && b.click(); })()`);
   await sleep(500);

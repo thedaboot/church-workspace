@@ -193,9 +193,10 @@ const scrolled = await ev(`(() => {
 })()`);
 check('컬럼 안 세로 스크롤이 살아 있다', scrolled.found === false || scrolled.moved === true, JSON.stringify(scrolled));
 
-// ── 모바일 프로젝트 탭 줄: 길게 눌러 순서 바꾸기 ───────────────────────────
+// ── 모바일 프로젝트 탭 줄: 길게 눌러 즐겨찾기 차례 바꾸기 ───────────────────
 // 데스크톱은 네이티브 draggable로 이미 됐고, 모바일은 **가로 스크롤**과 부딪히지 않게
-// 길게 누르기로 시작한다(TouchSensor delay). 세 가지를 본다:
+// 길게 누르기로 시작한다(TouchSensor delay). 끄는 것은 **별 탭끼리 · 내 차례(tab_stars_v1)**다
+// (시안 2026-10-16 — 모두의 position은 안 바뀐다 · 별 아닌 탭은 끌지 않는다 · tests/navsmoke). 세 가지를 본다:
 //   ① 길게 눌러 뒤로 끌면 놓은 탭 **뒤**로 간다(§6-12-a — 앞에만 끼우면 제자리다)
 //   ② 짧게 누르면 여전히 그 프로젝트로 이동한다(드래그가 탭 누르기를 먹지 않는다)
 //   ③ 탭 줄의 가로 스크롤이 살아 있다(x-scroll-lock)
@@ -206,6 +207,7 @@ await ev(`(() => {
   s.projects.byId.p3 = { id: 'p3', title: '탭 셋', pinnedLinks: [] };
   s.projects.allIds = ['p1', 'p2', 'p3'];
   localStorage.setItem('church_app_v4', JSON.stringify(s));
+  localStorage.setItem('tab_stars_v1', JSON.stringify(['p1', 'p2', 'p3']));
 })()`);
 await reload();
 const tabRow = `(() => {
@@ -215,9 +217,8 @@ const tabRow = `(() => {
     .filter(b => /^탭 (하나|둘|셋)$/.test(b.textContent.trim()))
     .map(b => { const r = b.getBoundingClientRect();
       return { title: b.textContent.trim(), x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-  const order = Object.values(JSON.parse(localStorage.getItem('church_app_v4')).projects.byId)
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-    .map(p => p.title);
+  const byId = JSON.parse(localStorage.getItem('church_app_v4')).projects.byId;
+  const order = JSON.parse(localStorage.getItem('tab_stars_v1') || '[]').map(id => byId[id]?.title);
   return { found: true, tabs, order, scrollable: row.scrollWidth > row.clientWidth };
 })()`;
 const t0 = await ev(tabRow);

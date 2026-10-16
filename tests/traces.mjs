@@ -1,6 +1,6 @@
 // 흔적과 움직임 (2026-09-25 · 목업 mockup-traces 3·4·5 · front-nudge N1 · mockup-grace 4)
 //   node tests/traces.mjs http://localhost:4598
-// 앞 칸 넛지(데스크톱 hover·누른 채 움직임·뒤쪽 탭을 앞 칸 위로 · 폰 길게 누르기) · 지난 방문 이후 남이
+// (앞 칸 넛지는 탭 줄 앞이 즐겨찾기로 바뀌며 걷었다 — 시안 2026-10-16 · 즐겨찾기 줄은 tests/navsmoke) · 지난 방문 이후 남이
 // 움직인 탭·활동 줄의 옅은 점 · 최근 활동 '더보기'(열 줄씩)·'접기'와 업무 밖 움직임(주보 발행·동아리 모임) ·
 // 내 업무·팀 보드의 '완료한 업무(최근 7일)' · 완료 손맛(마감 목록 완료 원 · 하위 업무 체크).
 // 게스트의 '지난 방문'은 브라우저 한 칸(seen_base_v1)이다 — 앱을 열 때마다 지금으로 바뀌므로 **이동할
@@ -98,16 +98,12 @@ const go = async (path, ms = 1500) => {
 const deskRow = `[...document.querySelectorAll('div')].find(d => /hidden md:block/.test(d.className) && d.querySelector('button[title="설정"]'))?.querySelector('[class*="items-end"][class*="border-t"]')`;
 const tabBtn = (row, n) => `[...(${row})?.querySelectorAll('button') || []].find(b => b.textContent.trim() === '프로젝트 ${n}')`;
 const center = async (expr) => ev(`(() => { const r = (${expr})?.getBoundingClientRect(); return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; })()`);
-const nudge = `(() => { const b = document.querySelector('[data-front-nudge]'); if (!b) return null; const r = b.getBoundingClientRect();
-  return { kind: b.getAttribute('data-front-nudge'), text: b.innerText, parent: b.parentElement === document.body,
-    inView: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight }; })()`;
-const divider = (row) => `(() => { const d = (${row})?.querySelector('[data-tab-divider]'); return d ? d.className : ''; })()`;
 
 await send('Page.enable'); await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 await send('Page.navigate', { url: URL_BASE });
 await wait('Page.loadEventFired');
-await plant(`localStorage.removeItem('front_nudge_seen')`);
+await plant();
 
 // ── 1) 탭 점 ─────────────────────────────────────────────────────────────────
 await go('/?p=p2');
@@ -126,55 +122,6 @@ check('지난 방문 이후 남이 움직인 탭에만 점 — 내 움직임·�
   !!dots?.['3'] && !!dots?.['6'] && !dots['2'] && !dots['4'] && !dots['5'] && !dots['1'], JSON.stringify(dots));
 check('점은 절대 위치이고 글자 왼쪽에 선다(탭 폭을 바꾸지 않는다)',
   dots?.['3']?.pos === 'absolute' && dots['3'].left <= 0, JSON.stringify(dots?.['3']));
-
-// ── 2) 앞 칸 넛지 — 데스크톱 hover(처음 한 번) ─────────────────────────────────
-const c6 = await center(tabBtn(deskRow, 6));
-await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c6.x, y: c6.y });
-await poll(`!!document.querySelector('[data-front-nudge]')`, 1500);
-const hover1 = await ev(nudge);
-const hot = await ev(divider(deskRow));
-check("앞 칸 탭 hover에 '최근 활발한 프로젝트' 말풍선 · 사람 수",
-  hover1?.kind === 'front' && hover1.text.includes('최근 활발한 프로젝트') && hover1.text.includes('최근 7일 동안 2명이 보고 있어요'), JSON.stringify(hover1));
-check('말풍선은 body 포털이고 화면 안이다', hover1?.parent === true && hover1.inView === true, JSON.stringify(hover1));
-check('말풍선이 떠 있는 동안 구분선이 accent', /bg-accent/.test(hot) && !/bg-line/.test(hot), hot);
-check('한 번 보면 브라우저에 남긴다', (await ev(`localStorage.getItem('front_nudge_seen')`)) === '1');
-await sleep(2800);
-check('말풍선은 2.5초 뒤 사라지고 구분선이 돌아온다',
-  (await ev(nudge)) === null && /bg-line/.test(await ev(divider(deskRow))));
-await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 600 });
-const c3 = await center(tabBtn(deskRow, 3));
-await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c3.x, y: c3.y });
-await sleep(400);
-check('본 브라우저에서는 hover로 다시 뜨지 않는다', (await ev(nudge)) === null);
-
-// ── 3) 앞 칸 탭을 끌려고 하면(누른 채 움직임) 본 뒤에도 뜬다 ─────────────────────
-await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c3.x, y: c3.y, button: 'left', buttons: 1, clickCount: 1 });
-await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c3.x + 24, y: c3.y + 2, button: 'left', buttons: 1 });
-await poll(`!!document.querySelector('[data-front-nudge]')`, 1500);
-const pressed = await ev(nudge);
-await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: c3.x + 24, y: c3.y + 2, button: 'left', buttons: 0, clickCount: 1 });
-check('앞 칸 탭을 누른 채 움직이면 말풍선', pressed?.kind === 'front' && pressed.text.includes('2명'), JSON.stringify(pressed));
-await sleep(2800);
-await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 600 });
-
-// ── 4) 뒤쪽 탭을 앞 칸 위로 가져가면 ─────────────────────────────────────────
-await ev(`(async () => {
-  const row = ${deskRow};
-  const dt = new DataTransfer();
-  const back = ${tabBtn(deskRow, 4)}, front = ${tabBtn(deskRow, 6)};
-  back.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
-  await new Promise(r => setTimeout(r, 60));
-  front.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-  await new Promise(r => setTimeout(r, 60));
-  front.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-})()`, true);
-await poll(`!!document.querySelector('[data-front-nudge]')`, 1500);
-const backNudge = await ev(nudge);
-check('뒤쪽 탭을 앞 칸 위로 가져가면 자동 조정 말풍선(두 줄)',
-  backNudge?.kind === 'back' && backNudge.text.includes('앞에 있는 프로젝트는 자동으로 조정돼요.')
-  && backNudge.text.includes('이 프로젝트는 구분선 뒤에서 움직일 수 있어요.'), JSON.stringify(backNudge));
-await ev(`(${tabBtn(deskRow, 4)}).dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: new DataTransfer() }))`);
-await sleep(2700);
 
 // ── 5) 탭 점은 그 프로젝트를 열면 지운다 ─────────────────────────────────────
 await ev(`(${tabBtn(deskRow, 3)}).click()`); await sleep(400);
@@ -273,22 +220,13 @@ await ev(`(${box('첫 단계')}).click()`); await sleep(40);
 const undone = await ev(`(() => { const s = ${title('첫 단계')}; return { svg: !!(${box('첫 단계')})?.querySelector('svg'), line: s ? getComputedStyle(s).textDecorationLine : '' }; })()`);
 check('되돌리면 움직임 없이 바로', undone.svg === false && undone.line === 'none', JSON.stringify(undone));
 
-// ── 10) 폰 — 앞 칸 탭 길게 누르기 · 탭 점 ─────────────────────────────────────
+// ── 10) 폰 — 탭 점 ─────────────────────────────────────────────────────────────
 await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 await go('/?p=p2', 1600);
 const mobRow = `[...document.querySelectorAll('div')].find(d => /(^| )md:hidden( |$)/.test(d.className) && d.querySelector('.scrollbar-hide'))?.querySelector('.scrollbar-hide')`;
 const mobDots = await ev(`[...(${mobRow})?.querySelectorAll('button') || []].filter(b => b.querySelector('[data-fresh-dot]')).map(b => b.textContent.trim())`);
 check('폰 탭 줄에도 같은 점', JSON.stringify(mobDots.sort()) === JSON.stringify(['프로젝트 3', '프로젝트 6']), JSON.stringify(mobDots));
-const m6 = await center(tabBtn(mobRow, 6));
-await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: m6.x, y: m6.y }] });
-await sleep(450);
-const longPress = await ev(nudge);
-await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-await sleep(400);
-const still = await ev(`document.querySelector('button[title="프로젝트 이름 수정"]')?.textContent.trim() || ''`);
-check('폰에서 앞 칸 탭을 길게 누르면 말풍선', longPress?.kind === 'front' && longPress.text.includes('2명') && longPress.inView, JSON.stringify(longPress));
-check('길게 누른 뒤 손을 떼도 그 프로젝트로 넘어가지 않는다', still === '프로젝트 2', still);
 await send('Emulation.setTouchEmulationEnabled', { enabled: false });
 
 // ── 11) 움직임을 줄인 사람 — 완료는 기다리지 않고 저장 · 펴는 줄은 애니메이션 없음 ──────
