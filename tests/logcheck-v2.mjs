@@ -1439,9 +1439,11 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.strictEqual(count(wb, /<HitRow /g), 2, '낱말 결과와 AI 결과가 HitRow를 쓴다');
   assert.strictEqual(count(wb, /text-left py-2\.5 px-2\.5 -mx-2\.5/g), 1, '결과 줄의 클래스는 한 자리');
   // ③ 쓰고 난 뒤의 꼬리는 afterWrite 한 벌 — 저장 · 공유 바꿈 · 지우기 · 남의 나눔 지우기
-  assert.strictEqual(count(wv, /await afterWrite\(/g), 4, '꼬리를 부르는 자리가 넷');
+  // 꼬리는 기다리지 않는다(PITFALLS 56-e · 2026-10-15) — await 없이 부르는 자리가 넷
+  assert.strictEqual(count(wv, /^\s+afterWrite\(/gm), 4, '꼬리를 부르는 자리가 넷');
+  assert.strictEqual(count(wv, /await afterWrite\(/g), 0, '꼬리를 기다리지 않는다');
   assert.strictEqual(count(wv, /dropCache\(qtKey\); refreshQt\(\);/g), 1, '그 날짜 묶음을 비우고 다시 읽는 줄은 afterWrite 안 한 곳');
-  assert.strictEqual(count(wv, /setFeed\(await fetchSharedEntries\(date\)\)/g), 1, '나눔을 다시 읽는 줄도 한 곳');
+  assert.strictEqual(count(wv, /fetchSharedEntries\(d\)/g), 1, '나눔을 다시 읽는 줄도 한 곳');
   // ④ 큰 함수의 상태는 훅으로 — BibleTab에 검색·쓸기·판 차례가, QtTab에 노트 동기화가 남지 않는다
   for (const h of ['useBibleSearch', 'useRecentPanel', 'useSwipe']) {
     assert.ok(new RegExp(`function ${h}\\(`).test(wb), `${h}가 있다`);

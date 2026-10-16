@@ -172,7 +172,12 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   const P = await import(new URL('../api/push.js', import.meta.url).href);
   // 다붓이 자신 — 코드가 답한다(칩 없음 · answered · 저장 안 함)
   const tk = (q, prev) => W.talkKind(q, prev);
-  assert.strictEqual(tk('너 누가 만들었누')?.answer, '청년부에서 가장 목소리가 좋은, 위대하신 노준석 개발자님이 만들었어요!');
+  assert.strictEqual(tk('너 누가 만들었누')?.answer, '저를 만들어주신 분은 노준석 개발자님이세요.');
+  // 묻는 꼴에 맞춰(2026-10-16) — 부모면 자손 · 낳았어면 탄생 · 꾸밈말 없음
+  assert.strictEqual(tk('너의 아버지가 누구야?')?.answer, '저는 노준석 님의 자손이에요.');
+  assert.strictEqual(tk('다붓아 너 아빠 누구야?')?.answer, '저는 노준석 님의 자손이에요.');
+  assert.strictEqual(tk('너를 누가 낳았어?')?.answer, '저를 탄생하게 하신 분은 노준석 개발자님이에요.');
+  assert.ok(!Object.values(W.TALK_ANSWERS).some(a => /위대/.test(a)), '꾸밈말이 없다');
   assert.strictEqual(tk('너 누가 만들었누')?.status, 'answered');
   assert.strictEqual(tk('누가 만들었어?')?.kind, 'self', '대상이 없으면 다붓이 이야기');
   assert.strictEqual(tk('이 포스터 누가 만들었어?'), null, '다른 것을 누가 만들었나는 보통 질문');
