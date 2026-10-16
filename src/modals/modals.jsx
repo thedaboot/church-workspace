@@ -434,7 +434,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   };
   // 비밀번호를 까먹었어요(시안 2026-10-16 · **게스트만** — 클라우드에는 요청 칸·알림 종류가 없어 버튼을 세우지 않는다).
   // 요청은 그 업무에 적는다(lockReset { by, at }) — 게스트에는 알림 저장 자리가 없어 마스터는 그 업무를 열 때 머리 한 줄로 본다.
-  // 마스터가 새 비밀번호를 정하면 해시를 바꾸고 요청을 지운다(내가 맞혀 둔 열림은 그대로 · 다른 사람은 새 비밀번호로).
+  // 마스터가 새 비밀번호를 설정하면 해시를 바꾸고 요청을 지운다(내가 맞혀 둔 열림은 그대로 · 다른 사람은 새 비밀번호로).
   const lockAsk = !isNew && source.locked ? source.lockReset || null : null;
   // 시안 데이터로 뜬 게스트만(domain.MockFactory의 demo) — 스위트가 심은 게스트는 예전 잠금 판 그대로다
   const demo = useStore(s => !!s.demo) && !cloudMode;
@@ -444,8 +444,8 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   const resetPw = async (pw) => {
     try {
       sync({ id: cardId, lockPw: await makeViewPw(pw), lockReset: null });
-      showToast('새 비밀번호를 정했어요');
-    } catch (e) { console.error('[guest] 새 비밀번호 정하기 실패:', e); showToast(failText('새 비밀번호를 정하지 못했어요', e)); throw e; }
+      showToast('새로운 비밀번호를 설정했어요');
+    } catch (e) { console.error('[guest] 새 비밀번호 설정 실패:', e); showToast(failText('새 비밀번호를 설정하지 못했어요', e)); throw e; }
   };
   const lockNotice = demo && lockAsk && isMaster ? <LockResetNotice by={lockAsk.by} onReset={resetPw} /> : null;
 
@@ -669,7 +669,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
         ) : (
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* 상세는 탭을 옮겨도 **내리지 않는다** — 같이 쓰기 편집기와 치던 초안이 탭마다 새로 서지 않게 */}
-            <div className={`flex-1 overflow-y-auto p-5 ${mobileTab === 'detail' ? '' : 'hidden'}`}>{detailBody}</div>
+            <div className={`flex-1 overflow-y-auto p-5 ${mobileTab === 'detail' ? 'flex flex-col' : 'hidden'}`}>{detailBody}</div>
             {mobileTab === 'comments' && <div ref={cmtBox} data-cmt-box onScroll={onCmtScroll} className="flex-1 overflow-y-auto p-4">{commentsPanel}</div>}
             {mobileTab === 'activity' && <div className="flex-1 overflow-y-auto p-4">{activityPanel}</div>}
             {mobileTab === 'versions' && <div className="flex-1 overflow-y-auto p-4">{versionsPanel}</div>}
@@ -708,13 +708,19 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       {/* 전체 화면이면 창이 뷰포트를 다 쓴다 — 딤·모서리·최대 폭이 전부 사라져야
           "확대된 창"이 아니라 "전체 화면"으로 읽힌다. 복귀 버튼은 헤더의 같은 자리. */}
       <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden dc-dialog${out} duration-150 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[min(85dvh,calc(var(--app-vh,100dvh)-2rem))] rounded-lg'}`}>
-        {/* 스크롤 막대 자리를 늘 잡아 둔다 — 보기(짧다)와 수정(길다)을 오갈 때 막대가 생겼다 없어지며 닫기·본문이 옆으로 뛰었다 */}
-        <div className="flex-1 min-w-0 flex flex-col border-r-0 md:border-r border-line overflow-y-auto [scrollbar-gutter:stable]">
-          {/* sticky 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을
+        {/* 머리줄·바닥 줄은 구르는 칸 **밖**이다(시안 2차 2026-10-16) — 예전에는 셋이 한 구르는 통 안(sticky)이었고 그 통에
+            `scrollbar-gutter: stable`이 걸려, 막대가 없을 때도 비워 둔 막대 자리만큼 머리줄·바닥 줄이 창 오른쪽 테두리에
+            못 닿아 빈 띠가 섰다. 막대 자리는 본문 통에만 잡아 둔다 — 보기(짧다)와 수정(길다)을 오갈 때 본문이 옆으로 뛰지 않게.
+            본문 통은 flex 열이라 잠금 판(flex-1)이 바닥 줄까지 채운다. 서식 바(MarkdownEditor useStickyTop)는 통 안에
+            머리줄이 없으면 통 위 끝 — 곧 머리줄 바로 밑 — 에 붙는다(폰 업무 창과 같은 셈). */}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col border-r-0 md:border-r border-line">
+          {/* 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을
               다시 블러링해서 창 스크롤이 눌린다 → 불투명 배경으로 */}
-          <div className="sticky top-0 bg-surface z-10 px-4 py-3 border-b border-line flex justify-between items-center gap-2">{headerInner}</div>
-          <div className="p-5 md:p-8 flex-1">{detailBody}</div>
-          <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2">{footerInner}</div>
+          <div className="shrink-0 bg-surface z-10 px-4 py-3 border-b border-line flex justify-between items-center gap-2">{headerInner}</div>
+          <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] flex flex-col">
+            <div className="p-5 md:p-8 flex-1 flex flex-col">{detailBody}</div>
+          </div>
+          <div className="shrink-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2">{footerInner}</div>
         </div>
         {/* 접을 때 언마운트하지 않는다 — 쓰다 만 댓글이 날아간다. 폭만 0으로 줄이고
             overflow-hidden으로 가린다. 모션은 이 앱의 이징 하나(--ease-out-quint)로
@@ -941,7 +947,7 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
   const closeStatus = useCallback(() => setStatusOpen(false), []);
   const dot = <span className={`w-[5px] h-[5px] rounded-full ${CONFIG.STATUS_DOTS[task.status] || 'bg-fg-faint'}`} />;
   return (
-    <div data-task-view="">
+    <div data-task-view="" className={closed ? 'flex-1 flex flex-col' : undefined}>
       {/* 상태는 점, 팀은 팀 색 글자 — 카드와 같은 표기법을 쓴다(배지 남발 금지) */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5 text-[11px] font-bold">
         {closed ? (
@@ -968,7 +974,7 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
       </div>
 
       {lockNotice}
-      <LockGate closed={closed} panel={(stir) => <div className="mt-5"><LockedPanel onUnlock={onUnlock} stir={stir} onForgot={onForgot} asked={asked} /></div>}>
+      <LockGate closed={closed} panel={(stir) => <div className="mt-5 flex-1 flex flex-col"><LockedPanel onUnlock={onUnlock} stir={stir} onForgot={onForgot} asked={asked} /></div>}>
       <div>
       {summary.block && <div className="mt-4">{summary.block}</div>}
       {/* 본문 위 한 줄 — 왼쪽은 '○○○님이 수정 중'(남이 수정 화면일 때만), 오른쪽은 3줄 요약 버튼(hover로 숨기지 않는다) */}

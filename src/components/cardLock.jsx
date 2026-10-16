@@ -5,6 +5,7 @@ import { imeComposing } from '../utils.js';
 import { LOCK_MOTION_MS, lockFormError } from '../services/cardLock.js';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { BTN } from './buttons.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 
 // ============================================================================
 // 업무 잠금(0099) — 자물쇠 그림 · 업무 창 머리줄 자물쇠 버튼 + `업무 잠그기` 팝오버 · 잠금 판 · 판이 접히고 걷히는 모션 · 보드 카드 자물쇠
@@ -22,9 +23,10 @@ import { BTN } from './buttons.js';
 //
 // ── 시안 2026-10-16 '비밀번호를 까먹었어요'(**게스트에서만** — 클라우드에는 요청을 담을 칸·알림 종류가 없다) ──
 //   LockedPanel     입력 줄 아래 글자 버튼 `비밀번호를 까먹었어요` → 확인 판(ConfirmPopover) → 그 업무에 요청을 적고
-//                   그 자리는 `마스터에게 요청했어요`가 된다(onForgot · asked — 부르는 쪽 modals.jsx가 넘긴다).
-//   LockResetNotice 마스터에게, 요청이 걸린 잠긴 업무의 보기 화면 위 한 줄 — `○○님이 비밀번호를 다시 정해 달라고 했어요` +
-//                   `새 비밀번호 정하기`(잠그기 팝오버와 같은 두 칸 · LockForm 한 벌). 정하면 요청이 지워진다.
+//                   그 자리는 `개발자에게 요청했어요`가 된다(onForgot · asked — 부르는 쪽 modals.jsx가 넘긴다).
+//   LockResetNotice 마스터에게, 요청이 걸린 잠긴 업무의 보기 화면 위 한 줄 — `○○님이 비밀번호를 다시 설정해 달라고 요청했어요` +
+//                   `새 비밀번호 설정`(잠그기 팝오버와 같은 두 칸 · LockForm 한 벌 · 폰은 그 줄 아래 인라인). 설정하면 요청이 지워진다.
+//   잠금 판은 본문 자리를 끝까지 채운다(flex-1 · 시안 2차 — 판 아래 창 바닥까지 빈 띠가 남았다 · 내용은 가운데).
 //   게스트는 마스터이자 요청한 사람이라(auth 기본값) 둘이 한 화면에 같이 선다.
 // ============================================================================
 
@@ -63,7 +65,7 @@ function useShake(refs) {
 const fieldCls = (bad) => `h-[34px] px-2.5 rounded-lg bg-surface-2 text-[13px] text-fg outline-none border transition-colors ${
   bad ? 'border-tag-red-fg' : 'border-line focus:border-accent'}`;
 
-// 잠그기 팝오버의 두 칸 + 아래 줄 한 벌 — 머리줄 자물쇠(CardLockButton)와 마스터의 새 비밀번호 정하기(ResetLockButton)가 같이 쓴다.
+// 잠그기 팝오버의 두 칸 + 아래 줄 한 벌 — 머리줄 자물쇠(CardLockButton)와 마스터의 새 비밀번호 설정(ResetLockButton)가 같이 쓴다.
 // onSubmit(pw) → 약속(실패면 던진다 — 부르는 쪽이 토스트) · 맞으면 onDone. extra는 왼쪽 끝 버튼(잠금 해제).
 function LockForm({ open, title, submitLabel, onSubmit, onCancel, onDone, extra = null, busy: outerBusy = false }) {
   const [pw, setPw] = useState('');
@@ -73,6 +75,9 @@ function LockForm({ open, title, submitLabel, onSubmit, onCancel, onDone, extra 
   const pw2Ref = useRef(null);
   const shake = useShake({ pw: pwRef, confirm: pw2Ref });
   useEffect(() => { if (!open) { setPw(''); setPw2(''); shake.clear(); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 첫 칸 초점은 **굴리지 않고** 준다(autoFocus는 브라우저가 칸을 보이게 하려고 문서·창을 밀어 화면이 뛰었다 · 시안 2차).
+  // 키보드가 올라온 뒤 칸이 가리면 App의 커서 따라가기가 구르는 칸만 민다.
+  useEffect(() => { if (open) pwRef.current?.focus({ preventScroll: true }); }, [open]);
   const submit = async () => {
     if (busy || outerBusy) return;
     const bad = lockFormError(pw, pw2);
@@ -85,7 +90,7 @@ function LockForm({ open, title, submitLabel, onSubmit, onCancel, onDone, extra 
     <div data-card-lock-pop="" className="flex flex-col gap-2">
       <div className="text-[12.5px] font-bold text-fg">{title}</div>
       <label className="flex flex-col gap-1 text-[11px] text-fg-muted">비밀번호
-        <input ref={pwRef} type="password" autoComplete="new-password" value={pw} autoFocus
+        <input ref={pwRef} type="password" autoComplete="new-password" value={pw}
           onChange={e => { setPw(e.target.value); shake.clear(); }} onKeyDown={onKey} data-lock-field="pw" aria-invalid={shake.bad === 'pw'}
           className={fieldCls(shake.bad === 'pw')} />
       </label>
@@ -143,16 +148,20 @@ export function CardLockButton({ locked, onLock, onUnlock }) {
   );
 }
 
-// 마스터의 새 비밀번호 정하기(시안 · 게스트) — 잠그기 팝오버와 같은 두 칸. onReset(pw) → 약속(실패면 던진다).
+// 마스터의 새 비밀번호 설정(시안 · 게스트) — 잠그기 팝오버와 같은 두 칸. onReset(pw) → 약속(실패면 던진다).
+// 데스크톱은 버튼에 붙은 팝오버, **폰은 그 줄 아래에 그대로 펼친다**(시안 2차 — 떠 있는 판(fixed) 안의 칸에 초점이 가면
+// 아이폰이 키보드를 올리며 화면 전체를 밀었다 · groupsParts 피커가 터치에서 인라인인 것과 같은 판단 §6-9-an).
+// 인라인이면 칸은 업무 창 본문(구르는 칸) 안이라 App의 커서 따라가기가 그 칸만 민다.
+const RESET_LABEL = '새 비밀번호 설정';
 function ResetLockButton({ onReset }) {
   const pop = usePopover(250, 190, { gap: 8, measure: true });
   return (
     <span ref={pop.rootRef} className="inline-flex shrink-0">
       <span ref={pop.btnRef} className="inline-flex">
-        <button type="button" onClick={pop.toggle} aria-expanded={pop.open} data-lock-reset-open="" className={`${BTN} whitespace-nowrap`}>새 비밀번호 정하기</button>
+        <button type="button" onClick={pop.toggle} aria-expanded={pop.open} data-lock-reset-open="" className={`${BTN} whitespace-nowrap`}>{RESET_LABEL}</button>
       </span>
       {pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated px-3.5 py-3', (
-        <LockForm open={pop.open} title="새 비밀번호 정하기" submitLabel="정하기" onSubmit={onReset} onCancel={pop.close} onDone={pop.close} />
+        <LockForm open={pop.open} title={RESET_LABEL} submitLabel="설정" onSubmit={onReset} onCancel={pop.close} onDone={pop.close} />
       ))}
     </span>
   );
@@ -160,11 +169,22 @@ function ResetLockButton({ onReset }) {
 
 // 마스터에게 — 요청이 걸린 잠긴 업무의 보기 화면 위 한 줄(시안 · 게스트). by: 요청한 사람 이름.
 export function LockResetNotice({ by, onReset }) {
+  const isMobile = useIsMobile();
+  const [open, setOpen] = useState(false);
   return (
-    <div data-lock-reset-ask="" className="flex flex-wrap items-center gap-x-2.5 gap-y-2 mt-4 pl-3 pr-2 py-2 rounded-[10px] bg-accent-weak">
-      <LockGlyph size={15} strokeWidth={2.2} className="text-accent-text shrink-0" />
-      <span className="flex-1 min-w-[160px] text-[12.5px] leading-snug text-fg">{by}님이 비밀번호를 다시 정해 달라고 했어요</span>
-      <ResetLockButton onReset={onReset} />
+    <div data-lock-reset-ask="" className="mt-4 pl-3 pr-2 py-2 rounded-[10px] bg-accent-weak">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+        <LockGlyph size={15} strokeWidth={2.2} className="text-accent-text shrink-0" />
+        <span className="flex-1 min-w-[160px] text-[12.5px] leading-snug text-fg">{by}님이 비밀번호를 다시 설정해 달라고 요청했어요</span>
+        {isMobile ? (
+          !open && <button type="button" onClick={() => setOpen(true)} data-lock-reset-open="" className={`${BTN} whitespace-nowrap`}>{RESET_LABEL}</button>
+        ) : <ResetLockButton onReset={onReset} />}
+      </div>
+      {isMobile && open && (
+        <div data-lock-reset-inline="" className="mt-2 mb-1 mr-1 px-3 py-3 rounded-[9px] bg-surface border border-line">
+          <LockForm open title={RESET_LABEL} submitLabel="설정" onSubmit={onReset} onCancel={() => setOpen(false)} onDone={() => setOpen(false)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -186,7 +206,7 @@ export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = fa
     if (ok === false) shake.flag('pw');
   };
   return (
-    <div data-lock-panel="" className="flex flex-col items-center gap-2.5 pt-[34px] pb-[26px] px-4 rounded-[10px] bg-surface-2">
+    <div data-lock-panel="" className="flex-1 flex flex-col items-center justify-center gap-2.5 pt-[34px] pb-[26px] px-4 rounded-[10px] bg-surface-2">
       <LockGlyph size={26} strokeWidth={1.8} className={`text-fg-faint ${stir ? `dc-lock-${stir}` : ''}`} />
       <div className="text-[13px] leading-relaxed text-center text-fg">이 업무는 현재 잠겨있어요</div>
       <div className="flex gap-1.5 w-[260px] max-w-full">
@@ -200,9 +220,9 @@ export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = fa
           className="h-9 px-3.5 rounded-[9px] bg-accent hover:bg-accent-strong text-white text-[12.5px] font-bold shrink-0 disabled:opacity-40">입력</button>
       </div>
       {onForgot && (asked ? (
-        <div data-lock-forgot-asked="" className="mt-0.5 text-[11.5px] text-fg-muted">마스터에게 요청했어요</div>
+        <div data-lock-forgot-asked="" className="mt-0.5 text-[11.5px] text-fg-muted">개발자에게 요청했어요</div>
       ) : (
-        <ConfirmPopover message="마스터에게 비밀번호를 다시 정해 달라고 요청할까요?" confirmLabel="요청하기" tone="ok" onConfirm={onForgot}>
+        <ConfirmPopover message="개발자 분에게 비밀번호를 다시 설정해 달라고 요청할까요?" confirmLabel="요청하기" tone="ok" onConfirm={onForgot}>
           <button type="button" data-lock-forgot=""
             className="mt-0.5 text-[11.5px] text-fg-muted underline underline-offset-2 decoration-line hover:text-fg">비밀번호를 까먹었어요</button>
         </ConfirmPopover>
