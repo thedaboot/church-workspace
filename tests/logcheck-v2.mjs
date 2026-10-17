@@ -1570,6 +1570,10 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   // 문구(사용자 검토 3차 2026-10-17) — 새 말이 서고 옛 말이 남지 않는다 · '화면 보기'는 게스트 시연에서만.
   // 되돌리기: 옛 문구 하나를 되살리거나 handoverOn() 갈래를 지우면 깨진다.
   const hvUi = readSrc('src/components/handover.jsx');
+  // 얼굴 원은 이어진 계정의 사진(사용자 지적 2026-10-17 — 인수인계 탭에 사진이 하나도 안 떴다 · url={null}이었다).
+  // 되돌리기: Face의 url을 null로 돌리면 깨진다.
+  assert.ok(/url=\{profileAvatar\(person\?\.profile_id\) \|\| null\}/.test(hvUi), '인수인계 얼굴 원은 people.profile_id로 사진을 찾는다');
+  assert.ok(/export function profileAvatar\(id\)[\s\S]{0,200}merged_into/.test(readSrc('src/services/cloudSync.js')), 'profileAvatar는 합친 계정이면 남긴 계정 사진');
   for (const w of ['>유지<', '>인수자<', 'placeholder="인수자 선택"', '인계할 업무<', '인계받은 업무 ', '워크스페이스는 그대로 사용할 수 있어요',
     '${FROM_YEAR}년에 리더만 볼 수 있었던 프로젝트는 ${FROM_YEAR}년 리더진들도 계속 볼 수 있어요',
     // 4차(사용자 2026-10-17): 넘기다 → 인계 · 작성 여부 · 전달 사항 · 시연 버튼

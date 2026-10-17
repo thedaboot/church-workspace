@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, GraduationCap, Handshake, PencilLine, RotateCcw, X } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
+import { profileAvatar } from '../services/cloudSync.js';
 import { Segmented } from './segmented.jsx';
 import { BTN, BTN_SOFT, BTN_CONFIRM, BTN_CONFIRM_QUIET } from './buttons.js';
 import { CARD, CARD_STYLE, MenuPick, PersonPick, FIELD, FailLeft } from './groupsParts.jsx';
@@ -84,8 +85,10 @@ export function useHandoverModel() {
 const Badge = ({ label }) => (
   <span className={`shrink-0 px-1.5 py-px rounded-xs text-[10px] font-bold ${badgeClass(label)}`}>{label}</span>
 );
+// 사진은 명단 사람에 이어진 계정(people.profile_id)으로 찾는다 — 명단 이름(본명)과 계정 표시명이 달라
+// 이름으로는 못 찾는다(roster.jsx와 같은 이유 · §6-26). 이어진 계정이 없거나 사진이 없으면 글자 원.
 const Face = ({ person, size = 'w-6 h-6 text-[10.5px]' }) => (
-  <Avatar name={person?.name || ''} url={null} className={`flex ${size} shrink-0`} />
+  <Avatar name={person?.name || ''} url={profileAvatar(person?.profile_id) || null} className={`flex ${size} shrink-0`} />
 );
 const Who = ({ person, muted }) => person ? (
   <span className="flex items-center gap-1.5 min-w-0">

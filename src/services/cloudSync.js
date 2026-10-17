@@ -140,6 +140,14 @@ const seeing = (ids, projectId) => (isCustomProject(projectId)
 // 게스트 모드에서는 표가 비어 있어 언제나 글자 원이다.
 // 이 표는 loadCloudState에서만 다시 만들어진다 — profiles를 실시간 구독하는 이유(§6-21-a).
 export function getAvatar(name) { return nameToAvatar.get(name) || ''; }
+// 프로필 id → 사진 주소 — 명단(people.profile_id)처럼 이름이 아니라 계정으로 잇는 자리(인수인계 탭)용.
+// 합친 계정은 남긴 계정의 사진, 거기 없으면 자기 사진. 없으면 빈 문자열(글자 원).
+export function profileAvatar(id) {
+  const p = id && profileRows.get(id);
+  if (!p) return '';
+  const kept = p.merged_into && profileRows.get(p.merged_into);
+  return httpsImage(kept?.avatar_url || p.avatar_url || '') || '';
+}
 // 프로필 id → 표시명(합친 계정은 남긴 계정 이름) — 업무 창 '버전 기록'의 누가(card_doc_versions.by)
 export function profileName(id) { return (id && profileIdToName.get(id)) || ''; }
 
