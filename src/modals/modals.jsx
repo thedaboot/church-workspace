@@ -36,7 +36,6 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { isMyUid } from '../services/supabaseClient.js';
 import { getMemberNames, loadCardDetail, loadCardPatch, cardWritePromise, lockCardCloud, unlockCardCloud, unlockOwnerCloud, loadLockAsk, requestLockResetCloud, resetCardLockCloud } from '../services/cloudSync.js';
-import { PENDING_COPY } from '../services/pendingCopy.js';
 import { isCardClosed, allowTry } from '../services/cardLock.js';
 import { makeViewPw, verifyViewPw } from '../services/viewPw.js';
 import { failText } from '../services/errorText.js';
@@ -452,7 +451,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
     try {
       await requestLockResetCloud(cardId, { actorName: currentUser.name || '', projectId: source.projectId || null });
       setCloudAsk(a => ({ ...(a || { count: 0, by: '', at: null }), mine: true }));
-    } catch (e) { console.error('[cloud] 비밀번호 재설정 요청 실패:', e); showToast(failText(PENDING_COPY.lockResetAskFail, e)); throw e; }
+    } catch (e) { console.error('[cloud] 비밀번호 재설정 요청 실패:', e); showToast(failText('요청하지 못했어요', e)); throw e; }
   };
   const resetPw = async (pw) => {
     try {

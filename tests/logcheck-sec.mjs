@@ -693,8 +693,8 @@ import { loadSource, readSplit } from './_load.mjs';
   const md = rd('src/modals/modals.jsx');
   assert.ok(/const askReset = isNew \|\| !source\.locked \|\| \(cloudMode && !cloudAsk\) \? null/.test(md) && !/s\.demo/.test(md),
     '배선: 클라우드는 요청 표를 읽었을 때만 비밀번호를 까먹었어요');
-  assert.ok(!/PENDING_COPY/.test(rd('src/components/cardLock.jsx')) && /lock_reset: PENDING_COPY\.lockResetNotif/.test(rd('src/services/notifyText.js')),
-    '확인 전 문구는 pendingCopy 한 곳에서 온다');
+  assert.ok(/lock_reset: '비밀번호를 다시 설정해 달라고 요청했어요'/.test(rd('src/services/notifyText.js')) && /failText\('요청하지 못했어요', e\)/.test(rd('src/modals/modals.jsx')),
+    '재설정 요청 문구(사용자 확인 2026-10-18)');
   console.log('PASS  0105 보는 사람 직접 선택 · 0106 비밀번호 재설정 요청 — 마이그레이션 모양 · 순수 판정 · 앱 배선');
 }
 

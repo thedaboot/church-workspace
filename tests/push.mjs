@@ -309,9 +309,8 @@ assert.equal(notified[0].meta.kind, 'reply');
   assert.deepStrictEqual([...await L.audienceFor(fdb('custom'), { cardId: 'c3' })], ['u2'], 'POST 푸시: 직접 선택은 project_audiences');
   assert.deepStrictEqual([...await L.audienceFor(fdb('leaders'), { cardId: 'c3' })], ['u9', 'u2'], '리더만은 leader_profile_ids ∪ 그 프로젝트 몫(0110 그해 리더)');
   assert.strictEqual(await L.audienceFor(fdb('all'), { cardId: 'c3' }), null, '공개는 거르지 않는다');
-  // 비밀번호 재설정 요청 알림(0106) — 사람이 만든 업무 알림 · 문구는 pendingCopy 한 곳
-  const PC = await import('file://' + join(ROOT, 'src', 'services', 'pendingCopy.js').replace(/\\/g, '/'));
-  assert.equal(notify.notifLine('lock_reset', '천진영'), `천진영님이 ${PC.PENDING_COPY.lockResetNotif}`, '요청 알림 문구는 pendingCopy에서');
+  // 비밀번호 재설정 요청 알림(0106) — 사람이 만든 업무 알림 · 문구 사용자 확인 2026-10-18
+  assert.equal(notify.notifLine('lock_reset', '천진영'), '천진영님이 비밀번호를 다시 설정해 달라고 요청했어요', '요청 알림 문구');
   assert.ok(!notify.isSystemNotif('lock_reset') && notify.notifArea('lock_reset') === 'task', '사람이 만든 업무 알림(얼굴 · 업무 갈래)');
   delete C.listProjectViewers; delete C.projectAudiences; delete C.setProjectViewers; delete C.announceProjectVisibility;
   C.listProjects = async () => [{ id: 'p1', name: '2026 하계 수련회' }];

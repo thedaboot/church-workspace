@@ -11,7 +11,6 @@
 //    중요한 것은 "누가"가 아니라 "수락됐다"라서 시스템 갈래로 둔다(0053).
 // preview는 문구 아래 한 줄(주보 제목·동아리 이름 등) — 종 팝오버가 그대로 보여 준다.
 // ============================================================================
-import { PENDING_COPY } from './pendingCopy.js';
 
 const NOTIF_TEXT = {
   mention: '나를 멘션했어요',
@@ -32,8 +31,8 @@ const NOTIF_TEXT = {
   club_apply: '동아리 가입을 신청했어요',
   meeting_new: '동아리 모임 일정을 잡았어요',
   // 잠긴 업무를 못 여는 사람이 '비밀번호를 까먹었어요'로 요청하면 마스터에게(0106 · DB 함수 request_lock_reset이 넣는다) —
-  // 문구는 아직 사용자 확인 전이라 pendingCopy.js 한 곳에 있다
-  lock_reset: PENDING_COPY.lockResetNotif,
+  // 사용자 확인 2026-10-18 — 시안 업무 창 한 줄과 같은 말
+  lock_reset: '비밀번호를 다시 설정해 달라고 요청했어요',
 };
 
 const SYSTEM_TEXT = {
