@@ -123,6 +123,7 @@ import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
 import { setEntryQuery, isAppLink } from './services/entryQuery.js';
 import * as cloudSync from './services/cloudSync.js';
+import { setTrashReload, refreshTrash } from './services/trash.js';
 import { createIdBatcher } from './services/realtimeBatch.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
 import { refreshTabFront } from './services/tabFront.js';
@@ -374,6 +375,8 @@ function WorkspaceShell() {
       onCard: (id) => cards.add(id),
       onCardDelete: (id) => { if (id) store.dispatch({ type: 'DELETE_TASK', payload: id }); },
       onCardDetail: (id) => syncCardDetail(id),
+      // 남이 휴지통에 넣었다(0104 broadcast) — 내 휴지통 줄도 다시 읽는다(업무·프로젝트 자체는 위 onCard·onFullReload가 걷는다)
+      onTrash: () => refreshTrash(),
       // 최근 활동 피드만 다시 읽는다(쿼리 1개). 저장 한 번에 기록이 여러 건 생기므로
       // 500ms 모아서 한 번만. 편집 중에도 막지 않는다 — 폼을 건드리는 갱신이 아니다.
       // **새 기록(INSERT)은 읽지 않고 그 줄을 앞에 얹는다**(entry · 2026-09-24 — 쿼리 0개).
@@ -428,6 +431,14 @@ function WorkspaceShell() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [cloudMode, cloudReady]);
+
+  // 휴지통(0104) — 첫 로드 뒤 한 번 줄을 읽고(지운 사람 이름은 프로필 맵이 선 뒤라야 풀린다), 복원하면 전체를 다시 읽어
+  // 되살린 업무·프로젝트를 첨부·참고 링크까지 스토어에 얹는다(services/trash.js restoreTrash).
+  useEffect(() => {
+    if (!cloudMode || !cloudReady) return undefined;
+    refreshTrash();
+    return setTrashReload(() => reloadCloud().catch(e => console.error('[cloud] 복원 뒤 재조회 실패:', e)));
+  }, [cloudMode, cloudReady, reloadCloud]);
 
   // 늦게 싣는 화면(예배·말씀·모임·청년 명단·위키)을 첫 화면이 선 뒤 한가할 때 미리 받는다(services/viewChunks.js) —
   // 그 탭을 처음 누를 때 조각을 기다리며 빈 화면이 서던 자리(2026-10-15). 폰 하단 탭은 누르는 순간에도 받는다(mobileNav).
@@ -811,13 +822,16 @@ function WorkspaceShell() {
   // 링크처럼 주소로 이동하고, 딥링크가 다시 판정한다(없는 프로젝트면 대시보드).
   // 다음 주소 쓰기 한 번만 pushState로(아래 '뒤로가기' 주석 참고)
   const pushNextUrlRef = useRef(false);
-  useEffect(() => setTaskLinkOpener(({ projectId, taskId }) => {
+  // 공유 버튼 주소(`/s/t/<업무>` · `/s/p/<프로젝트>` — services/appLink.js)도 같은 길이다(share: true · 업무 링크는 프로젝트를 모른다).
+  useEffect(() => setTaskLinkOpener(({ projectId, taskId, share }) => {
     const s = store.getState();
     const task = taskId ? s.tasks.byId[taskId] : null;
     // 링크로 건너뛰기 전에 **지금 보던 자리를 history에 남긴다** — 그래야 브라우저
     // 뒤로가기(모바일은 가장자리 스와이프)로 돌아올 수 있다. 실제 pushState는 아래
     // URL 동기화 effect가 한 번만 한다(그 자리가 주소를 만드는 유일한 곳이다).
     if (task) { pushNextUrlRef.current = true; setActiveMenu(task.projectId); openTaskModal(task); return true; }
+    // 공유 주소인데 여기 없는 업무 — 지워졌는지 나에게 안 보이는 업무인지 모른다. 주소로 보내 api/share가 정하게 둔다
+    if (taskId && share) return false;
     // 가리키던 업무가 사라졌다 — 주소로 옮겨 가 봐야 대시보드로 떨어지므로 여기서 말한다
     if (taskId) { showToast('업무가 이미 삭제되었어요'); return true; }
     if (s.projects.byId[projectId]) { pushNextUrlRef.current = true; setActiveMenu(projectId); return true; }
@@ -1071,6 +1085,11 @@ function WorkspaceShell() {
           onArchive={(id, archived) => {
             controller.handleArchiveProject(id, archived);
             if (archived && activeMenu === id) setActiveMenu('dashboard');
+          }}
+          // 복제(사용자 승인 시안 2026-10-17)하면 새 프로젝트로 간다 — 탭 줄의 해도 따라간다(navParts.useTabYear)
+          onDuplicate={(srcId, title, year) => {
+            const newId = controller.handleDuplicateProject(srcId, title, year);
+            if (newId) setActiveMenu(newId);
           }}
           onClose={() => { setIsProjectModalOpen(false); setRenameTarget(null); }}
           onSave={(title, year) => {

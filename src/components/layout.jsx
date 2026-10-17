@@ -19,6 +19,8 @@ import {
 } from './navParts.jsx';
 import { SearchBox } from './searchBox.jsx';
 import { TabLock } from './leaderOnly.jsx';
+import { TrashEntry, TrashDialog } from './trash.jsx';
+import { useTrashItems } from '../services/trash.js';
 import { NotificationBell } from './notificationBell.jsx';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
@@ -38,6 +40,7 @@ export { SearchHint } from './searchBox.jsx';
 // 이 파일이 맡는 것: 데스크톱 상단 TopNav · 프로필 메뉴(ProfileMenu — 폰 상단바도 쓴다) · 보고 있는 사람 얼굴
 // (ViewerFaces — 보드 카드도 쓴다) · 교회 축 목록(CHURCH_MENUS). 나머지는 갈라 두었다(19차 묶음 D):
 //   navParts.jsx          탭 줄 공용(고른 해의 탭 · 연도 · 더보기 폴더 · 폭 재기 · 순서 저장 · 앞 칸 넛지 · 점)
+//   trash.jsx             휴지통(0104 · 입구는 더보기 맨 아래 · 창)
 //   mobileNav.jsx         폰 상단바 · 프로젝트 탭 줄(길게 눌러 끌기) · 하단 바 두 층 · 화면 이름
 //   searchBox.jsx         통합 검색(인라인 · 폰 전체 판) · 돌아가는 안내 문구 · 관련된 업무 내용
 //   notificationBell.jsx  알림 종 · 알림 받기 줄 · 안드로이드 설치 줄
@@ -186,9 +189,12 @@ export const TopNav = React.memo(({
   // 들어가도 '더보기'는 남아야 하므로 그 폭까지 계산에 넣는다.
   const tabRowRef = useRef(null);
   const measureRef = useRef(null);
-  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0, front.length > 0);
+  const trashCount = useTrashItems().length;
+  const [trashOpen, setTrashOpen] = useState(false);
+  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0 || trashCount > 0, front.length > 0);
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
-  const showMore = rest.length > 0 || archivedForMore.length > 0;
+  // 더보기 맨 아래가 휴지통 입구다(trash.jsx) — 휴지통에 무언가 있으면 탭이 다 들어가도 더보기가 선다
+  const showMore = rest.length > 0 || archivedForMore.length > 0 || trashCount > 0;
   // 세로선은 **마지막 앞 칸 탭 바로 뒤**에 한 번 — 뒤에 무언가(뒤쪽 탭이나 더보기)가 설 때만.
   // 폭이 좁아 지금 보는 탭이 마지막 칸에 끌어올려지면(splitProjectTabs) 그 탭이 '뒤'라 선이 그 앞에 선다.
   const lastFrontIdx = shown.reduce((k, p, i) => (frontIds.has(p.id) ? i : k), -1);
@@ -358,9 +364,13 @@ export const TopNav = React.memo(({
               </button>
             </span>
             {more.panel('z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto',
-              <YearFolders active={rest} archived={archivedForMore} onPick={(id) => { more.close(); setActiveMenu(id); }} />)}
+              <>
+                <YearFolders active={rest} archived={archivedForMore} onPick={(id) => { more.close(); setActiveMenu(id); }} />
+                <TrashEntry count={trashCount} line={rest.length > 0 || archivedForMore.length > 0} onOpen={() => { more.close(); setTrashOpen(true); }} />
+              </>)}
           </span>
         )}
+        {trashOpen && <TrashDialog onClose={() => setTrashOpen(false)} />}
         {/* border-b-2 border-transparent: 줄이 items-end라 **아래 테두리 두께만큼**
             글자 자리가 정해진다. 탭·더보기·연도는 전부 투명 2px을 깔고 있는데 이 버튼만
             없어서 글자가 2px 내려앉아 보였다(사용자 지적 2026-08-29). 폭에는 영향이

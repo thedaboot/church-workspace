@@ -195,6 +195,13 @@ export function subscribeAll(onChange, onStatus) {
     // 사람의 SELECT 정책을 탄다). 바꾼 리더가 이 채널에 id 하나를 알리고(아래 announceProjectVisibility),
     // 받은 쪽은 projects 변경처럼 전체 재조회로 간다 — 다시 읽으면 RLS가 걷어 낸다. 실린 것은 id뿐이고 믿지 않는다.
     .on('broadcast', { event: 'project-visibility' }, (msg) => onChange({ table: 'projects', eventType: 'VISIBILITY', new: { id: msg?.payload?.id || null }, old: {} }))
+    // 휴지통(0104) — 지운 업무·프로젝트의 UPDATE도 같은 이유로 남에게 오지 않는다. 지운 화면이 id 하나를 알리고(announceTrashed)
+    // 받은 쪽은 업무면 그 업무를 다시 읽고(RLS가 안 주면 지운다) · 프로젝트면 전체 재조회. 실린 것은 id뿐이고 믿지 않는다.
+    .on('broadcast', { event: 'trashed' }, (msg) => {
+      const p = msg?.payload || {};
+      if (p.kind === 'task') onChange({ table: 'cards', eventType: 'TRASHED', new: { id: p.id || null }, old: {} });
+      else onChange({ table: 'projects', eventType: 'TRASHED', new: { id: p.id || null }, old: {} });
+    })
     .subscribe((status) => onStatus?.(status));
   return () => c.removeChannel(channel);
 }
@@ -204,4 +211,11 @@ export async function announceProjectVisibility(id) {
   const ch = client().getChannels().find(x => x.topic === 'realtime:workspace-all' || x.topic === 'workspace-all');
   if (!ch) return;
   await ch.send({ type: 'broadcast', event: 'project-visibility', payload: { id } });
+}
+
+// 휴지통에 넣은 것을 알린다(0104 · kind 'task'|'project'). 채널이 없으면 조용히 지나간다 — 위와 같은 약속.
+export async function announceTrashed(kind, id) {
+  const ch = client().getChannels().find(x => x.topic === 'realtime:workspace-all' || x.topic === 'workspace-all');
+  if (!ch) return;
+  await ch.send({ type: 'broadcast', event: 'trashed', payload: { kind, id } });
 }

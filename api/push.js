@@ -6,6 +6,7 @@ import { buildWiki } from './_wikiBuild.js';
 import { reaskUnknown } from './_wikiAsk.js';
 import { isLeaderOnly, visibleRecipients } from '../src/services/visibility.js';
 import { leaderIdSet, leaderOnlyOf, lockedOf } from './_leaders.js';
+import { trashedIds, goneCard, purgeTrash } from './_trash.js';
 
 // ============================================================================
 // /api/push — 웹 푸시 발송. 두 입구가 한 파일에 있다.
@@ -18,6 +19,7 @@ import { leaderIdSet, leaderOnlyOf, lockedOf } from './_leaders.js';
 //           (없음)          오늘·내일 마감인데 완료가 아닌 카드의 담당자에게 due_soon
 //                           → 그 **뒤에** 업무·댓글·첨부 임베딩 증분(doc_vec · 0074 · 시간 예산 안에서만)
 //                           → 위키(0088) → 다붓이가 모르는 질문이 있으면 마스터에게 푸시 한 통(notifyMasterUnknown)
+//                           → 그 앞에 휴지통 30일 정리(0104 · api/_trash.js purgeTrash — 마감 알림 바로 뒤 · 던지지 않는다)
 //           job=worship     오늘(KST) 발행된 주보가 있으면 승인 멤버 전원에게 worship_today
 //                           → 이어서 내일(KST) 동아리 모임이 있으면 그 구성원에게 meeting_tomorrow(0078)
 //           job=embed       임베딩 증분만(손으로 부르는 길 · 크론에는 없다 — 자리가 둘뿐이다)
@@ -250,13 +252,17 @@ async function handleDueSoon(req, res) {
     .neq('status', 'done')
     .eq('projects.archived', false);
   if (error) { console.error('[push] 마감 임박 조회 실패:', error); res.status(502).json({ error: 'DB 조회 실패' }); return; }
+  // 휴지통(0104)에 있는 업무·프로젝트는 알리지 않는다 — 서버 키라 RLS가 거르지 않는다. 칸이 없으면(0104 전) 거를 것이 없다
+  let trashed = { projects: new Set(), cards: new Set() };
+  try { trashed = await trashedIds(db); } catch (e) { console.error('[push] 휴지통 조회 실패 — 거르지 않고 간다:', e?.message || e); }
+  const live = (cards || []).filter(c => !goneCard(trashed, c));
 
   // 리더 목록은 리더 프로젝트 카드가 있을 때만 읽는다. 못 읽으면 그 카드들만 빠진다(닫힌 쪽)
   let leaderIds = new Set();
-  if ((cards || []).some(c => isLeaderOnly(c.projects))) {
+  if (live.some(c => isLeaderOnly(c.projects))) {
     try { leaderIds = await leaderIdSet(db); } catch (e) { console.error('[push] 리더 목록 조회 실패 — 리더 프로젝트 마감은 건너뛴다:', e?.message || e); }
   }
-  const wanted = dueSoonWanted(cards, today, leaderIds);
+  const wanted = dueSoonWanted(live, today, leaderIds);
   if (!wanted.length) { res.status(200).json({ cards: 0, notified: 0, sent: 0 }); return; }
 
   // 같은 날 두 번 알리지 않는다. 하루 한 번 도는 작업이지만 손으로 부를 수도 있고,
@@ -556,9 +562,19 @@ async function handleDueSoonThenEmbed(req, res, started) {
   await handleDueSoon(req, held);
   // 크론 비밀이 틀리거나 없으면 거기서 끝이다(임베딩도 같은 비밀 뒤에 있다)
   if (held.code === 401 || held.code === 501) { res.status(held.code).json(held.body); return; }
+  const trash = await runTrashPurge();
   const embed = await runEmbedSync(embedBudget(started));
   const wiki = await runWiki(started);
-  res.status(held.code).json({ ...(held.body || {}), embed, wiki });
+  res.status(held.code).json({ ...(held.body || {}), trash, embed, wiki });
+}
+
+// 휴지통 30일 정리(0104) — 임베딩·위키보다 **앞에** 둔다(정리된 업무를 다시 임베딩·위키에 싣지 않게 · 몇 초 안에 끝난다).
+// 던지지 않는다 — 실패는 응답과 로그에 남고 다음 아침에 다시 잡힌다.
+export async function runTrashPurge() {
+  try { return await purgeTrash(admin()); } catch (e) {
+    console.error('[push] 휴지통 정리 실패:', e);
+    return { error: String(e?.message || e).slice(0, 200) };
+  }
 }
 
 // 위키 — 임베딩 **뒤에**, 남은 시간 안에서만(0088 · api/_wikiBuild.js). 먼저 몰랐던 질문을 다시 묻고

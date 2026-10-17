@@ -78,6 +78,8 @@ const patched = readFileSync(SRC, 'utf8')
   .replace(/from '\.\/visibility\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'visibility.js')).href}';`)
   // 업무 잠금 판정(0099)도 순수 모듈 — 진짜 파일을 절대 경로로
   .replace(/from '\.\/cardLock\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'cardLock.js')).href}';`)
+  // 휴지통 규칙(0104)도 순수 모듈 — 진짜 파일을 절대 경로로
+  .replace(/from '\.\/trashItems\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'trashItems.js')).href}';`)
   .replace(/from '\.\/realtimeStatus\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'realtimeStatus.js')).href}';`)
   .replace(/import (\{[^}]*\}) from '\.\.\/utils\.js';/,
     (m, names) => `import ${names} from '${pathToFileURL(join(ROOT, 'src', 'utils.js')).href}';`);
@@ -895,6 +897,7 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   const saved = Object.fromEntries(['CRON_SECRET', 'VITE_SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'GEMINI_API_KEY'].map(k => [k, process.env[k]]));
   const calls = [];
   let geminiFails = false;
+  let trashRows = [];   // 휴지통(0104) — ⑤에서 채운다
   const CARD = '11111111-1111-4111-8111-111111111111';
   const table = (url) => /\/rest\/v1\/([a-z_]+)/.exec(url)?.[1];
   globalThis.fetch = async (input, init = {}) => {
@@ -909,6 +912,9 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
       return json({ embeddings: Array.from({ length: n }, (_, i) => ({ values: Array.from({ length: 768 }, (_, j) => Math.cos(i + j)) })) });
     }
     if (t === 'cards' && /due_date/.test(decodeURIComponent(url))) return json([]);   // 마감 임박 없음
+    // 휴지통(0104 · api/_trash.js) — 지운 표시가 있는 행 읽기 · 정리 크론의 행 삭제
+    if ((t === 'cards' || t === 'projects') && /deleted_at=not\.is\.null/.test(decodeURIComponent(url))) return json(t === 'cards' ? trashRows : []);
+    if (t === 'cards' && method === 'DELETE') return new Response(null, { status: 204 });
     if (t === 'cards') return json([{ id: CARD, project_id: null, title: '수련회 숙소', description: '2박 3일 예약' }]);
     if (t === 'projects' || t === 'comments' || t === 'files') return json([]);
     if (t === 'doc_vec' && method === 'GET') return json([]);
@@ -958,6 +964,26 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
     assert.equal(r5.body.embed?.embedded, 1);
     assert.ok(!calls.some(c => c.t === 'cards' && /due_date/.test(decodeURIComponent(c.url))), '?job=embed가 마감 임박 알림까지 돌린다');
     assert.ok(!calls.some(c => c.t === 'notifications'), '?job=embed가 알림 표를 건드린다');
+
+    // ⑤ 휴지통 30일 정리(0104 · api/_trash.js purgeTrash) — 8시 크론이 마감 알림 뒤 · 임베딩 앞에 돈다.
+    //    31일 전에 지운 업무는 행을 지우고, 3일 전에 지운 업무는 남긴다 · 지운 업무는 임베딩 원본에서도 빠진다.
+    //    **되돌리기**: push.js handleDueSoonThenEmbed에서 runTrashPurge 줄을 빼면 첫 단정이, trashItems.purgePlan의
+    //    `old(c.deleted_at)` 거르기를 빼면 '3일 전 것은 남긴다'가 깨진다.
+    calls.length = 0;
+    const OLD = '22222222-2222-4222-8222-222222222222';
+    trashRows = [
+      { id: OLD, project_id: 'p-old', deleted_at: new Date(Date.now() - 31 * 864e5).toISOString(), drive_folder_id: null },
+      { id: CARD, project_id: null, deleted_at: new Date(Date.now() - 3 * 864e5).toISOString(), drive_folder_id: null },
+    ];
+    const r6 = fakeRes();
+    await api.default({ method: 'GET', headers: auth, query: {} }, r6);
+    const del = calls.filter(c => c.t === 'cards' && c.method === 'DELETE');
+    assert.equal(r6.body.trash?.cards, 1, `휴지통 정리가 안 돌았다: ${JSON.stringify(r6.body.trash)}`);
+    assert.ok(del.length === 1 && decodeURIComponent(del[0].url).includes(OLD) && !decodeURIComponent(del[0].url).includes(CARD), '30일 지난 것만 지우고 3일 전 것은 남긴다');
+    const firstPurge = calls.indexOf(del[0]);
+    assert.ok(firstPurge > 0 && firstPurge < calls.findIndex(c => c.t === 'doc_vec'), '정리는 임베딩보다 앞이다');
+    assert.equal(r6.body.embed?.embedded, 0, '휴지통의 업무를 임베딩했다');
+    trashRows = [];
   } finally {
     globalThis.fetch = realFetch;
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }

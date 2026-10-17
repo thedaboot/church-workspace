@@ -929,3 +929,96 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.deepStrictEqual([freed.content, freed.locked], ['풀린 본문', false], '풀리면 cards 본문 그대로(거울을 보지 않는다)');
   console.log('PASS  잠긴 업무의 실시간 다시 읽기(card_secrets가 오면 열림 · 안 오면 잠금 판 · 풀리면 cards 본문 · 0099)');
 }
+
+// ── 휴지통 · 복원(0104 · services/trashItems.js 규칙 · 클라우드 저장 모양) ─────────────────────────────
+// 게스트 스위트는 브라우저 휴지통만 타서 클라우드 길(DB 함수 · 함수 없는 DB의 되돌아갈 길 · 남에게 알리기)을 못 본다 — 여기서 지킨다.
+// **되돌리기**: canRestore에서 deletedById 갈래를 이름 비교로 되돌리면 '클라우드는 id로'가, purgePlan의 old(c.deleted_at)를 빼면
+// '30일 안의 것은 남긴다'가, cloud/board.js trashCard의 isMissingRpc 되돌아가기를 지우면 '함수가 없으면 예전 삭제'가,
+// cloudSync.cardTrashCloud의 announceTrashed를 빼면 '남에게 알린다'가, controllers의 cardTrashCloud를 cardDeleteCloud로 되돌리면
+// '지우기는 휴지통'이 깨진다.
+{
+  const T = await loadSource('src/services/trashItems.js');
+  const now = Date.parse('2026-10-17T00:00:00Z');
+  const ago = (d) => new Date(now - d * 864e5).toISOString();
+  assert.deepStrictEqual(T.fresh([{ deletedAt: ago(29) }, { deletedAt: ago(31) }, { deletedAt: '' }], now).length, 1, '30일 안의 줄만');
+  // 복원 — 지운 사람과 마스터만 · 클라우드 줄은 계정 id(합친 계정 두 id) · 게스트 줄은 이름
+  const cloudRow = { deletedBy: '노준석', deletedById: 'u1' };
+  assert.ok(T.canRestore(cloudRow, { myIds: [null, 'u1'] }) && !T.canRestore(cloudRow, { me: '노준석', myIds: ['u2'] }), '클라우드는 id로(이름이 같아도 남의 것은 못 연다)');
+  assert.ok(T.canRestore(cloudRow, { myIds: ['u9'], isMaster: true }), '마스터는 누구 것이든');
+  assert.ok(T.canRestore({ deletedBy: '홍길동' }, { me: '홍길동' }) && !T.canRestore({ deletedBy: '홍길동' }, { me: '김은지' }), '게스트 줄은 이름');
+  // DB 줄 → 화면 줄
+  const items = T.itemsFromRows([
+    { kind: 'card', id: 'c1', title: '포스터', project_id: 'p1', project_title: '수련회', deleted_at: ago(1), deleted_by: 'u1', teams: ['미디어팀'], task_count: 0 },
+    { kind: 'project', id: 'p2', title: '체육대회', project_id: 'p2', project_title: '체육대회', deleted_at: ago(2), deleted_by: null, teams: [], task_count: 3 },
+  ], (id) => ({ u1: '노준석' }[id] || ''));
+  assert.deepStrictEqual(items.map(i => [i.id, i.kind, i.deletedBy, i.teams.length, i.taskCount]),
+    [['task:c1', 'task', '노준석', 1, 0], ['project:p2', 'project', '', 0, 3]], '업무 줄은 팀 · 프로젝트 줄은 남은 업무 수 · 지운 사람 이름');
+  assert.deepStrictEqual(T.itemFromSnap({ kind: 'project', snap: { tasks: [{}, {}] } }).taskCount, 2, '게스트 줄도 같은 모양');
+  assert.ok(T.isMissingRpc({ code: 'PGRST202' }) && T.isMissingRpc({ code: '42883' }) && !T.isMissingRpc({ code: '42501' }), '함수가 없는 DB만 되돌아간다(권한 거절은 아니다)');
+  // 서버 키로 읽은 원본에서 걷기(위키·다붓이 아침 고리·임베딩)
+  const kept = T.dropTrashed({
+    projects: [{ id: 'p1' }, { id: 'p2' }], cards: [{ id: 'a', project_id: 'p1' }, { id: 'b', project_id: 'p2' }, { id: 'c', project_id: 'p1' }],
+    comments: [{ id: 'm1', card_id: 'a' }, { id: 'm2', card_id: 'b' }], files: [{ id: 'f1', card_id: 'b' }, { id: 'f2', service_id: 's1' }, { id: 'f3', card_id: 'c' }],
+  }, { projects: new Set(['p2']), cards: new Set(['c']) });
+  assert.deepStrictEqual([kept.projects.map(x => x.id), kept.cards.map(x => x.id), kept.comments.map(x => x.id), kept.files.map(x => x.id)],
+    [['p1'], ['a'], ['m1'], ['f2']], '지운 프로젝트의 업무 · 따로 지운 업무 · 그 댓글·첨부가 빠지고 주보 첨부는 남는다');
+  assert.strictEqual(T.dropTrashed({ cards: [{ id: 'a' }] }, null).cards.length, 1, '휴지통을 안 읽은 자리(묻는 사람 세션)는 그대로');
+  // 30일 정리 차례
+  const plan = T.purgePlan({
+    projects: [{ id: 'P', deleted_at: ago(31), drive_folder_id: 'FP' }, { id: 'Q', deleted_at: ago(5) }],
+    cards: [{ id: 'k1', project_id: 'P', deleted_at: null, drive_folder_id: 'F1' }, { id: 'k2', project_id: 'X', deleted_at: ago(40), drive_folder_id: 'F2' },
+      { id: 'k3', project_id: 'X', deleted_at: ago(3) }, { id: 'k4', project_id: 'Q', deleted_at: ago(35) }],
+  }, now);
+  assert.deepStrictEqual([plan.projectIds, plan.cardIds, plan.fileCardIds], [['P'], ['k2', 'k4'], ['k1', 'k2', 'k4']],
+    '30일 지난 프로젝트(안의 업무는 cascade) · 30일 지난 업무만 · 30일 안의 것은 남긴다');
+  assert.deepStrictEqual(plan.projectFolders, [{ projectId: 'P', folderId: 'FP', cardFolders: [{ cardId: 'k1', folderId: 'F1' }] }], '프로젝트 폴더째 → 실패하면 업무 폴더');
+  // 클라우드 저장 모양(소스 단정)
+  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
+  const board = read('src/services/cloud/board.js'); const sync = read('src/services/cloudSync.js'); const ctl = read('src/hooks/controllers.js');
+  assert.ok(/rpc\('trash_card', \{ p_card: id \}\);\n\s+if \(r\.error && isMissingRpc\(r\.error\)\) return deleteCard\(id\);/.test(board)
+    && /rpc\('trash_project', \{ p_project: id \}\);\n\s+if \(r\.error && isMissingRpc\(r\.error\)\) return deleteProject\(id\);/.test(board), '함수가 없으면(0104 전) 예전 삭제로 되돌아간다');
+  assert.ok(/rpc\('trash_list'\);\n\s+if \(r\.error && isMissingRpc\(r\.error\)\) return \[\];/.test(board), '휴지통 줄도 함수가 없으면 빈 목록(오류 화면 없음)');
+  assert.ok(/export async function cardTrashCloud[\s\S]{0,200}cloud\.announceTrashed\('task', id\)/.test(sync)
+    && /export async function projectTrashCloud[\s\S]{0,200}cloud\.announceTrashed\('project', id\)/.test(sync), '지운 것은 남에게 알린다(RLS가 UPDATE를 안 보낸다)');
+  assert.ok(/deleteHold\.hold\(id, \(\) => cloudSync\.cardTrashCloud\(id\)/.test(ctl) && !/cardDeleteCloud\(/.test(ctl), '업무 지우기는 휴지통(되돌리기 7초 붙들기는 그대로)');
+  assert.ok(/cloudSync\.projectTrashCloud\(project\.id\)/.test(read('src/views/projectView.jsx')), '프로젝트 지우기도 휴지통');
+  assert.ok(!/deleted_at/.test(board.replace(/\/\/.*$/gm, '')) && !/deleted_at/.test(sync.replace(/\/\/.*$/gm, '')),
+    '앱은 새 칸을 select·filter로 읽지 않는다(가리기는 RLS · 코드가 먼저 나가도 오류 화면 없음)');
+  console.log('PASS  휴지통(0104 — 30일 · 복원 판정 · DB 줄 모양 · 원본 걷기 · 정리 차례 · 함수 없으면 예전 삭제 · 남에게 알림)');
+}
+
+// ── 프로젝트 복제(사용자 승인 시안 2026-10-17 · services/projectCopy.js · 새 칸 없음) — 짜임새만 옮긴다 ─────────
+// **되돌리기**: keptOf의 locked 갈래를 지우면 '잠긴 업무는 본문·하위 업무를 옮기지 않는다'가, droppedOf의 commentCount를 빼면
+// '클라우드 댓글 수'가, controllers의 isLeaderOnly(src) 갈래를 빼면 '리더만 원본은 리더만으로'가 깨진다.
+{
+  const C = await loadSource('src/services/projectCopy.js');
+  assert.strictEqual(C.retitleForYear('2026 하계 수련회', 2027), '2027 하계 수련회');
+  assert.strictEqual(C.retitleForYear('새신자 초청 주일', 2027), '새신자 초청 주일', '앞에 연도가 없으면 그대로');
+  assert.strictEqual(C.retitleForYear('20260 기금', 2027), '20260 기금', '다섯 자리 숫자는 연도가 아니다');
+  let n2 = 0; const gid = () => 'n' + (++n2);
+  const src = [
+    { id: 'a', title: '둘째', position: 1, teams: ['찬양팀'], assignees: ['홍길동'], status: '완료', dueDate: '2026-07-01', startDate: '2026-06-01', content: '본문',
+      subtasks: [{ id: 's', title: '단계', done: true, assignee: '홍길동', due: '2026-06-30' }], comments: [{ id: 'c' }], attachments: [{ id: 'f' }], dependsOn: ['b'] },
+    { id: 'b', title: '첫째', position: 0, status: '상시', teams: [] },
+    { id: 'z', title: '잠긴 일', position: 2, locked: true, content: '잠금 안 본문', subtasks: [{ id: 'zs', title: '비밀 단계' }], commentCount: 4, fileCount: 2 },
+  ];
+  const cp = C.copyTasks(src, 'P2', gid);
+  assert.deepStrictEqual(cp.map(t => t.title), ['첫째', '둘째', '잠긴 일'], '보드 순서대로');
+  const two = cp[1];
+  assert.deepStrictEqual([two.projectId, two.status, two.assignees, two.startDate, two.dueDate, two.content, two.teams],
+    ['P2', '시작 전', [], '', '', '본문', ['찬양팀']], '담당자·날짜·상태는 비우고 팀·본문은 옮긴다');
+  assert.deepStrictEqual(two.subtasks.map(s => [s.title, s.done, s.assignee]), [['단계', false, undefined]], '하위 업무는 제목만');
+  assert.strictEqual(cp[0].status, '상시', '상시는 상시 그대로');
+  assert.deepStrictEqual(two.dependsOn, [cp[0].id], '선후관계는 새 id로 다시 잇는다');
+  assert.ok(!('comments' in two) && two.attachments.length === 0, '댓글·첨부는 옮기지 않는다');
+  assert.deepStrictEqual([cp[2].content, cp[2].subtasks, 'locked' in cp[2]], ['', [], false], '잠긴 업무는 본문·하위 업무를 옮기지 않고 잠금도 넘기지 않는다');
+  assert.deepStrictEqual(C.droppedOf(src[0]), { assignees: 1, due: '2026-07-01', comments: 1, attachments: 1 }, '미리보기가 지울 글자로 보여 줄 것');
+  assert.deepStrictEqual([C.droppedOf(src[2]).comments, C.droppedOf(src[2]).attachments], [4, 2], '클라우드 댓글·첨부 수(업무 창을 열기 전 — 0016 칸)');
+  const ctl = readFileSync(new URL('../src/hooks/controllers.js', import.meta.url), 'utf8');
+  const sync = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  assert.ok(/\.\.\.\(isLeaderOnly\(src\) \? \{ visibility: LEADERS \} : \{\}\)/.test(ctl)
+    && /\.\.\.\(leaders \? \{ visibility: LEADERS \} : \{\}\)/.test(sync), '리더만 보는 원본은 리더만으로 만든다(업무가 들어가기 전에)');
+  assert.ok(/cloudSync\.projectCreateCloud\(newProject\)\n\s+\.then\(\(\) => Promise\.allSettled\(made\.map\(t => cloudSync\.cardUpsertCloud\(t, true\)/.test(ctl),
+    '프로젝트가 먼저 서고 업무는 새 업무로 넣는다(하나가 실패해도 나머지는 들어간다)');
+  console.log('PASS  프로젝트 복제(짜임새만 · 잠긴 업무 · 클라우드 댓글 수 · 리더만 원본 · 클라우드 순서)');
+}

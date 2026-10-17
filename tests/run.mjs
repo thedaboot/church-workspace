@@ -26,7 +26,7 @@ const ORDER = [
   'navsmoke', 'onebar', 'mobbits', 'bottomgap', 'modalclose',
   'home', 'worship', 'word', 'groups', 'roster', 'wiki',
   'batch10', 'batch11', 'dashfix', 'wide', 'traces',
-  'share', 'onboard', 'three', 'themefit', 'calfit', 'drag', 'dragdesk',
+  'share', 'onboard', 'three', 'v5a', 'themefit', 'calfit', 'drag', 'dragdesk',
 ];
 
 const args = process.argv.slice(2);

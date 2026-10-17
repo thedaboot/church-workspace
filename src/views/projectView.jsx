@@ -5,7 +5,7 @@ import { datedTasks } from '../utils.js';
 import { isOngoing, isRunning, progressOf } from '../services/taskCounts.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { store, useStore } from '../store/workspaceStore.js';
-import { selectProjectsMap, selectTasksList } from '../store/selectors.js';
+import { selectProjectsMap, selectTasksList, selectCurrentUser } from '../store/selectors.js';
 import { ISO_TODAY, daysLeft, Bar, personLoad } from './dashboardParts.jsx';
 import { dueLabelOf, teamCountsOf, teamChipsOf, TeamFilterBar } from './viewParts.jsx';
 import { Board } from '../components/boards.jsx';
@@ -23,10 +23,12 @@ import { Segmented } from '../components/segmented.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { LeaderChip, LeaderLockButton, useSetVisibility } from '../components/leaderOnly.jsx';
+import { trashProject } from '../services/trash.js';
 
 // ── 프로젝트 화면 ─────────────────────────────────────────────────────────
 // 헤더(제목 · 메타 줄 · 참고 링크 · 리더만 보기·공유·삭제 · 새 업무) + 보기 전환(보드 · 캘린더 · 그래프) + 팀 칩.
 // 리더만 보는 프로젝트(0092): 자물쇠는 리더에게만(게스트는 언제나) · 켜지면 제목 옆 '리더만' 칩(components/leaderOnly.jsx).
+// 삭제는 휴지통으로 간다(0104 · 30일 안에 복원 — 클라우드는 DB 함수 trash_project · 게스트는 services/trash.js).
 // 리더가 아닌 사람에게는 이 화면 자체가 안 온다(RLS가 행을 걷는다 → 아래 '없는 프로젝트' 가드가 대시보드로).
 // 보던 프로젝트가 사라지면(삭제 · 잘못된 딥링크) 대시보드로 되돌린다 — 그 가드는 **모든 훅 아래**다.
 
@@ -47,6 +49,7 @@ const VIEW_MODES = [['kanban', '보드'], ['calendar', '캘린더'], ['graph', '
 export const ProjectView = React.memo(function ProjectView({ projectId, onTaskClick, onStatusChange, onReorder, onNewTask, onNavigate, onRenameProject, viewMode, setViewMode }) {
   const projectsMap = useStore(selectProjectsMap);
   const tasksList = useStore(selectTasksList);
+  const me = useStore(selectCurrentUser).name;
   const { enabled, session, isAdmin } = useAuth();
   const cloudOn = enabled && !!session;
   // 참고 링크에 비밀번호를 걸 수 있는 사람을 가르는 데만 쓴다(만든 사람 + 관리자).
@@ -102,8 +105,9 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   const setVisibility = useSetVisibility(project);
 
   const deleteProject = () => {
+    if (!cloudOn) trashProject(project, projectTasks.map(t => store.getState().tasks.byId[t.id] || t), me);
     store.dispatch({ type: 'DELETE_PROJECT', payload: project.id });
-    if (cloudOn) cloudSync.projectDeleteCloud(project.id).catch(cloudErr('프로젝트를 삭제하지 못했어요'));
+    if (cloudOn) cloudSync.projectTrashCloud(project.id).catch(cloudErr('프로젝트를 삭제하지 못했어요'));
     onNavigate?.('dashboard');
   };
 
@@ -146,10 +150,10 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   if (!project) return null;
 
   const shareBtn = <ShareButton url={`${window.location.origin}/s/p/${project.id}`} what="프로젝트" />;
-  // 삭제는 전원에게 연다(사용자 결정 2026-08-24, RLS도 0021에서 같이 열었다).
-  // 확인 팝오버는 그대로 — 프로젝트 삭제는 안의 업무까지 사라지는 되돌릴 수 없는 일이다.
+  // 삭제는 전원에게 연다(사용자 결정 2026-08-24, RLS도 0021에서 같이 열었다 · 0104 trash_project도 같은 판정).
+  // 확인 팝오버는 그대로 — 안의 업무까지 휴지통으로 간다(문구는 사용자 승인 시안 2026-10-17).
   const deleteBtn = (
-    <ConfirmPopover message="프로젝트와 안의 모든 업무가 삭제돼요. 되돌릴 수 없어요." onConfirm={deleteProject}>
+    <ConfirmPopover message="프로젝트와 안의 모든 업무가 휴지통으로 이동해요. 30일 안에 복원할 수 있어요." onConfirm={deleteProject}>
       <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} /></button>
     </ConfirmPopover>
   );

@@ -629,7 +629,7 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
     && /isApprovedProfile\(supabase, owner\)/.test(icsSrc) && /isAdminEmail\(supabase, data\?\.email\)/.test(icsSrc), 'GET은 매번 주인의 승인을 본다');
   assert.ok(/safeEqual\(sig, calSig\(f\)\)/.test(icsSrc) && /`cal:\$\{process\.env\.SUPABASE_SECRET_KEY/.test(icsSrc) && /`ics:\$\{process\.env\.SUPABASE_SECRET_KEY/.test(icsSrc),
     '구독 서명은 cal: 접두(광고 ics:와 다른 열쇠)');
-  assert.ok(/'Cache-Control', 'public, max-age=300'/.test(icsSrc) && /picked\.has\(r\.id\) && feedKeepRow\(r\)/.test(icsSrc), '캐시 5분 · 지금 남은 업무만');
+  assert.ok(/'Cache-Control', 'public, max-age=300'/.test(icsSrc) && /picked\.has\(r\.id\) && !goneCard\(trashed, r\) && feedKeepRow\(r\)/.test(icsSrc), '캐시 5분 · 지금 남은 업무만(휴지통 것은 빠진다 · 0104)');
   assert.ok(/\.eq\('project_id', feed\.project_id\)/.test(icsSrc), '다른 프로젝트로 간 업무는 빠진다');
   assert.ok(/const a = argsOf\(body\);/.test(icsSrc) && /sign\(a\.s, a\.n, e\)/.test(icsSrc) && /\?s=\$\{a\.s\}&n=\$\{a\.n\}&e=\$\{e\}&sig=/.test(icsSrc), '광고 → 내 달력 길은 그대로');
   const { calSig } = await import(new URL('../api/ics.js', import.meta.url).href);
@@ -686,7 +686,7 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.ok(pop.includes("className: `${className} ${POP_MOTION}${leaving ? ' dc-out' : ''}`"), '판 클래스 끝에 그 모션을 붙인다(닫히는 동안 .dc-out)');
   assert.ok(/useDismiss\(open, \(\) => setOpen\(false\), \[rootRef, popRef\]\)/.test(pop), '포털로 나간 판도 바깥 누름의 안이다(17-d)');
   assert.ok(nav.layout.includes('usePopover(224, 200, { gap: 8, measure: true })') && nav.layout.includes('usePopover(224, 260)'), '프로필 메뉴 · 더보기');
-  assert.ok(nav.navParts.includes('usePopover(112, 40 + years.length * 34)'), '연도 고르기');
+  assert.ok(nav.navParts.includes('usePopover(footer ? 132 : 112, 40 + years.length * 34'), '연도 고르기(폰은 맨 아래 휴지통 줄만큼 넓고 길다 · 0104)');
   // 좁은 폰은 좌우 16px 거터 · 판의 실제 폭으로 가둔다(PITFALLS 49-f · 화면 잼은 tests/navsmoke)
   assert.ok(nav.notificationBell.includes('usePopover(320, 240, { portal: false, gap: 16, measure: true })'), '알림 종(앵커 곁에 그린다)');
   for (const k of ['layout', 'navParts', 'notificationBell']) {

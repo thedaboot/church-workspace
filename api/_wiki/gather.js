@@ -5,6 +5,8 @@ import { readAll } from '../_lib.js';
 import { FACT_COLS } from './learn.js';
 import { dropLeaderOnly, leaderCardIdsOf } from '../../src/services/visibility.js';
 import { dropLocked } from '../../src/services/cardLock.js';
+import { dropTrashed } from '../../src/services/trashItems.js';
+import { trashedIds } from '../_trash.js';
 
 // ── 원본 읽기 (서버 키 — 모두가 읽는 위키라 RLS로 갈리는 것은 넣지 않는다) ───────────────
 // 리더만 보는 프로젝트(0092)도 그런 것이다 — 그 프로젝트·업무·댓글·첨부를 읽은 자리에서 걷는다(visibility.dropLeaderOnly).
@@ -12,12 +14,13 @@ import { dropLocked } from '../../src/services/cardLock.js';
 // leaderCards(걷은 업무 id)만은 따로 넘긴다 — 자주 묻는 질문 장이 그 기록에 기댄 다붓이 답을 싣지 않게(_wiki/faq.js · 20차 ⑥).
 // 잠긴 업무(0099)도 같은 자리에서 걷는다(업무·댓글·첨부 — services/cardLock.dropLocked). 본문은 이미 비어 있지만(card_secrets로 옮겼다)
 // 댓글·첨부가 남는다. 풀면 다음 빌드에 돌아온다. leaderCards에 **잠긴 업무 id도 더한다** — 자주 묻는 질문 장이 그 기록에 기댄 답도 싣지 않게.
+// 휴지통(0104)은 맨 먼저 걷는다(trashItems.dropTrashed — 지운 프로젝트·업무와 그 댓글·첨부). 복원하면 다음 빌드에 돌아온다.
 export async function gather(db, today = kstDate(new Date().toISOString())) {
   const must = (r, what) => { if (r.error) throw new Error(`${what}: ${r.error.message}`); return r.data || []; };
   const monthStart = `${today.slice(0, 7)}-01`;
   const [y, m] = today.split('-').map(Number);
   const nextEnd = new Date(Date.UTC(y, m + 1, 0)).toISOString().slice(0, 10);
-  const [projectsAll, cardsAll, cardTeams, commentsAll, filesAll, services, guides, qt, groups, meetings, profiles, people, edits, pages, questions, facts] = await Promise.all([
+  const [projectsRaw, cardsRaw, cardTeams, commentsRaw, filesRaw, services, guides, qt, groups, meetings, profiles, people, edits, pages, questions, facts, trashed] = await Promise.all([
     db.from('projects').select('id, name, year, archived, position, visibility').then(r => must(r, 'projects')),
     readAll(() => db.from('cards').select('id, project_id, title, description, status, start_date, due_date, depends_on, subtasks, updated_at, locked').order('id'), 'cards'),
     readAll(() => db.from('card_teams').select('card_id, teams(name)').order('card_id').order('team_id'), 'card_teams'),
@@ -35,7 +38,10 @@ export async function gather(db, today = kstDate(new Date().toISOString())) {
     readAll(() => db.from('dabooti_questions').select('id, question, norm, status, answer, feedback, via, created_at, resolved_at').gte('created_at', new Date(Date.now() - 90 * 864e5).toISOString()).order('created_at').order('id'), 'dabooti_questions'),
     // 다붓이가 배운 것(0098 · 20차 ⑧) — 그 장을 같이 다시 쓴다(_wiki/learn.js learnedPage) · 버린 말은 안 읽는다
     readAll(() => db.from('dabooti_facts').select(FACT_COLS).in('status', ['pending', 'approved']).order('created_at').order('id'), 'dabooti_facts'),
+    trashedIds(db),
   ]);
+  const { projects: projectsAll, cards: cardsAll, comments: commentsAll, files: filesAll } =
+    dropTrashed({ projects: projectsRaw, cards: cardsRaw, comments: commentsRaw, files: filesRaw }, trashed);
   const kept = dropLeaderOnly({ projects: projectsAll, cards: cardsAll, comments: commentsAll, files: filesAll });
   const open = dropLocked(kept);
   // 돌려주는 업무 모양은 예전 그대로(locked 칸 없이) — 뒤쪽이 행을 통째로 다뤄도 장이 칸 하나 때문에 다시 모이지 않게

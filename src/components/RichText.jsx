@@ -1,10 +1,20 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, CheckSquare, Hash, Link2 } from 'lucide-react';
 import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE, unescapeLine } from '../services/markdown.js';
 import { youtubeVideoId, youtubeThumb, fetchVideoTitle } from '../services/worship.js';
 import { SmartImage, ImageLightbox } from './media.jsx';
 import { docEmbedKind, DocEmbedModal, DocKindIcon } from './DocEmbed.jsx';
 import { splitMention } from '../utils.js';
+import { parseAppLink } from '../services/appLink.js';
+import { useStore } from '../store/workspaceStore.js';
+import { CONFIG, teamPaint } from '../config.js';
+import { Avatar } from './Avatar.jsx';
+import { CardLockMark, LockGlyph } from './cardLock.jsx';
+import { isCardClosed } from '../services/cardLock.js';
+
+// 이 업무·프로젝트가 나에게 보이나 — 지금은 '스토어에 있나' 하나다(리더만 보기(0092)·휴지통(0104)은 RLS가 행을 안 줘서 애초에
+// 스토어에 없다). 보는 사람을 직접 고르는 프로젝트(v5 B 묶음 · visibility.canSeeProject)가 붙으면 그 판정을 여기 한 곳에 넣는다.
+const seeable = (project) => !!project;
 
 // ============================================================================
 // 9. RichText Parser & Renderer
@@ -29,16 +39,9 @@ export function setTaskLinkOpener(fn) {
   return () => { if (openTaskDeepLink === fn) openTaskDeepLink = null; };
 }
 
-// 같은 origin이고 ?p= 가 있으면 { projectId, taskId }, 아니면 null
-const parseDeepLink = (href) => {
-  if (typeof window === 'undefined') return null;
-  try {
-    const u = new URL(href, window.location.href);
-    if (u.origin !== window.location.origin) return null;
-    const projectId = u.searchParams.get('p');
-    return projectId ? { projectId, taskId: u.searchParams.get('t') } : null;
-  } catch { return null; }
-};
+// 같은 origin의 `?p=…&t=…` 또는 공유 주소 `/s/t/<업무>`·`/s/p/<프로젝트>`면 { projectId, taskId, share }, 아니면 null
+// (판정은 services/appLink.js 한 벌 — 공유 주소를 몰라서 누르면 페이지 전체를 새로 읽던 것을 고쳤다 2026-10-16)
+const parseDeepLink = (href) => (typeof window === 'undefined' ? null : parseAppLink(href, window.location.href));
 
 // 본문의 링크 하나. 앱 안 링크와 **구글 문서 링크**만 클릭을 가로챈다 — 새 탭으로
 // 열려는 누름(⌘/Ctrl·가운데 버튼)은 어느 쪽이든 브라우저에 그대로 넘긴다.
@@ -66,6 +69,8 @@ function InlineLink({ href, children }) {
     </>
   );
   if (!deep) return <a href={href} target="_blank" rel="noreferrer" className={LINK_CLS}>{children}</a>;
+  // 글자가 곧 주소(붙여 넣은 공유 주소 · `[주소](주소)`)면 긴 주소 대신 멘션 한 칩 — 사람이 지은 링크 글자는 그대로다
+  if (typeof children === 'string' && children.trim() === href.trim()) return <AppMention href={href} deep={deep} />;
   return (
     <a
       href={href} className={LINK_CLS}
@@ -76,6 +81,64 @@ function InlineLink({ href, children }) {
       }}
     >{children}</a>
   );
+}
+
+// ── 앱 링크 멘션 (시안 2차 2026-10-16) ─────────────────────────────────────────────
+// 같은 origin의 업무·프로젝트 주소가 **글자 그대로** 박혀 있으면(`/s/t/<uuid>`는 60자가 넘어 본문·댓글을 갈랐다) 그 자리를
+// 노션 페이지 멘션처럼 '아이콘 + 제목' 한 칩으로 그린다 — 업무는 초록 체크(잠긴 업무는 자물쇠) · 프로젝트는 보라 #(상단 검색과 같은 표시).
+// 누르면 InlineLink와 같은 길로 앱 안에서 연다. 스토어에 없거나 나에게 안 보이는 업무·프로젝트 링크는 '업무 링크'·'프로젝트 링크' 중립 칩(아래).
+// 아래 업무 링크 카드는 그대로 선다. 저장된 글(마크다운)은 주소 그대로라 수정 화면에서는 주소가 보인다.
+// **복사하면 주소가 나온다** — 문서의 copy를 한 번 듣고, 고른 구간 안의 멘션을 그 주소 글자로 바꿔 클립보드에 싣는다
+// (멘션 안만 골랐으면 그 주소 하나). 링크 복사(우클릭)는 href 그대로라 손댈 것이 없다.
+let mentionCopyHooked = false;
+function hookMentionCopy() {
+  if (mentionCopyHooked || typeof document === 'undefined') return;
+  mentionCopyHooked = true;
+  document.addEventListener('copy', (e) => {
+    const sel = window.getSelection?.();
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !e.clipboardData) return;
+    const range = sel.getRangeAt(0);
+    const anc = range.commonAncestorContainer;
+    const host = (anc.nodeType === 1 ? anc : anc.parentElement)?.closest?.('[data-app-mention]');
+    if (host) { e.clipboardData.setData('text/plain', host.getAttribute('href')); e.preventDefault(); return; }
+    const frag = range.cloneContents();
+    const marks = frag.querySelectorAll('[data-app-mention]');
+    if (!marks.length) return;
+    marks.forEach(m => m.replaceWith(document.createTextNode(m.getAttribute('href'))));
+    const box = document.createElement('div');
+    box.appendChild(frag);
+    e.clipboardData.setData('text/plain', box.textContent);
+    e.clipboardData.setData('text/html', box.innerHTML);
+    e.preventDefault();
+  });
+}
+const MENTION_CLS = 'inline mx-0.5 px-1 py-px rounded-xs bg-surface-hover text-fg font-semibold no-underline hover:bg-line transition-colors [overflow-wrap:anywhere] [box-decoration-break:clone]';
+function AppMention({ href, deep }) {
+  useEffect(hookMentionCopy, []);
+  const task = useStore(s => (deep.taskId ? s.tasks.byId[deep.taskId] : null));
+  const project = useStore(s => s.projects.byId[task ? task.projectId : deep.projectId] || null);
+  const title = deep.taskId ? task?.title : project?.title;
+  const open = (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    if (openTaskDeepLink?.(deep)) e.preventDefault();
+  };
+  if (!title || !seeable(project)) {
+    // 업무·프로젝트 링크인데 나에게 보이는 것이 없다(지움 · 볼 수 없음 · 없는 id) — 긴 주소 대신 **같은 모양의 중립 칩**(시안 3차).
+    // 제목도 '있다/없다'도 드러내지 않는다 — 없는 것과 못 보는 것이 같은 글자·같은 아이콘이다. 누름은 그대로(못 열면 주소로).
+    // `?p=<화면>` 같은 화면 링크(업무가 아니다)는 예전처럼 주소 그대로다.
+    if (!deep.share && !deep.taskId) return <a href={href} className={LINK_CLS} onClick={open}>{href}</a>;
+    return (
+      <a href={href} data-app-mention="unknown" className={MENTION_CLS} onClick={open}>
+        <Link2 size={12} strokeWidth={2} aria-hidden className="inline-block align-[-1px] mr-1 text-fg-muted" />{deep.taskId ? '업무 링크' : '프로젝트 링크'}
+      </a>
+    );
+  }
+  const icon = deep.taskId
+    ? (task.locked
+      ? <LockGlyph size={12} strokeWidth={2.4} className="inline-block align-[-1px] mr-1 text-fg-muted" />
+      : <CheckSquare size={12} strokeWidth={2} aria-hidden className="inline-block align-[-1px] mr-1 text-tag-green-fg" />)
+    : <Hash size={12} strokeWidth={2} aria-hidden className="inline-block align-[-1px] mr-[3px] text-tag-purple-fg" />;
+  return <a href={href} data-app-mention={deep.taskId ? 'task' : 'project'} title={title} className={MENTION_CLS} onClick={open}>{icon}{title}</a>;
 }
 // ── 유튜브 링크 카드 (UX 다듬기 2차 C13 · 2026-10-15 · PITFALLS 59-d) ─────────────────────────────
 // 댓글·업무 본문(ytCards를 넘긴 자리만)의 유튜브 **영상** 주소 아래에 카드 한 장 — 주보 찬양 줄(worshipDetail SongThumb + 제목 링크 + ↗)과
@@ -132,6 +195,68 @@ function YtCard({ id }) {
 const YtCards = ({ text }) => {
   const ids = useMemo(() => ytIdsIn(text), [text]);
   return ids.map(id => <YtCard key={id} id={id} />);
+};
+
+// ── 업무 링크 카드 (시안 2026-10-16 · 유튜브 카드와 같은 자리 — 댓글·업무 보기 본문만) ─────────────────────────────
+// 같은 줄에 우리 업무 주소(`/s/t/<업무>` · `?p=&t=` — services/appLink.js)가 있으면 그 줄 아래에 카드 한 장:
+// 팀 색 레일(보드 카드와 같은 3px · 프로젝트에는 색 칸이 없어 팀 색이다) · 프로젝트 이름 · 제목 · 본문 첫 줄 · 상태 칩 · 담당자 얼굴.
+// 누르면 그 자리에서 업무 창을 연다(InlineLink와 같은 opener · ⌘/Ctrl 누름은 브라우저에 그대로).
+// **잠긴 업무**(나에게 닫힌 것)는 자물쇠 + 제목만(공유 카드 api/share와 같은 선 — 상태·담당자·본문을 싣지 않는다).
+// **스토어에 없는 업무 · 나에게 안 보이는 프로젝트**(직접 고른 사람에 내가 없음)는 카드를 세우지 않는다 — 링크만 남는다.
+const taskIdsIn = (text) => {
+  const here = typeof window === 'undefined' ? null : window.location.href;
+  if (!here) return [];
+  return [...new Set((String(text || '').match(URL_IN_LINE) || []).map(u => parseAppLink(u, here)?.taskId).filter(Boolean))];
+};
+// 본문 첫 글줄을 맨 글자로(제목 줄은 다른 글줄이 없을 때만 · 목록표·체크표·인라인 서식을 뗀다)
+const firstLine = (md) => {
+  const lines = String(md || '').split('\n').map(l => l.trim()).filter(l => l && !/^(-{3,}|\*{3,}|_{3,})$/.test(l) && !IMAGE_LINE_RE.test(l));
+  const line = lines.find(l => !/^#{1,4}\s/.test(l)) || lines[0] || '';
+  const bare = line.replace(/^#{1,4}\s+/, '').replace(/^[-*]\s+\[( |x|X)\]\s?/, '').replace(/^[-*]\s+/, '').replace(/^\d+[.)]\s+/, '');
+  return tokenizeInline(bare).map(s => s.text).join('').trim();
+};
+function TaskLinkCard({ id }) {
+  const task = useStore(s => s.tasks.byId[id]);
+  const project = useStore(s => (task ? s.projects.byId[task.projectId] : null));
+  if (!task || !seeable(project)) return null;
+  const closed = isCardClosed(task);
+  const href = `${window.location.origin}/s/t/${id}`;
+  const lead = closed ? '' : firstLine(task.content);
+  const faces = task.assignees || [];
+  return (
+    <a href={href} data-task-card={id} data-task-card-locked={closed ? '' : undefined}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+        if (openTaskDeepLink?.({ projectId: task.projectId, taskId: id, share: true })) e.preventDefault();
+      }}
+      className="task-card flex gap-2.5 mt-1.5 mb-1 pl-2.5 pr-3 py-2 rounded-md border border-line hover:bg-surface-hover transition-colors max-w-[380px] no-underline">
+      <span className="shrink-0 w-[3px] rounded-full my-0.5" style={teamPaint(task.teams || [], true)} />
+      <span className="flex-1 min-w-0">
+        <span className="block text-[10px] text-fg-muted truncate">{project.title}</span>
+        <span className="block text-[13px] font-semibold text-fg leading-snug break-words"><CardLockMark task={task} />{task.title}</span>
+        {lead && <span className="block mt-0.5 text-[11.5px] text-fg-muted leading-snug truncate">{lead}</span>}
+        {!closed && (
+          <span className="flex items-center gap-2 mt-1.5 min-w-0">
+            <span className="inline-flex items-center gap-1.5 pl-2 pr-2 py-[2px] rounded-full border border-line text-[10.5px] font-bold text-fg-muted shrink-0">
+              <span className={`w-[5px] h-[5px] rounded-full ${CONFIG.STATUS_DOTS[task.status] || 'bg-fg-faint'}`} />{task.status}
+            </span>
+            {faces.length > 0 && (
+              <span className="flex items-center shrink-0" title={faces.join(', ')}>
+                {faces.slice(0, 3).map(n => (
+                  <Avatar key={n} name={n} className="flex w-[18px] h-[18px] text-[9px] -ml-[5px] first:ml-0 ring-[1.5px] ring-surface" />
+                ))}
+                {faces.length > 3 && <span className="ml-[5px] text-[10.5px] text-fg-muted tabular-nums">+{faces.length - 3}</span>}
+              </span>
+            )}
+          </span>
+        )}
+      </span>
+    </a>
+  );
+}
+const TaskLinkCards = ({ text }) => {
+  const ids = useMemo(() => taskIdsIn(text), [text]);
+  return ids.map(id => <TaskLinkCard key={id} id={id} />);
 };
 
 // 마크 → 태그·클래스 (에디터 .tiptap 스타일과 같은 톤)
@@ -257,11 +382,11 @@ function ContentImage({ src }) {
 // 넘긴다(하위 업무처럼 보기에서 바로 눌린다). 안 넘기면(댓글·요약 등) 읽기 전용이다.
 // lineAttrs: 줄마다 `data-line`(마크다운 줄 번호)을 단다 — 업무 창 보기 화면이 '누가 어느 줄을 고치는 중인가'를
 // 그 줄 옆에 세우는 좌표다(modals/coedit.jsx PresenceMarks · 엔진 core.caretLine과 같은 번호). 모양은 안 바뀐다.
-// ytCards: 유튜브 영상 주소가 있는 줄 아래에 카드(위 '유튜브 링크 카드') — 댓글·업무 보기 본문만 넘긴다.
+// ytCards: 유튜브 영상 주소·우리 업무 주소가 있는 줄 아래에 카드(위 '유튜브 링크 카드'·'업무 링크 카드') — 댓글·업무 보기 본문만 넘긴다.
 export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false, ytCards = false }) => {
   const blocks = useMemo(() => parseBlocks(content), [content]);
   const ln = (k) => (lineAttrs ? { 'data-line': k } : null);
-  const yt = (value) => (ytCards ? <YtCards text={value} /> : null);
+  const yt = (value) => (ytCards ? <><TaskLinkCards text={value} /><YtCards text={value} /></> : null);
   return (
     <>
       {blocks.map(block => {

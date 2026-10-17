@@ -9,6 +9,9 @@ import { showToast, HOLD_MS_ACTION } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { rollbackPatch, createDeleteHold, failedComments } from '../services/optimistic.js';
 import { openTaskId } from '../modals/taskFocus.js';
+import { trashTask } from '../services/trash.js';
+import { copyTasks } from '../services/projectCopy.js';
+import { LEADERS, isLeaderOnly } from '../services/visibility.js';
 
 // 개발 빌드의 게스트 검사만(tests/modalclose) — `window.__devFail = { task: true, comment: true }`면 그 쓰기를 실패로 본다.
 // 게스트는 서버가 없어 실패하는 길이 아예 없다. 배포 빌드에서는 import.meta.env.DEV가 거짓이라 늘 false다(homeView `__kstNow`와 같은 관례).
@@ -27,6 +30,8 @@ const reportCloudError = (what) => (err) => {
 // 지우면 화면에서는 바로 빠지고 '되돌리기' 토스트가 뜬다. **클라우드의 서버 삭제는 그 토스트가 걷힐 때까지 붙든다** —
 // 되돌리면 아무것도 보내지 않은 셈이다. 붙든 동안 실시간 재조회가 그 업무를 되살리지 않게 하는 것·페이지를 떠날 때 바로 보내는 것은
 // services/optimistic.js createDeleteHold. 서버 삭제가 실패하면 지우기 전 모습(댓글·활동·첨부까지)으로 되살리고 토스트로 말한다.
+// 0104부터 '서버 삭제'는 휴지통에 넣기다(cloudSync.cardTrashCloud — DB 함수가 없으면 예전 행 삭제로 되돌아간다).
+// 게스트는 브라우저 휴지통(services/trash.js)에 지운 순간의 모습을 넣는다.
 const deleteHold = createDeleteHold({ store, ms: HOLD_MS_ACTION + 300 });   // 토스트가 걷힌 뒤에 보낸다
 
 // ============================================================================
@@ -242,9 +247,10 @@ export const useWorkspaceController = () => {
     // 되살릴 모습은 스토어의 지금 카드다 — 창을 연 뒤에 채워진 댓글·활동·첨부까지(§6-22)
     const snap = store.getState().tasks.byId[id] || task;
     store.dispatch({ type: 'DELETE_TASK', payload: id });
+    if (!cloudOn) trashTask(snap, currentUser.name);
     const restore = () => { if (!store.getState().tasks.byId[id]) store.dispatch({ type: 'UPSERT_TASK', payload: snap }); };
     if (cloudOn) {
-      deleteHold.hold(id, () => cloudSync.cardDeleteCloud(id).catch((e) => { restore(); reportCloudError('업무를 삭제하지 못했어요')(e); }));
+      deleteHold.hold(id, () => cloudSync.cardTrashCloud(id).catch((e) => { restore(); reportCloudError('업무를 삭제하지 못했어요')(e); }));
     }
     showToast(`'${snap.title}'을(를) 삭제했어요`, {
       label: '되돌리기',
@@ -260,7 +266,7 @@ export const useWorkspaceController = () => {
         restore();
       },
     });
-  }, [cloudOn]);
+  }, [cloudOn, currentUser.name]);
 
   // 보드 컬럼 안 순서(0024). 바뀐 카드만 넘어온다 — 화면은 바로 바꾸고 클라우드는 뒤따른다.
   // SYNC_TASK로 병합한다(UPSERT_TASK로 바꾸면 담아둔 댓글·활동·첨부가 날아간다 — §6-22).
@@ -303,6 +309,45 @@ export const useWorkspaceController = () => {
     return newProject.id;
   }, [cloudOn]);
 
+  // 프로젝트 복제(사용자 승인 시안 2026-10-17 · 규칙은 services/projectCopy.js) — 새 프로젝트를 고른 해에 만들고 업무의 짜임새만 옮긴다.
+  // 만든 사람·생성 기록은 복제한 사람으로 새로 붙는다(TaskService.create). id는 copyTasks가 미리 정한 것을 지킨다 — create가 새로
+  // 뽑으면 선후관계(dependsOn)가 옛 id를 가리킨다. **리더만 보는 원본이면 새 프로젝트도 리더만**(0092 · 아니면 리더 업무의 본문이
+  // 공개 프로젝트로 옮겨 간다 — 리더가 아니면 DB 트리거가 'all'로 되돌리지만 리더 프로젝트는 애초에 리더만 연다).
+  // 클라우드: 프로젝트가 먼저 서야 업무가 들어간다. 프로젝트를 못 만들면 스토어에서 통째로 빼고, 업무 일부를 못 넣으면 그 업무만 뺀다.
+  const handleDuplicateProject = useCallback((srcId, title, year) => {
+    const st = store.getState();
+    const src = st.projects.byId[srcId];
+    if (!src) return null;
+    // 새 프로젝트 — handleAddProject와 같은 모양(맨 뒤 position · 고른 해)
+    const positions = Object.values(st.projects.byId).map(p => p.position ?? 0);
+    const newProject = {
+      id: generateId(), title, pinnedLinks: [],
+      position: (positions.length ? Math.max(...positions) : 0) + 1,
+      createdAt: new Date().toISOString(),
+      year: year || new Date().getFullYear(),
+      ...(isLeaderOnly(src) ? { visibility: LEADERS } : {}),
+    };
+    store.dispatch({ type: 'ADD_PROJECT', payload: newProject });
+    const tasks = st.tasks.allIds.map(id => st.tasks.byId[id]).filter(t => t.projectId === srcId);
+    const made = copyTasks(tasks, newProject.id, generateId).map(d => ({ ...TaskService.create(d, currentUser.name), id: d.id }));
+    made.forEach(t => store.dispatch({ type: 'UPSERT_TASK', payload: t }));
+    if (cloudOn) {
+      cloudSync.projectCreateCloud(newProject)
+        .then(() => Promise.allSettled(made.map(t => cloudSync.cardUpsertCloud(t, true)
+          .then(() => cloudSync.activityAddCloud(t.activityLog || [], t.projectId, t.id)))))
+        .then((results) => {
+          const failed = results.map((r, i) => (r.status === 'rejected' ? made[i].id : null)).filter(Boolean);
+          if (!failed.length) return;
+          failed.forEach(id => store.dispatch({ type: 'DELETE_TASK', payload: id }));
+          reportCloudError('프로젝트를 복제하지 못했어요')(results.find(r => r.status === 'rejected').reason);
+        }, (e) => {
+          store.dispatch({ type: 'DELETE_PROJECT', payload: newProject.id });
+          reportCloudError('프로젝트를 복제하지 못했어요')(e);
+        });
+    }
+    return newProject.id;
+  }, [cloudOn, currentUser.name]);
+
   const handleRenameProject = useCallback((id, title, year) => {
     const next = String(title || '').trim();
     if (!next) return;
@@ -327,6 +372,6 @@ export const useWorkspaceController = () => {
     if (cloudOn) cloudSync.profileUpdateCloud(profile).catch(reportCloudError('내 정보를 저장하지 못했어요'));
   }, [cloudOn]);
 
-  return { handleSaveTask, handleContentSession, handleReorderTasks, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleArchiveProject, handleUpdateUser, undo: store.undo, redo: store.redo };
+  return { handleSaveTask, handleContentSession, handleReorderTasks, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleDuplicateProject, handleRenameProject, handleArchiveProject, handleUpdateUser, undo: store.undo, redo: store.redo };
 };
 

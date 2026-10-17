@@ -5,6 +5,7 @@ import { isApprovedProfile } from '../src/services/approval.js';
 import { STATUS_KO, feedKeepRow, feedEvent, buildFeedIcs, feedCalName, feedUrls, taskLink } from '../src/services/calendarFeed.js';
 import { isLeaderOnly } from '../src/services/visibility.js';
 import { leaderIdSet } from './_leaders.js';
+import { trashedIds, goneCard } from './_trash.js';
 
 // ============================================================================
 // /api/ics — 주보 광고 한 건 → 폰 기본 달력(.ics) (2026-09-25 · 광고 → 내 달력 방식 가)
@@ -74,6 +75,10 @@ async function seeProject(supabase, projectId, owner) {
   const { data: proj, error } = await supabase.from('projects').select('id, name, visibility').eq('id', projectId).maybeSingle();
   if (error) { console.error('[ics] 프로젝트 조회 실패:', error); return null; }
   if (!proj) return null;
+  // 휴지통(0104)에 있는 프로젝트는 지운 프로젝트와 같다(칸이 없으면 — 0104 전 — 거를 것이 없다)
+  try { if ((await trashedIds(supabase)).projects.has(projectId)) return null; } catch (e) {
+    console.error('[ics] 휴지통 조회 실패:', e?.message || e); return null;
+  }
   if (!isLeaderOnly(proj)) return proj;
   try { return (await leaderIdSet(supabase)).has(owner) ? proj : null; } catch (e) {
     console.error('[ics] 리더 목록 조회 실패:', e?.message || e); return null;
@@ -162,7 +167,10 @@ async function feedGet(req, res) {
       .eq('project_id', feed.project_id);   // 위 POST와 같은 이유로 id 목록은 여기서 거른다
     if (error) { console.error('[ics] 구독 업무 읽기 실패:', error); res.status(500).end(); return; }
     const picked = new Set(feed.card_ids);
-    rows = (data || []).filter(r => picked.has(r.id) && feedKeepRow(r));
+    // 휴지통(0104)의 업무는 달력에서 빠진다 — 복원하면 다음 구독 갱신에 돌아온다(card_ids는 그대로 둔다)
+    let trashed = { projects: new Set(), cards: new Set() };
+    try { trashed = await trashedIds(supabase); } catch (e) { console.error('[ics] 휴지통 조회 실패:', e?.message || e); res.status(500).end(); return; }
+    rows = (data || []).filter(r => picked.has(r.id) && !goneCard(trashed, r) && feedKeepRow(r));
   }
   const names = await namesOf(supabase, [...new Set(rows.flatMap(r => (r.card_assignees || []).map(a => a.profile_id)))]);
   const { host, proto } = hostOf(req);

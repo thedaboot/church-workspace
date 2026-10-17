@@ -2,10 +2,12 @@
 // 업무 보드 — 프로젝트 · 카드(담당 팀·담당자 조인) · 요약 고정 · 순서 · 댓글 · 댓글 반응(0032) · 참고 링크
 // ----------------------------------------------------------------------------
 // 프로젝트·업무를 지우면 첨부 실체 정리는 drive.js의 trashFolder·trashFileBodies 한 벌로 간다(§6-29-e).
+// 0104부터 앱의 지우기는 휴지통(trashCard·trashProject)이다 — deleteCard·deleteProject는 함수가 없는 DB의 되돌아갈 길로 남는다.
 // ============================================================================
 import { myUid } from '../supabaseClient.js';
 import { client, unwrap } from './core.js';
 import { trashFolder, trashFileBodies } from './drive.js';
+import { isMissingRpc } from '../trashItems.js';
 
 // ── projects ─────────────────────────────────────────────────────────────────
 export async function listProjects() {
@@ -181,6 +183,33 @@ export async function deleteCard(id) {
   // 폴더가 들어갔으면 드라이브 행은 통째로 건너뛴다(그 행에 남은 옛 Storage 사본까지 — 예전 그대로).
   const folderTrashed = await trashFolder(folderId, '업무 폴더', '파일 단위로 전환');
   await trashFileBodies(folderTrashed ? files.filter(f => f.source !== 'drive') : files);
+}
+
+// ── 휴지통(0104) ─────────────────────────────────────────────────────────────
+// 지우기는 행을 지우지 않고 지운 표시만 남긴다(trash_card · trash_project — 판정은 DB 함수). 드라이브 폴더·첨부 행은 그대로 두고
+// 30일 뒤 아침 크론(api/_trash.js)이 위 deleteCard·deleteProject와 같은 차례로 정리한다 — 복원하면 첨부까지 그대로 돌아온다.
+// **함수가 아직 없는 DB(0104 전)면 예전 삭제로 되돌아간다**(trashItems.isMissingRpc) — 코드가 마이그레이션보다 먼저 나가도 지우기가 돈다.
+export async function trashCard(id) {
+  const r = await client().rpc('trash_card', { p_card: id });
+  if (r.error && isMissingRpc(r.error)) return deleteCard(id);
+  return unwrap(r);
+}
+export async function trashProject(id) {
+  const r = await client().rpc('trash_project', { p_project: id });
+  if (r.error && isMissingRpc(r.error)) return deleteProject(id);
+  return unwrap(r);
+}
+// 휴지통 줄(30일 안 · 나에게 보이는 것). 함수가 없으면 빈 목록 — 입구가 서지 않는다
+export async function listTrash() {
+  const r = await client().rpc('trash_list');
+  if (r.error && isMissingRpc(r.error)) return [];
+  return unwrap(r) || [];
+}
+// → 'ok' | 'no-project'(업무의 프로젝트가 휴지통에 있다)
+export async function restoreTrash(kind, id) {
+  return unwrap(await (kind === 'project'
+    ? client().rpc('restore_project', { p_project: id })
+    : client().rpc('restore_card', { p_card: id })));
 }
 
 // 주인을 지운 뒤 남은 첨부 행 — 카드 삭제로 card_id가 null이 됐으므로 모아 둔 id로 지운다.

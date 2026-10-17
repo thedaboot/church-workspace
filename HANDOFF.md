@@ -38,6 +38,16 @@
 
 ## 2. 남은 일
 
+### v5 1묶음 A — 휴지통·복원 · 프로젝트 복제 · 업무 링크 (2026-10-17 · 사용자 승인 시안 `mock/b1` · 0104 파일만)
+
+- **휴지통(0104)**: 지우기는 행을 지우지 않고 `deleted_at`·`deleted_by`만 적는다(DB 함수 `trash_card`·`trash_project` — 지울 수 있는 사람은 예전 삭제 정책과 같다) · 평소 조회는 RLS가 뺀다(cards·projects 정책 + `hidden_ids` 휴지통 갈래 — 마스터·리더 포함 모두) · 휴지통 창은 승인 전원이 보고 `복원`은 지운 사람·마스터만(`restore_*`) · 30일 지나면 8시 크론(`api/_trash.js purgeTrash`)이 예전 삭제와 같은 차례로 행·드라이브를 정리 · 업무 지우기의 7초 '되돌리기'는 그대로. 남에게는 broadcast `trashed`로 걷힌다. 서버 키 경로(위키·다붓이 아침 고리·임베딩·마감 알림·달력·공유 카드)는 읽은 자리에서 걷는다(PITFALLS 61).
+- **코드가 마이그레이션보다 먼저 나가도 오류 화면이 없다**(§3-4의 예외 · 고른 길): 앱은 새 칸을 select·filter로 읽지 않고, 함수가 없으면(PGRST202·42883) 지우기는 예전 행 삭제 · 휴지통 입구는 서지 않는다. 그래도 순서는 마이그레이션 → 푸시가 맞다(그 사이에 지운 것은 휴지통에 안 남는다). 마이그레이션 뒤에도 캐시된 옛 앱은 행 삭제로 지운다(정책 그대로).
+- **복제**: 새 칸 없음 · 시안의 클라우드 길을 고쳤다 — 잠긴 업무는 본문·하위 업무를 옮기지 않는다 · 리더만 원본은 새 프로젝트도 리더만(업무를 넣기 전에) · 업무 일부가 실패하면 그 업무만 빼고 토스트 · 프로젝트가 실패하면 통째로 뺀다 · 미리보기 댓글·첨부 수는 commentCount·fileCount.
+- **업무 링크**: 시안 그대로(`appLink.js` · RichText 멘션·중립 칩 `업무 링크`·`프로젝트 링크`·업무 링크 카드 · 복사하면 주소). 보는 사람 직접 고르기(B)의 `canSeeProject`는 RichText `seeable` 한 곳에 넣으면 된다(지금은 '스토어에 있나').
+- **시연 전용은 넣지 않았다**: 휴지통 씨앗·`demo` 표시·`trash_seed` · package.json 게스트 build.
+- **남은 것**: 0104 적용(psql — 리허설 SQL은 레포 밖) · 클라우드 확인(아래) · 복원 실패 토스트의 앞도막 문구(지금은 이유 한 줄만 — 사용자에게 물을 것) · 휴지통 창 '영구 삭제'는 없다(시안에 없음) · 지운 업무를 가리키는 위키 블록·답 캐시는 다음 아침 빌드까지 남을 수 있다(화면·다붓이 세션은 RLS가 거른다).
+- **클라우드 확인 대기(사용자)**: 업무·프로젝트 지우기 → 다른 계정 화면에서 바로 사라지는지 · 휴지통 입구 개수·지운 사람 이름 · 다른 회원은 `복원`이 흐린지 · 마스터 복원 뒤 첨부·댓글이 돌아오는지 · 프로젝트가 휴지통일 때 업무 복원 토스트 · 다음 날 8시 크론 응답의 `trash` · 복제(리더만 원본 · 잠긴 업무) · 업무 링크 카드.
+
 ### UX 다듬기 — 한 일 · 결정 (2026-10-15 · 0103 라이브 · 마이그레이션 다음 번호 0104)
 
 - **방식**: 사용자가 항목을 주지 않고 "코드를 보고 제안해 달라"고 했다 → 네 갈래(로딩·첨부·업무 흐름·캐릭터/읽기) 조사로 후보 44개 → 사용자 결정 "보류(B7)만 빼고 전부". 화면 변화 없는 것은 바로(1차 α·β·γ), 바뀌는 것은 시안 먼저(2차 · 캔버스 https://claude.ai/artifact/M4ywnxA19zpT4TMGf8rJ4b — 실데이터 화면에 앱 마크업을 주입해 찍음 · 사용자 피드백 일곱 건 반영 후 승인). 함정은 PITFALLS 54(α)·55(β)·56(γ)·57(모션)·58(P3)·59(P1)·60(P2).
@@ -306,7 +316,12 @@ src/components/paper.jsx      **종이** — PaperMast·PaperNoteHead·PaperShee
 src/components/PdfView.jsx    pdf.js 미리보기 — cmaps 없이는 한글이 빈다 · 폭이 바뀌면 다시 그린다(§6-29-z-9) · 화면 가까운 쪽만 그리고 '3 / 7' 알약(쪽 상한 없음 · 60-e)
 src/components/RichText.jsx   본문 렌더 — InlineLink가 앱 안에서 연다(§6의 본문 링크 항목) · 유튜브 링크 카드(`ytCards` — 댓글·업무 보기만 · 59-d)
 src/components/roster.jsx     (v2) 청년 명단 — 연도 세그먼트·직분 6종·계정 연결(0043) · `RowSkeleton`·`rowDelay`(멤버 화면도 쓴다) · NameSearch·PanelClose 한 벌
-src/components/ShareButton.jsx  프로젝트·카드 공유 링크
+src/components/ShareButton.jsx  프로젝트·카드 공유 링크 — 그 주소(`/s/t/`·`/s/p/`)를 본문에 붙이면 앱 안에서 연다(services/appLink.js · RichText 멘션·카드)
+src/components/trash.jsx      휴지통 입구(데스크톱 더보기 맨 아래 · 폰 연도 목록 맨 아래 · 비면 없음)·창·복원 버튼(0104 · PITFALLS 61)
+src/services/trash.js         휴지통 줄 — 클라우드는 DB(trash_list·restore_*) · 게스트는 브라우저 `trash_v1` · 복원 뒤 App 재조회(setTrashReload)
+src/services/trashItems.js    휴지통 규칙 한 벌(import 0 · 앱·서버 · 30일 · 복원 판정 · 원본 걷기 · 정리 차례)
+src/services/projectCopy.js   프로젝트 복제 규칙(짜임새만 · 잠긴 업무는 본문·하위 업무 없이 · 61-f) — 창은 settings.jsx DuplicateStep
+src/services/appLink.js       본문 안 앱 링크 판정(`?p=&t=` · `/s/t/` · `/s/p/`)
 src/components/ShareToggle.jsx  공유 토글 한 벌 — 말씀 묵상·예배 노트·내 순 노트가 같은 부품
 src/components/sunGuide.jsx   (v2) 순모임 가이드 패널 — 주보 피커·이미지로 공유·고정(§4.4·§6-9-av)
 src/components/calendarFeed.jsx 프로젝트 달력 머리의 `내 달력` — 업무 고르기 팝오버/아래 창 · 규칙·.ics·기기별 버튼은 services/calendarFeed.js(서버 api/ics.js와 한 벌 · 0085)
@@ -424,6 +439,7 @@ api/_wikiAsk.js               다붓이 답 — 근거 모으기(묻는 사람 �
 api/_docsync.js               업무·댓글·첨부 → doc_vec 증분(조각·해시·계획·임베딩) — 8시 크론·?job=embed·스크립트 한 벌
 api/push.js                   POST=앱 알림을 푸시로 / GET=마감 임박·오늘 예배+내일 동아리 모임 배치(`?job` · §4.3) · 8시 뒤 문서 임베딩 → 위키(다시 묻기·바뀐 장) · `?job=embed` · 300초
 api/drive.js                  Apps Script 프록시 — 업로드·폴더·휴지통(55초에 끊는다 · §6-29-f·29-g)
+api/_trash.js                 휴지통(0104) 서버 키 한 벌 — trashedIds(서버 키 경로가 걷는다 · 칸이 없으면 빈 Set) · purgeTrash(8시 크론 · 30일 지난 것)
 api/drive-file.js             드라이브 파일 바이트 중계(앱 안 뷰어용 · §6-29-c·29-z-3)
 api/share.js                  공유 링크 OG 메타 — 조회 `error`를 반드시 읽는다(§6-31-d·31-e)
 api/service-view.js           주보 공개 보기 `/w/<id>/<sig>` — 서명(HMAC · SUPABASE_SECRET_KEY에서 가름) · 필요한 칸만 · OG · 404 짧은 페이지(§32-zj~zm)
@@ -460,12 +476,12 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 
 ## 5. 데이터 · 스키마 · 비밀
 
-- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0103`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
+- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0104`이고 0103까지 **라이브 DB에 적용**되어 있다(0104는 2026-10-17 파일만 — 적용 대기). 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
   **0064** `people.gender` · **0065** `bible_state.recent_searches` · **0066** 개인 표 기본값도 `effective_uid()` · **0067~0070** 명단(`people`)의 생일·소속·교역자·대표 팀을 트리거가 계정으로 옮긴다(§8) ·
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0092** 리더만 보는 프로젝트(`projects.visibility` · `is_leader`·`can_see_*`·`hidden_ids` · 정책 `alter`만 · 보호 트리거 둘) · **0093** 동아리 모임 활동 보고서(`files.meeting_id` · 세 갈래 CHECK · `can_edit_meeting` · 모임 갈래 정책 + restrictive 셋) · **0094** 직분 `vision_maker`(비전 메이커 · 임원 아님) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12) · **0096** `doc_vec`에 위키 장·발행 주보(다붓이 검색 모드) · **0097** 가입 트리거가 늦게 온 메타 사진·이름도 받아 적음(10분 안 빈 칸만) · **0098** 다붓이 학습 고리(`dabooti_facts` · `resolved_at` · learned 장 마스터만) · **0099** 업무 잠금(`cards.locked` · `card_secrets` · `card_unlocks` · 함수 다섯 · 정책 alter · 보호·거울 트리거 · `projects.visibility_by/at`) · **0100** 잠금의 남은 틈(`card_secrets.subtasks` · 잠그는 순간 위키 블록·조각·알림 미리보기를 걷는 `scrub_locked_card` · 새 알림 미리보기 비움 트리거) · **0101** 점검 보완(트리거 함수 EXECUTE 회수 · search_path 셋 · 정책 116개 판정 호출을 `(select …)`로) · **0102** 정책 대상 역할 `authenticated` · 판정 함수 14개 익명 회수 · **0103** 알림 종류 `assignee_comment`(담당한 업무에 달린 댓글 · CHECK + INSERT 정책 alter · 2026-10-15 라이브). 다음 번호는 0104.
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0092** 리더만 보는 프로젝트(`projects.visibility` · `is_leader`·`can_see_*`·`hidden_ids` · 정책 `alter`만 · 보호 트리거 둘) · **0093** 동아리 모임 활동 보고서(`files.meeting_id` · 세 갈래 CHECK · `can_edit_meeting` · 모임 갈래 정책 + restrictive 셋) · **0094** 직분 `vision_maker`(비전 메이커 · 임원 아님) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12) · **0096** `doc_vec`에 위키 장·발행 주보(다붓이 검색 모드) · **0097** 가입 트리거가 늦게 온 메타 사진·이름도 받아 적음(10분 안 빈 칸만) · **0098** 다붓이 학습 고리(`dabooti_facts` · `resolved_at` · learned 장 마스터만) · **0099** 업무 잠금(`cards.locked` · `card_secrets` · `card_unlocks` · 함수 다섯 · 정책 alter · 보호·거울 트리거 · `projects.visibility_by/at`) · **0100** 잠금의 남은 틈(`card_secrets.subtasks` · 잠그는 순간 위키 블록·조각·알림 미리보기를 걷는 `scrub_locked_card` · 새 알림 미리보기 비움 트리거) · **0101** 점검 보완(트리거 함수 EXECUTE 회수 · search_path 셋 · 정책 116개 판정 호출을 `(select …)`로) · **0102** 정책 대상 역할 `authenticated` · 판정 함수 14개 익명 회수 · **0103** 알림 종류 `assignee_comment`(담당한 업무에 달린 댓글 · CHECK + INSERT 정책 alter · 2026-10-15 라이브). **0104** 휴지통(`deleted_at`·`deleted_by` · `hidden_ids` 휴지통 갈래 · 함수 다섯 · PITFALLS 61 · 파일만). 다음 번호는 v5 B 묶음이 받은 번호 뒤.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.

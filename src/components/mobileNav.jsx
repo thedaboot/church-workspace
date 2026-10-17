@@ -19,6 +19,8 @@ import { DaboutiFace } from './dabooti.jsx';
 import { showToast } from './Toast.jsx';
 import { CHURCH_MENUS, ProfileMenu, ViewerFaces } from './layout.jsx';
 import { tabDividerCls, FreshDot, useFreshProjects, useFrontNudge, FrontNudge, saveTabOrder, useYearTabs, YearPicker } from './navParts.jsx';
+import { useTrashItems } from '../services/trash.js';
+import { TrashEntry, TrashDialog } from './trash.jsx';
 import { SearchBox } from './searchBox.jsx';
 import { NotificationBell } from './notificationBell.jsx';
 import { LeaderTitleLock, TabLock, useSetVisibility } from './leaderOnly.jsx';
@@ -206,6 +208,8 @@ const MobileProjectTabs = React.memo(({
 }) => {
   const [dragId, setDragId] = useState(null);
   const [nudge, showNudge] = useFrontNudge();
+  const trashCount = useTrashItems().length;
+  const [trashOpen, setTrashOpen] = useState(false);
   // 터치와 마우스는 센서를 분리한다(§6-12) — 하나로 합치면 모바일에서 드래그가 아예
   // 시작되지 않거나 스크롤과 싸운다. 터치는 **300ms**로 보드(200ms)보다 길게 잡는다:
   // 이 줄의 기본 동작이 가로로 미는 것이라, 짧으면 넘기려던 손이 탭을 집어 든다.
@@ -245,7 +249,9 @@ const MobileProjectTabs = React.memo(({
       <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
         {/* 연도는 미는 칸 **안**에 둔다 — 같은 종류가 이어지는 줄이고(§8), 밖으로
             빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
-        <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact />
+        {/* 폰은 더보기가 없다 — 휴지통 입구는 연도 목록 맨 아래(휴지통이 비면 서지 않는다 · 0104) */}
+        <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact
+          footer={trashCount ? (close) => <TrashEntry count={trashCount} onOpen={() => { close(); setTrashOpen(true); }} /> : null} />
         {projectsList.map((p, i) => (
           <React.Fragment key={p.id}>
             <MobileProjectTab project={p} active={activeMenu === p.id} archived={!!p.archived} front={!!frontIds?.has(p.id)}
@@ -261,6 +267,7 @@ const MobileProjectTabs = React.memo(({
         <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
       </div>
       <FrontNudge nudge={nudge} />
+      {trashOpen && <TrashDialog onClose={() => setTrashOpen(false)} />}
       {/* 들어 올린 탭이 손가락을 따라온다. body 포털이 기본이다(§6-1) — 조상에 걸린
           transform이 fixed의 기준 박스가 되면 미리보기가 엉뚱한 자리에 뜬다. */}
       {createPortal(

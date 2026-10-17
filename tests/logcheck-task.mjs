@@ -1225,3 +1225,23 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(Q.uploadingByCard.has(key), false, '빨간 줄도 남지 않는다');
   console.log('PASS  올리는 진행 · 올리기 멈춤 · 받는 진행(transfer · uploadQueue) 22가지');
 }
+
+// ── 공유 주소 링크를 앱 안에서 열기(services/appLink.js · 사용자 승인 시안 2026-10-17) ─────────
+// 공유 버튼이 복사하는 `/s/t/<업무>`·`/s/p/<프로젝트>`를 본문에서 누르면 페이지 전체를 새로 읽었다 — 판정이 `?p=&t=`만 알았다.
+// **되돌리기**: appLink.js에서 SHARE_PATH 갈래(`if (share) …`)를 지우면 ①②가 깨진다.
+{
+  const { parseAppLink } = await loadSource('src/services/appLink.js');
+  const here = 'https://app.example.org/?p=dash';
+  assert.deepStrictEqual(parseAppLink('https://app.example.org/s/t/abc-123', here), { projectId: null, taskId: 'abc-123', share: true }, '① 공유 업무 주소');
+  assert.deepStrictEqual(parseAppLink('/s/p/p-9/', here), { projectId: 'p-9', taskId: null, share: true }, '② 공유 프로젝트 주소(상대 · 끝 빗금)');
+  assert.deepStrictEqual(parseAppLink('https://app.example.org/?p=p1&t=t1', here), { projectId: 'p1', taskId: 't1', share: false }, '③ 옛 모양 그대로');
+  assert.strictEqual(parseAppLink('https://other.example.org/s/t/abc', here), null, '④ 다른 origin은 평범한 링크');
+  assert.strictEqual(parseAppLink('https://app.example.org/s/c/club1?apply=1', here), null, '⑤ 동아리 QR(/s/c)은 api/share가 받는다');
+  assert.strictEqual(parseAppLink('https://app.example.org/s/t/', here), null, '⑤ id 없는 공유 주소');
+  assert.strictEqual(parseAppLink('not a url ::', 'nope'), null, '⑤ 잘못된 기준 주소');
+  const rich = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
+  assert.ok(rich.includes('parseAppLink(href, window.location.href)'), 'RichText InlineLink가 appLink 판정을 쓴다');
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/if \(taskId && share\) return false;/.test(app), '스토어에 없는 공유 업무는 주소로 보낸다(삭제 토스트를 띄우지 않는다)');
+  console.log('PASS  공유 주소 링크를 앱 안에서(appLink) 9가지');
+}

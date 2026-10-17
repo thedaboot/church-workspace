@@ -3,6 +3,8 @@ import { sha256, geminiFetch, isTimeout } from './_lib.js';
 import { mdLabel } from '../src/services/wikiCore.js';
 import { wikiEvidence, pageBody, serviceText } from './_wiki/evidence.js';
 import { dropLocked } from '../src/services/cardLock.js';
+import { dropTrashed } from '../src/services/trashItems.js';
+import { trashedIds } from './_trash.js';
 
 // ============================================================================
 // 업무·댓글·첨부 → doc_vec(0074) 증분 동기화 — 크론과 스크립트가 같이 쓰는 한 벌 (배치 E4)
@@ -301,7 +303,9 @@ async function readAll(db, table, columns, where = (q) => q, orderBy = ['id']) {
 
 export async function loadSources(db, kinds = KINDS) {
   const want = new Set(kinds);
-  const [projects, cards, comments, files, pages, edits, services, serviceFiles] = await Promise.all([
+  // 휴지통(0104) — 지운 프로젝트·업무와 그 댓글·첨부는 원본에서 빠진다 → 그 조각은 아래 동기화가 '원본 없음'으로 지운다
+  // (RLS가 이미 가리지만 doc_vec 행 자체를 남길 까닭이 없다 · 복원하면 다음 동기화에 다시 임베딩된다)
+  const [projectsRaw, cardsRaw, commentsRaw, filesRaw, pages, edits, services, serviceFiles, trashed] = await Promise.all([
     readAll(db, 'projects', 'id, name'),
     readAll(db, 'cards', 'id, project_id, title, description, locked'),
     want.has('comment') ? readAll(db, 'comments', 'id, card_id, body') : [],
@@ -311,7 +315,9 @@ export async function loadSources(db, kinds = KINDS) {
     want.has('wiki') ? readAll(db, 'wiki_edits', 'page_id, item_key, block_key, text, before, edited_by, edited_at', q => q, ['page_id', 'item_key']) : [],
     want.has('service') ? readAll(db, 'services', 'id, service_date, title, passage_ref, songs, notices, status', q => q.eq('status', 'published')) : [],
     want.has('service') ? readAll(db, 'files', 'id, service_id, name', q => q.not('service_id', 'is', null)) : [],
+    trashedIds(db),
   ]);
+  const { projects, cards, comments, files } = dropTrashed({ projects: projectsRaw, cards: cardsRaw, comments: commentsRaw, files: filesRaw }, trashed);
   return { projects, cards, comments, files, pages, edits, services, serviceFiles };
 }
 

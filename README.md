@@ -227,6 +227,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0099_card_lock` | 업무 잠금(비밀번호 · 진짜 잠금) — `cards.locked`·`locked_by`·`locked_at` · `card_secrets`(잠긴 동안의 본문·고정 요약 거울 + 해시 — 해시는 칸 권한으로 아무에게도 안 준다) · `card_unlocks`(맞힌 계정) · `card_unlock_tries`(1분 5회) · 함수 `can_open_card`·`locked_hidden_ids`(정책이 질의마다 한 번)·`lock_card`·`unlock_card`·`unlock_owner` · 댓글·반응·첨부(업무 갈래)·활동(읽기)·같이 쓰기·doc_vec·채널·레거시 버킷 정책을 `alter`로 조임 · 보호·거울 트리거 · `projects.visibility_by`·`visibility_at`(트리거가 적는다) | ⏳ |
 | `0100_card_lock_gaps` | 업무 잠금의 남은 틈 — `card_secrets.subtasks`(하위 업무도 잠긴 동안 거울로 · 거울 트리거가 쓰기를 돌림) · `scrub_locked_card`(잠그는 순간 그 업무를 가리키는 위키 블록·위키 조각·알림 미리보기를 걷는다) · 잠긴 업무의 새 알림 미리보기를 비우는 트리거 | ⏳ |
 | `0103_assignee_comment_notice` | 알림 종류 `assignee_comment` — 업무에 댓글·답글이 달리면 그 업무 담당자에게 '○○님이 내가 담당한 업무에 댓글을 남겼어요'(같은 댓글로 멘션·답글을 받는 사람은 그쪽 한 통). CHECK와 INSERT 정책(alter · 0101 꼴)을 같이 넓힌다 |
+| `0104_trash` | 휴지통 · 복원(v5 1묶음 A · 사용자 승인 시안 2026-10-17) — `cards`·`projects`의 `deleted_at`·`deleted_by`(지우지 않고 표시) · `hidden_ids()`에 휴지통 갈래(댓글·첨부·활동 등이 따라 가려진다) · cards·projects 정책 alter(`deleted_at is null` · 정책 수 그대로) · 함수 `trash_card`·`trash_project`·`restore_card`·`restore_project`(지운 사람·마스터)·`trash_list` · 지운 표시만 바뀐 update는 `updated_at`을 밀지 않는다 · 30일 뒤 아침 크론(`api/_trash.js`)이 행·드라이브를 정리. 앱은 칸을 읽지 않아 마이그레이션보다 먼저 나가도 예전 삭제로 돈다(PITFALLS 61) |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

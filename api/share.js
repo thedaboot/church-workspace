@@ -1,5 +1,6 @@
 import { adminClient, UUID_RE, STATUS, escHtml as esc } from './_lib.js';
 import { isLeaderOnly } from '../src/services/visibility.js';
+import { isTrashed } from './_trash.js';
 
 // ============================================================================
 // /s/:type/:id → 크롤러용 OG 메타 HTML + 사람은 앱으로 리디렉션
@@ -49,7 +50,8 @@ export default async function handler(req, res) {
         // 떨어지고 appUrl이 '/'로 남아 **딥링크까지 사라졌다**.
         const { data, error } = await supabase.from('projects').select('name, visibility').eq('id', id).maybeSingle();
         if (error) console.error('[share] 프로젝트 조회 실패:', error);
-        if (data) {
+        // 휴지통(0104)에 있으면 없는 프로젝트와 같다 — 제목을 싣지 않는다
+        if (data && !(await isTrashed(supabase, 'projects', id))) {
           if (!isLeaderOnly(data)) {
             title = `더다붓 · ${data.name}`;
             description = '팀과 함께 준비하는 프로젝트예요.';
@@ -59,7 +61,8 @@ export default async function handler(req, res) {
       } else {
         const { data, error } = await supabase.from('cards').select('title, status, due_date, project_id, locked, projects(visibility)').eq('id', id).maybeSingle();
         if (error) console.error('[share] 업무 조회 실패:', error);
-        if (data) {
+        // 휴지통(0104)의 업무 · 휴지통 프로젝트의 업무는 없는 업무와 같다
+        if (data && !(await isTrashed(supabase, 'cards', id)) && !(await isTrashed(supabase, 'projects', data.project_id))) {
           if (!isLeaderOnly(data.projects)) {
             title = `더다붓 · ${data.title}`;
             const parts = [STATUS[data.status] || ''];

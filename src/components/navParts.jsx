@@ -240,8 +240,9 @@ export function useYearTabs(activeMenu, { liftArchived = true } = {}) {
 }
 
 // 연도 버튼 + 목록. 팝오버는 body 포털이 기본이다(§6-1).
-export function YearPicker({ year, years, yearCounts = {}, onPick, compact = false }) {
-  const pop = usePopover(112, 40 + years.length * 34);
+// footer(pop.close를 받는 함수) — 목록 아래에 덧붙일 줄. 폰은 더보기가 없어서 휴지통 입구가 여기 맨 아래다(mobileNav · 0104).
+export function YearPicker({ year, years, yearCounts = {}, onPick, compact = false, footer = null }) {
+  const pop = usePopover(footer ? 132 : 112, 40 + years.length * 34 + (footer ? 46 : 0));
   return (
     <span ref={pop.rootRef} className="inline-flex shrink-0">
       <span ref={pop.btnRef} className="inline-flex">
@@ -258,7 +259,7 @@ export function YearPicker({ year, years, yearCounts = {}, onPick, compact = fal
             {/* 그 해 프로젝트 수 — 빈 해를 열어보고서야 아는 일이 없게 */}
             {yearCounts[y] > 0 && <span className="text-[10.5px] text-fg-muted">{yearCounts[y]}</span>}
           </button>
-        )))}
+        )).concat(footer ? [<React.Fragment key="footer">{footer(pop.close)}</React.Fragment>] : []))}
     </span>
   );
 }

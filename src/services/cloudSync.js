@@ -4,6 +4,7 @@ import { setWriteObserver } from './supabaseClient.js';
 import { reconnectWatcher } from './realtimeStatus.js';
 import { LEADERS, isLeaderOnly, visibleRecipients } from './visibility.js';
 import { withSecret } from './cardLock.js';
+import { itemsFromRows } from './trashItems.js';
 import {
   normalize, httpsImage, extractMentions, isoTime, seenOnlyChange,
   dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS, subtasksForDb, mergeSubtasks,
@@ -728,11 +729,17 @@ export async function commentReactionCloud(commentId, kind, on) {
 }
 export async function commentDeleteCloud(commentId) { return write(() => cloud.deleteComment(commentId)); }
 
+// 리더만 보는 원본을 복제하면(controllers.handleDuplicateProject) 처음부터 리더만으로 만든다 — 업무가 들어가기 전에(0092 ·
+// 리더가 아니면 DB 트리거가 'all'로 되돌린다). 그 밖의 새 프로젝트는 지금처럼 visibility를 보내지 않는다(DB 기본값 'all').
 export async function projectCreateCloud(project) {
-  return write(() => cloud.createProject({
+  const leaders = isLeaderOnly(project);
+  const saved = await write(() => cloud.createProject({
     id: project.id, name: project.title, position: project.position ?? 0,
     year: project.year ?? new Date().getFullYear(),
+    ...(leaders ? { visibility: LEADERS } : {}),
   }));
+  if (leaders && isLeaderOnly(saved)) leaderProjects.add(project.id);
+  return saved;
 }
 // DB 컬럼명은 name (앱에서는 title로 부른다)
 export async function projectRenameCloud(id, title, year) {
@@ -836,6 +843,26 @@ export async function unlockOwnerCloud(id) {
 }
 export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
 
+// ── 휴지통(0104) — 지우기는 지운 표시(DB 함수 · 없으면 예전 삭제 — cloud/board.js) ─────────────
+// 지운 업무·프로젝트의 UPDATE는 남에게 실시간으로 안 간다(받는 사람의 SELECT 정책이 가린다) — 공개 채널에 id만 알린다(notify.js).
+export async function cardTrashCloud(id) {
+  const r = await write(() => cloud.trashCard(id));
+  cloud.announceTrashed('task', id).catch(e => console.warn('[cloud] 휴지통 알리기 실패:', e?.message || e));
+  return r;
+}
+export async function projectTrashCloud(id) {
+  const r = await write(() => cloud.trashProject(id));
+  cloud.announceTrashed('project', id).catch(e => console.warn('[cloud] 휴지통 알리기 실패:', e?.message || e));
+  return r;
+}
+// 휴지통 줄 → 화면 줄(지운 사람 이름은 프로필 맵 — 합친 계정은 남긴 이름)
+export async function trashListCloud() {
+  const rows = await write(() => cloud.listTrash());
+  return itemsFromRows(rows, profileName);
+}
+// → 'ok' | 'no-project'
+export async function restoreTrashCloud(kind, id) { return write(() => cloud.restoreTrash(kind, id)); }
+
 // 탭 드래그가 정한 순서 저장 — 바뀐 행만 넘어온다(몇 건 안 된다).
 // 컬럼 하나짜리 갱신이라 겹쳐 써도 마지막 것이 남을 뿐 깨지지 않는다(§6-27과 같은 성질).
 export async function projectOrderCloud(orders) {
@@ -890,6 +917,7 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 //   profiles     → 다녀간 시각만 바뀐 UPDATE(심장박동)면 그 사람 한 칸만 스토어에 얹기,
 //                  그 밖의 변경(가입·이름·사진·팀·승인)은 전체 재조회
 //   그 외(projects·resource_links) → 전체 재조회 (드문 변경) — 보는 사람 알림(broadcast · 0092)도 projects로 온다
+//   휴지통 알림(broadcast · 0104 — eventType 'TRASHED')은 업무면 cards 갈래(그 업무 다시 읽기), 프로젝트면 전체 재조회 + onTrash
 // comments의 DELETE payload에는 card_id가 없다(replica identity가 PK뿐) → cardId가
 // 비면 "지금 열려 있는 카드"로 본다. 호출부가 그렇게 처리한다.
 // onReconnect: 채널이 끊겼다가 다시 붙었을 때 한 번(realtimeStatus.reconnectWatcher) — 폰이 잠든 사이의
@@ -897,11 +925,14 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 const profileListeners = new Set();
 export const onProfilesChanged = (fn) => { profileListeners.add(fn); return () => profileListeners.delete(fn); };
 
-export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActivityFeed, onMemberSeen, onFullReload, onReconnect }) {
+export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActivityFeed, onMemberSeen, onFullReload, onReconnect, onTrash }) {
   return cloud.subscribeAll((payload) => {
     const table = payload?.table;
     const row = payload?.new || {};
     const old = payload?.old || {};
+    // 휴지통(0104) — 남이 지웠다는 알림(broadcast · notify.js). 업무는 아래 cards 갈래가 다시 읽어 걷고(RLS가 행을 안 준다),
+    // 프로젝트는 아래 전체 재조회로 간다. 내 휴지통 줄은 따로 다시 읽는다.
+    if (payload?.eventType === 'TRASHED') onTrash?.();
     if (table === 'cards') {
       if (payload.eventType === 'DELETE') onCardDelete(old.id);
       else onCard(row.id || old.id);

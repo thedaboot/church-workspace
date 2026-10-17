@@ -17,6 +17,8 @@ import { leaderCardIds, lockedCardIds, lockedHiddenFor, unseenCardIds } from './
 import { leaderCited } from '../src/services/visibility.js';
 import { approvedFacts, factEvidence, saveFact, decideFact, rebuildLearned, rebuildFaq } from './_wiki/learn.js';
 import { openGroups } from './_wiki/faq.js';
+import { trashedIds } from './_trash.js';
+import { dropTrashed } from '../src/services/trashItems.js';
 
 export { serviceLine };
 
@@ -504,7 +506,8 @@ const readWiki = async (db) => {
 export async function collectAll(db, today, { admin = null } = {}) {
   const all = (t, cols) => readAll(() => db.from(t).select(cols).order('id'), t);
   // 한 번에 다 읽는다 — QT도 같은 묶음에(1-d · 2026-10-12 · 예전에는 나머지가 끝난 뒤 따로 한 번 더 오갔다)
-  const [{ pages, edits }, cards, projects, files, services, profiles, people, roster, cardTeams, comments, qt, facts, secrets] = await Promise.all([
+  // 휴지통(0104)은 서버 키(아침 고리 — db === admin)일 때만 읽은 자리에서 걷는다. 묻는 사람 세션은 RLS가 이미 가린다(왕복을 늘리지 않는다)
+  const [{ pages, edits }, cardsRaw, projectsRaw, filesRaw, services, profiles, people, roster, cardTeams, commentsRaw, qt, facts, secrets, trashed] = await Promise.all([
     readWiki(db),
     all('cards', 'id, project_id, title, status, start_date, due_date, description, subtasks, updated_at, assignees, card_assignees(profile_id)'),
     all('projects', 'id, name, year'),
@@ -518,7 +521,9 @@ export async function collectAll(db, today, { admin = null } = {}) {
     db.from('qt_schedule').select('qt_date, passage_ref').in('qt_date', [today, dayAfter(today, 1)]).then(r => r.data),
     approvedFacts(admin),
     db === admin ? [] : readAll(() => db.from('card_secrets').select('card_id, description, subtasks').order('card_id'), 'card_secrets').catch(() => []),
+    db === admin ? trashedIds(db) : null,
   ]);
+  const { cards, projects, files, comments } = dropTrashed({ cards: cardsRaw, projects: projectsRaw, files: filesRaw, comments: commentsRaw }, trashed);
   const secretOf = new Map(secrets.map(s => [s.card_id, s]));
   const nameById = new Map(profiles.map(p => [p.id, String(p.display_name || '').trim()]));
   const teamsOf = Map.groupBy(cardTeams.filter(r => r.teams?.name), r => r.card_id);

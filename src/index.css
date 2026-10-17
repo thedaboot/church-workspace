@@ -832,8 +832,13 @@ svg.lucide { stroke-width: 1.4px; }
 .dc-nav-back { animation: dc-nav-back .26s var(--ease-out-quint) both; }
 .dc-nav .dc-screen { animation-name: dc-screen-fade; }
 
+/* 한 창 안의 단계 전환(프로젝트 이름 수정 ⇄ 복제 · 사용자 승인 시안 2026-10-17): 내용은 위 .dc-nav-*(+ 안쪽 .dc-screen 페이드)로 들어오고
+   창의 높이·폭은 대화창 길이(--dur-dialog)의 quint로 따라간다 — 끊겨 뛰지 않게. 높이 값은 modals/settings.jsx useStepSize가 잰다. */
+.dc-step-size { transition: height var(--dur-dialog) var(--ease-out-quint), max-width var(--dur-dialog) var(--ease-out-quint); }
+
 @media (prefers-reduced-motion: reduce) {
   .dc-fade, .dc-nav-fwd, .dc-nav-back { animation: none !important; }
+  .dc-step-size { transition: none !important; }
 }
 
 /* tw-animate(`animate-in`·`animate-out` — 업무 창 · 댓글·첨부 줄 · 토스트 등 50여 곳)도 이징은 앱 토큰 하나다(2026-10-14).

@@ -26,6 +26,8 @@ const patched = readFileSync(SRC, 'utf8')
   .replace(/from '\.\/visibility\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'visibility.js')).href}';`)
   // 업무 잠금 판정(0099)도 순수 모듈 — 진짜 파일을 절대 경로로
   .replace(/from '\.\/cardLock\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'cardLock.js')).href}';`)
+  // 휴지통 규칙(0104)도 순수 모듈 — 진짜 파일을 절대 경로로
+  .replace(/from '\.\/trashItems\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'trashItems.js')).href}';`)
   .replace(/from '\.\/realtimeStatus\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'realtimeStatus.js')).href}';`)
   .replace(/import (\{[^}]*\}) from '\.\.\/utils\.js';/,
     (m, names) => `import ${names} from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'utils.js')).href}';`);
