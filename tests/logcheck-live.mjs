@@ -1023,3 +1023,64 @@ import { loadSource, readSplit } from './_load.mjs';
     '프로젝트가 먼저 서고 업무는 새 업무로 넣는다(하나가 실패해도 나머지는 들어간다)');
   console.log('PASS  프로젝트 복제(짜임새만 · 잠긴 업무 · 클라우드 댓글 수 · 리더만 원본 · 클라우드 순서)');
 }
+
+// ── 시안 v5 2묶음(mock/b3): 알림 종류별 설정 · 화면 오류 묶기 · 다붓이 답변 속도 ────────────
+// 알림 종 '알림 설정'(갈래 넷 + 항목 칩)이 거르는 규칙(services/notifyPrefs.js)과 운영 창의 셈(services/opsCore.js) — 둘 다 import 0.
+// **되돌리기**: notifAllowed에서 갈래 줄(`off.includes(s.group)`)을 빼면 ①, topFrame의 해시 걷기(`replace(/-[A-Za-z0-9_]{6,}…/)`)를
+// 빼면 ⑤(배포가 바뀌면 같은 오류가 두 줄로 갈린다), normMessage의 숫자 걷기를 빼면 ⑥, speedStats의 기간 거르기를 빼면 ⑨가 깨진다.
+{
+  const P = await loadSource('src/services/notifyPrefs.js');
+  const N = await import(new URL('../src/services/notifyText.js', import.meta.url).href);
+  const list = ['mention', 'reply', 'reaction', 'assignee_comment', 'assign', 'due_soon', 'lock_reset', 'worship_today', 'service_published', 'note_shared',
+    'club_apply', 'club_accepted', 'meeting_new', 'meeting_tomorrow', 'guide_pinned', 'approval', 'approved', 'feedback_fixed'].map((kind, i) => ({ id: i, kind }));
+  const kinds = (off) => P.filterNotifs(list, off).map(n => n.kind);
+  // ① 갈래를 끄면 그 갈래 알림이 모두 빠진다(항목 칩이 없는 lock_reset도)
+  assert.deepStrictEqual(kinds(['task']).filter(k => P.notifSlot(k)?.group === 'task'), [], '① 업무 갈래 끄기');
+  assert.ok(kinds(['task']).includes('worship_today'), '① 다른 갈래는 그대로');
+  // ② 항목만 끄면 그 항목의 kind만 — 댓글은 답글·반응·담당 업무 댓글 셋
+  assert.strictEqual(list.length - kinds(['task.comment']).length, 3, '② 댓글 항목은 kind 셋');
+  assert.ok(!kinds(['task.mention']).includes('mention') && kinds(['task.mention']).includes('reply'), '② 멘션만 끄기');
+  // ③ 갈래가 꺼지면 항목 값과 상관없이 꺼지고, 다시 켜면 예전 항목 값이 살아난다
+  const off = P.flipOff(['task.mention'], 'task');
+  assert.ok(!P.notifAllowed('assign', off) && P.notifAllowed('assign', P.flipOff(off, 'task')) && !P.notifAllowed('mention', P.flipOff(off, 'task')), '③ 갈래 ↔ 항목');
+  // ④ 표에 없는 kind(운영 '고침')는 언제나 보이고, 표의 kind는 모두 notifyText가 아는 말이다(새 kind를 표에만 넣는 실수)
+  assert.deepStrictEqual(kinds(P.NOTIF_GROUPS.map(g => g.key)), ['feedback_fixed'], '④ 다 꺼도 표 밖 kind는 남는다');
+  for (const g of P.NOTIF_GROUPS) for (const k of [...(g.kinds || []), ...g.items.flatMap(i => i.kinds)]) {
+    assert.ok(N.isSystemNotif(k) || k === 'mention' || N.notifText(k) !== N.notifText('__none__'), `④ ${k}는 notifyText에 문구가 있다`);
+  }
+  assert.strictEqual(new Set(list.map(n => P.notifSlot(n.kind)?.group).filter(Boolean)).size, 4, '④ 갈래 넷');
+
+  const O = await loadSource('src/services/opsCore.js');
+  const ev = (o) => ({ at: '2026-10-17T10:00:00Z', message: 'Cannot read properties of null', stack: 'TypeError: x\n    at bakeCanvas (https://a.app/assets/index-C1x9QaZp.js:412:88)', route: '/?p=worship', ua: 'iPhone KAKAOTALK', build: 'b1', user: '김은지', ...o });
+  // ⑤ 같은 오류는 빌드(해시 · 줄 번호)가 바뀌어도 한 줄
+  const g1 = O.groupErrors([ev(), ev({ at: '2026-10-17T11:00:00Z', stack: 'TypeError: x\n    at bakeCanvas (https://a.app/assets/index-Zz88Kq1w.js:530:12)', build: 'b2', user: '박지훈' })]);
+  assert.strictEqual(g1.length, 1, '⑤ 해시가 다른 빌드도 한 지문');
+  assert.deepStrictEqual([g1[0].count, g1[0].people, g1[0].lastSeen, g1[0].builds.length], [2, 2, '2026-10-17T11:00:00Z', 2], '⑤ 횟수 · 사람 · 마지막 · 빌드');
+  // ⑥ 문구 속 id·숫자·주소만 다른 것도 한 줄 · 함수가 다르면 다른 줄
+  const g2 = O.groupErrors([ev({ message: 'Card 3f2a1b9c-0000-4000-8000-000000000001 not found 12' }), ev({ message: 'Card 9d9d9d9d-1111-4111-8111-000000000002 not found 7' }),
+    ev({ stack: 'Error\n    at weekOf (https://a.app/assets/calendar-Bf3sZ0aa.js:51:33)' })]);
+  assert.deepStrictEqual(g2.map(g => g.count).sort(), [1, 2], '⑥ id·숫자만 다른 문구는 하나 · 다른 함수는 따로');
+  assert.strictEqual(O.topFrame('fn@https://a.app/assets/x-AbCdEf12.js:1:2'), 'fn@x.js', '⑥ 사파리 스택 모양');
+  // ⑦ 기간 밖은 빼고 · 마지막으로 난 차례
+  const g3 = O.groupErrors([ev({ at: '2026-10-01T00:00:00Z', message: 'old' }), ev({ at: '2026-10-17T12:00:00Z', message: 'b' }), ev({ at: '2026-10-17T13:00:00Z', message: 'a', stack: '' })],
+    { since: Date.parse('2026-10-10T00:00:00Z') });
+  assert.deepStrictEqual(g3.map(g => g.message), ['a', 'b'], '⑦ 기간 · 차례');
+  // ⑧ 기기·브라우저 이름
+  assert.deepStrictEqual(O.deviceOf('Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) Mobile/15E148 KAKAOTALK 10.9.0'), { device: 'iPhone', browser: '카카오톡' });
+  assert.deepStrictEqual(O.deviceOf('Mozilla/5.0 (Linux; Android 15; SM-S928N) SamsungBrowser/27.0 Chrome/125.0 Mobile Safari/537.36'), { device: '갤럭시', browser: '삼성 인터넷' });
+  // ⑨ 답변 속도 — 기간 안 중간값 · 느린 비율 · 최근 느린 질문(사람 칸 없음)
+  const now = Date.parse('2026-10-18T00:00:00Z');
+  const s = (h, ms) => ({ at: new Date(now - h * 3600000).toISOString(), ms, q: `q${h}` });
+  const st = O.speedStats([s(1, 1000), s(2, 3000), s(3, 9000), s(4, 2000), s(30 * 24, 20000)], { now, days: 7, slowMs: 8000 });
+  assert.deepStrictEqual([st.count, st.median, st.slowCount, st.slowRatio, st.recentSlow.map(r => r.q)], [4, 2500, 1, 0.25, ['q3']], '⑨ 기간 · 중간값 · 느린 답');
+  assert.strictEqual(O.median([]), null);
+  assert.deepStrictEqual([O.secText(8000), O.secText(2450), O.secText(12600)], ['8초', '2.5초', '13초'], '⑨ 초 글자');
+  // ⑩ 불편 사항 셈 · 관리 기록 거르기 · 날짜 묶음 · 화면 이름
+  assert.deepStrictEqual(O.feedbackCounts([{ status: 'new' }, { status: 'fixed' }, { status: 'new' }]), { all: 3, new: 2, seen: 0, fixed: 1 });
+  assert.strictEqual(O.filterAudit([{ kind: 'lock' }, { kind: 'role' }], 'lock').length, 1);
+  const local = (d, h) => new Date(2026, 9, d, h).getTime();
+  assert.deepStrictEqual(O.byDay([{ at: local(18, 9) }, { at: local(16, 9) }, { at: local(17, 9) }, { at: local(18, 1) }], local(18, 12)).map(d => [d.label, d.rows.length]),
+    [['오늘', 2], ['어제', 1], ['10월 16일', 1]], '⑩ 날짜 묶음');
+  assert.deepStrictEqual([O.screenOf('/?p=worship'), O.screenOf('/'), O.screenOf('/?p=team:미디어팀'), O.screenOf('/?p=abc', '여름 수련회')], ['예배', '홈', '미디어팀 보드', '여름 수련회']);
+  console.log('PASS  알림 종류별 설정 · 화면 오류 묶기 · 다붓이 답변 속도(시안 v5 2묶음)');
+}

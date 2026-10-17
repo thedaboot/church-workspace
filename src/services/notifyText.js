@@ -48,6 +48,8 @@ const SYSTEM_TEXT = {
   // 동아리 이름이 들어가서 함수다 — 서버가 actor_name 칸에 **동아리 이름**을 싣는다(보내는 사람이
   // 없는 알림이라 그 칸이 비어 있다 · 서비스 키로 넣어 0071 트리거도 덮지 않는다).
   meeting_tomorrow: (club) => (club ? `내일 ${club} 모임이 있어요` : '내일 동아리 모임이 있어요'),
+  // 운영 화면에서 마스터가 불편 사항을 '고침'으로 바꾸면 보낸 사람에게(시안 v5 2묶음 · mock/b3 게스트 시연만 · 문구는 사용자 확인 전 자리표)
+  feedback_fixed: '보내 주신 불편 사항을 고쳤어요',
 };
 
 export const isSystemNotif = (kind) => kind in SYSTEM_TEXT;
@@ -62,9 +64,10 @@ export const notifLine = (kind, actorName) => {
 };
 
 // 어느 화면 갈래의 알림인가 — 종 팝오버가 아이콘을 고를 때 쓴다(업무 알림은 아바타).
-//   'task'(업무) · 'worship'(예배) · 'group'(모임)
+//   'task'(업무) · 'worship'(예배) · 'group'(모임) · 'ops'(운영 — 불편 사항 고침 · 시안)
 export const notifArea = (kind) => {
   if (kind === 'worship_today' || kind === 'service_published' || kind === 'note_shared') return 'worship';
+  if (kind === 'feedback_fixed') return 'ops';
   if (kind === 'club_apply' || kind === 'club_accepted' || kind === 'meeting_new' || kind === 'approved' || kind === 'guide_pinned' || kind === 'meeting_tomorrow') return 'group';
   return 'task';
 };

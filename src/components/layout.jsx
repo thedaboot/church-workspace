@@ -1,5 +1,8 @@
-import React, { useState, useRef, useMemo } from 'react';
-import { ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Pencil, Users } from 'lucide-react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Pencil, Users, Wrench, MessageSquareWarning, UserRound } from 'lucide-react';
+import { demoOn, useDemoRole, setDemoRole, captureErrors } from '../services/opsDemo.js';
+import { OpsDesk } from './opsDesk.jsx';
+import { FeedbackSend } from './feedbackSend.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectMyTasks, selectMembers } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
@@ -44,6 +47,7 @@ export { SearchHint } from './searchBox.jsx';
 //   mobileNav.jsx         폰 상단바 · 프로젝트 탭 줄(길게 눌러 끌기) · 하단 바 두 층 · 화면 이름
 //   searchBox.jsx         통합 검색(인라인 · 폰 전체 판) · 돌아가는 안내 문구 · 관련된 업무 내용
 //   notificationBell.jsx  알림 종 · 알림 받기 줄 · 안드로이드 설치 줄
+//   opsDesk.jsx · feedbackSend.jsx  운영 창 · 불편 사항 보내기(시안 v5 2묶음 · 게스트 시연만 · 입구는 프로필 메뉴)
 
 // 교회 생활 축의 화면들 — **차례가 곧 화면에 서는 순서**다(하단 바 · 데스크톱 첫 묶음).
 // 세 곳이 이 목록을 본다: 하단 바의 모드 판정 · 데스크톱 탭 줄 접기 · App의 전환 방향
@@ -106,7 +110,15 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
   const currentUser = useStore(selectCurrentUser);
   // 한 번만 부른다 — 같은 컨텍스트를 두 번 읽던 자리였다(값이 갈릴 수는 없지만 읽는 곳이
   // 둘이면 나중에 조건이 붙을 때 한쪽만 고쳐진다)
-  const { enabled, session, signOut, isAdmin } = useAuth();
+  const { enabled, session, signOut, isAdmin, isMaster } = useAuth();
+  // 시안 v5 2묶음(mock/b3 · 게스트 시연만 — services/opsDemo.demoOn): 불편 사항 보내기(모두) · 운영(마스터만) ·
+  // 시연 줄(게스트는 마스터라 회원 쪽 화면을 보려면 여기서 바꾼다). 클라우드에서는 아무것도 서지 않는다.
+  const demo = !enabled && demoOn();
+  const demoRole = useDemoRole();
+  const opsOn = demo && isMaster && demoRole === 'master';
+  const [opsOpen, setOpsOpen] = useState(false);
+  const [fbOpen, setFbOpen] = useState(false);
+  useEffect(() => { if (demo) captureErrors(import.meta.env.MODE); }, [demo]);
   // measure: 판의 실제 높이로 위치를 다시 잡는다 — 추정 높이로만 잡으면
   // 아래에서 위로 뜨는 모바일 탭바 메뉴가 탭바에서 한참 떨어져 떠 보였다
   const pop = usePopover(224, 200, { gap: 8, measure: true });
@@ -139,11 +151,21 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
           {isAdmin && enabled && session && onOpenMembers && (
             <button className={item} onClick={go(onOpenMembers)}><Users size={15} /> 멤버 관리</button>
           )}
+          {opsOn && <button className={item} onClick={go(() => setOpsOpen(true))} data-ops-entry=""><Wrench size={15} /> 운영</button>}
+          {demo && <button className={item} onClick={go(() => setFbOpen(true))} data-feedback-entry=""><MessageSquareWarning size={15} /> 불편 사항 보내기</button>}
           <ThemeMenuItem className={item} />
+          {demo && isMaster && (
+            <button className={`${item} mt-1 border-t border-line rounded-t-none`} data-demo-role={demoRole}
+              onClick={go(() => setDemoRole(demoRole === 'master' ? 'member' : 'master'))}>
+              <UserRound size={15} /> {demoRole === 'master' ? '시연: 회원 화면으로 보기' : '시연: 마스터 화면으로 보기'}
+            </button>
+          )}
           {enabled && session && (
             <button className={`${item} hover:text-tag-red-fg`} onClick={go(signOut)}><LogOut size={15} /> 로그아웃</button>
           )}
         </>)}
+      {opsOpen && <OpsDesk onClose={() => setOpsOpen(false)} />}
+      {fbOpen && <FeedbackSend onClose={() => setFbOpen(false)} />}
     </span>
   );
 }
@@ -257,7 +279,7 @@ export const TopNav = React.memo(({
             ? <DaboutiFace active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />
             : <DaboutiPill active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />}
           <SearchBox onSearchSelect={onSearchSelect} variant={narrow ? 'icon' : 'inline'} />
-          {cloudMode && <NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
+          {(cloudMode || demoOn()) && <NotificationBell guest={!cloudMode} onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
           <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
         </div>
       </div>

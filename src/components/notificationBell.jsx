@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Bell, BellRing, BellOff, Users, CalendarClock, Smartphone, Church } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { X, Bell, BellRing, BellOff, Users, CalendarClock, Smartphone, Church, Settings2, ChevronLeft, Check, Wrench } from 'lucide-react';
 import { store } from '../store/workspaceStore.js';
 import { useAuth } from '../services/auth.jsx';
 import { formatRelative } from '../utils.js';
@@ -14,9 +14,13 @@ import { failText } from '../services/errorText.js';
 import { usePopover } from '../hooks/usePopover.js';
 import { markCardNotificationsRead } from '../services/cloud.js';
 import { setTaskFocus, notifFocusHint, onTaskOpen, openTaskId, notifArrival } from '../modals/taskFocus.js';
+import { NOTIF_GROUPS, filterNotifs, flipOff } from '../services/notifyPrefs.js';
+import { useGuestNotifs, setGuestNotifs, useNotifOff, setNotifOff } from '../services/opsDemo.js';
+import { ShareSwitch } from './bibleParts.jsx';
 
 // ============================================================================
 // 알림 종(클라우드 모드에서만 선다 · 데스크톱 TopNav와 폰 상단바가 같은 것을 쓴다).
+// 시안 v5 2묶음(mock/b3): 게스트 시연(opsDemo.demoOn)에도 서서 브라우저 알림 + '알림 설정'(갈래 넷 · notifyPrefs)을 보인다 — 아래 GuestBell.
 // 19차 묶음 D에서 layout.jsx에서 갈라 왔다(동작·모양은 그대로).
 //   · 알림은 **남긴 계정 앞으로** 온다(0063) — 구독 필터는 myUid()로 물은 값(세션 uid가 아니다)
 //   · 판 안: 머리(모두 읽음) · 안드로이드 설치 줄 · '이 기기로 알림 받기'(권한은 여기서 묻는다) · 알림 줄(열기 · 지우기)
@@ -105,6 +109,7 @@ function PushRow() {
 const AREA_ICON = {
   worship: [Church, 'bg-accent-weak text-accent-text'],
   group: [Users, 'bg-tag-green text-tag-green-fg'],
+  ops: [Wrench, 'bg-accent-weak text-accent-text'],
 };
 const AREA_ICON_DEFAULT = [CalendarClock, 'bg-tag-yellow text-tag-yellow-fg'];
 const SystemIcon = ({ kind }) => {
@@ -116,7 +121,12 @@ const SystemIcon = ({ kind }) => {
   );
 };
 
-export function NotificationBell({ onOpenTask, onOpenLink }) {
+// 게스트 시연(guest · 시안 v5 2묶음)은 브라우저에 심은 알림으로 같은 판을 그리고 '알림 설정'을 연다 — 클라우드 갈래는 그대로다.
+export function NotificationBell(props) {
+  return props.guest ? <GuestBell {...props} /> : <CloudBell {...props} />;
+}
+
+function CloudBell({ onOpenTask, onOpenLink }) {
   const { session } = useAuth();
   // 알림은 **남긴 계정 앞으로** 온다(0063) — 구독 필터(`recipient_id=eq.…`)가 세션 uid면
   // 합친 계정에게는 새 알림이 한 줄도 안 들어와 벨이 비어 보인다. 물어 오기 전까지는
@@ -231,77 +241,183 @@ export function NotificationBell({ onOpenTask, onOpenLink }) {
 
   return (
     <span className="inline-flex shrink-0" ref={pop.rootRef}>
-      <span ref={pop.btnRef} className="inline-flex">
-        <button
-          // 열기 전에 위치 확정(pop.toggle) — 첫 프레임이 {0,0}에 그려지면 좌상단에서
-          // 날아오는 것처럼 보인다(첫 오픈에서만 나던 증상)
-          onClick={pop.toggle}
-          className="relative p-2 min-w-11 min-h-11 flex items-center justify-center rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"
-          title="알림"
-        >
-          <Bell size={18} strokeWidth={1.75} />
-          {unread > 0 && (
-            <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-white text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
-              {unread > 9 ? '9+' : unread}
-            </span>
-          )}
-        </button>
-      </span>
-      {pop.panel('z-[90] max-w-[calc(100vw-2rem)] max-sm:w-[calc(100vw-2rem)]! max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated', <>
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-line sticky top-0 bg-surface">
-            <span className="text-xs font-bold text-fg">알림</span>
-            {unread > 0 && (
-              <button onClick={readAll} className="text-[10px] text-accent-text hover:bg-surface-hover rounded-md px-1.5 py-1 transition active:scale-95">모두 읽음</button>
-            )}
-          </div>
+      <BellTrigger pop={pop} unread={unread} />
+      {pop.panel(PANEL, <>
+          <PanelHead title="알림">
+            {unread > 0 && <ReadAllButton onClick={readAll} />}
+          </PanelHead>
           <InstallRow />
           <PushRow />
-          {items.length === 0 ? (
-            <div className="text-center py-8 px-3">
-              <span className="inline-flex w-8 h-8 rounded-full bg-tag-yellow text-tag-yellow-fg items-center justify-center mb-2"><Bell size={13} strokeWidth={1.75} /></span>
-              <p className="text-xs text-fg-faint">새로운 알림이 없어요</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-line/60">
-              {/* 줄 전체가 button이었는데 지우기 버튼이 그 안에 들어가야 해서 div로 바꿨다
-                  (button 안의 button은 유효하지 않다). 여는 영역만 button으로 남긴다. */}
-              {items.map(n => (
-                <div
-                  key={n.id}
-                  className={`flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
-                >
-                  <button onClick={() => openItem(n)} className="flex-1 min-w-0 flex items-start gap-2.5 text-left">
-                    {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
-                    {/* 마감 알림은 사람이 만든 게 아니라 배치가 만든다 — 아바타 대신 시계 */}
-                    {/* 시스템 알림은 아이콘 — 마감은 시계, 예배는 교회, 모임은 사람들(0053). 사람이 만든 것은 아바타 */}
-                    {isSystemNotif(n.kind) ? (
-                      <SystemIcon kind={n.kind} />
-                    ) : (
-                      <Avatar name={n.actor_name || ''} className="flex w-6 h-6 text-[10px]" />
-                    )}
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[11px] text-fg-secondary leading-snug">
-                        {isSystemNotif(n.kind)
-                          ? notifLine(n.kind, n.actor_name)
-                          : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
-                      </span>
-                      {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
-                      <span className="block text-[10px] text-fg-muted mt-0.5">{formatRelative(n.created_at)}</span>
-                    </span>
-                  </button>
-                  {/* hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 이 기능이 아예
-                      없는 것처럼 보인다(§7) */}
-                  <button
-                    onClick={() => dismiss(n)} title="이 알림 지우기" aria-label="이 알림 지우기"
-                    className="shrink-0 -mr-1 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <NotifRows items={items} openItem={openItem} dismiss={dismiss} />
         </>)}
     </span>
+  );
+}
+
+const PANEL = 'z-[90] max-w-[calc(100vw-2rem)] max-sm:w-[calc(100vw-2rem)]! max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated';
+
+function BellTrigger({ pop, unread }) {
+  return (
+    <span ref={pop.btnRef} className="inline-flex">
+      <button
+        // 열기 전에 위치 확정(pop.toggle) — 첫 프레임이 {0,0}에 그려지면 좌상단에서
+        // 날아오는 것처럼 보인다(첫 오픈에서만 나던 증상)
+        onClick={pop.toggle}
+        className="relative p-2 min-w-11 min-h-11 flex items-center justify-center rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"
+        title="알림"
+      >
+        <Bell size={18} strokeWidth={1.75} />
+        {unread > 0 && (
+          <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-white text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
+      </button>
+    </span>
+  );
+}
+
+const PanelHead = ({ title, children, onBack }) => (
+  <div className="flex items-center gap-1 px-3 py-2.5 border-b border-line sticky top-0 z-[1] bg-surface min-h-[41px]">
+    {onBack && (
+      <button type="button" onClick={onBack} aria-label="뒤로" title="뒤로"
+        className="-ml-1.5 p-1 rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95"><ChevronLeft size={15} /></button>
+    )}
+    <span className="flex-1 text-xs font-bold text-fg">{title}</span>
+    {children}
+  </div>
+);
+
+const ReadAllButton = ({ onClick }) => (
+  <button onClick={onClick} className="text-[10px] text-accent-text hover:bg-surface-hover rounded-md px-1.5 py-1 transition active:scale-95">모두 읽음</button>
+);
+
+function NotifRows({ items, openItem, dismiss }) {
+  if (items.length === 0) {
+    return (
+      <div className="text-center py-8 px-3">
+        <span className="inline-flex w-8 h-8 rounded-full bg-tag-yellow text-tag-yellow-fg items-center justify-center mb-2"><Bell size={13} strokeWidth={1.75} /></span>
+        <p className="text-xs text-fg-faint">새로운 알림이 없어요</p>
+      </div>
+    );
+  }
+  return (
+    <div className="divide-y divide-line/60">
+      {/* 줄 전체가 button이었는데 지우기 버튼이 그 안에 들어가야 해서 div로 바꿨다
+          (button 안의 button은 유효하지 않다). 여는 영역만 button으로 남긴다. */}
+      {items.map(n => (
+        <div
+          key={n.id}
+          className={`flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
+        >
+          <button onClick={() => openItem(n)} className="flex-1 min-w-0 flex items-start gap-2.5 text-left">
+            {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
+            {/* 시스템 알림은 아이콘 — 마감은 시계, 예배는 교회, 모임은 사람들(0053). 사람이 만든 것은 아바타 */}
+            {isSystemNotif(n.kind) ? (
+              <SystemIcon kind={n.kind} />
+            ) : (
+              <Avatar name={n.actor_name || ''} className="flex w-6 h-6 text-[10px]" />
+            )}
+            <span className="flex-1 min-w-0">
+              <span className="block text-[11px] text-fg-secondary leading-snug">
+                {isSystemNotif(n.kind)
+                  ? notifLine(n.kind, n.actor_name)
+                  : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
+              </span>
+              {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
+              <span className="block text-[10px] text-fg-muted mt-0.5">{formatRelative(n.created_at)}</span>
+            </span>
+          </button>
+          {/* hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 이 기능이 아예
+              없는 것처럼 보인다(§7) */}
+          <button
+            onClick={() => dismiss(n)} title="이 알림 지우기" aria-label="이 알림 지우기"
+            className="shrink-0 -mr-1 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── 게스트 시연 종(시안 v5 2묶음 · mock/b3) ─────────────────────────────────
+// 알림은 services/opsDemo.js의 브라우저 목록(씨앗 + 운영 화면 '고침'이 넣는 것) · 끈 갈래·항목은 notifyPrefs가 거른다
+// (끈 것은 줄도 안 서고 빨간 숫자에도 안 든다). 판 머리의 톱니 → 같은 판 안에서 '알림 설정'으로 바뀐다(뒤로 → 목록).
+// 자리를 고른 까닭: 알림을 받는 일('이 기기로 알림 받기')이 이미 이 판에 있고, 설정 창(내 정보)은 '저장'으로 모아 쓰는 폼이라
+// 누르는 즉시 바뀌는 토글과 결이 다르다.
+function GuestBell({ onOpenLink }) {
+  const all = useGuestNotifs();
+  const off = useNotifOff();
+  const items = useMemo(() => filterNotifs(all, off), [all, off]);
+  const unread = items.filter(n => !n.read).length;
+  const pop = usePopover(320, 240, { portal: false, gap: 16, measure: true });
+  const [view, setView] = useState('list');
+  useEffect(() => { if (!pop.open) setView('list'); }, [pop.open]);
+  const openItem = (n) => {
+    setGuestNotifs(list => list.map(x => (x.id === n.id ? { ...x, read: true } : x)));
+    pop.close();
+    if (isAppLink(n.link)) onOpenLink?.(n.link);
+  };
+  const dismiss = (n) => setGuestNotifs(list => list.filter(x => x.id !== n.id));
+  const readAll = () => setGuestNotifs(list => list.map(x => ({ ...x, read: true })));
+  return (
+    <span className="inline-flex shrink-0" ref={pop.rootRef}>
+      <BellTrigger pop={pop} unread={unread} />
+      {pop.panel(PANEL, view === 'prefs' ? (
+        <>
+          <PanelHead title="알림 설정" onBack={() => setView('list')} />
+          <NotifPrefs off={off} />
+        </>
+      ) : (
+        <>
+          <PanelHead title="알림">
+            {unread > 0 && <ReadAllButton onClick={readAll} />}
+            <button type="button" onClick={() => setView('prefs')} aria-label="알림 설정" title="알림 설정" data-notif-prefs-open=""
+              className="-mr-1.5 p-1 rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95"><Settings2 size={14} /></button>
+          </PanelHead>
+          <InstallRow />
+          <PushRow />
+          <NotifRows items={items} openItem={openItem} dismiss={dismiss} />
+        </>
+      ))}
+    </span>
+  );
+}
+
+// 갈래 넷 — 갈래 스위치 + 항목 칩(갈래가 꺼지면 칩은 흐리고 못 누른다 · 항목 값은 남는다)
+function NotifPrefs({ off }) {
+  const flip = (key) => setNotifOff(flipOff(off, key));
+  return (
+    <div className="divide-y divide-line/60" data-notif-prefs="">
+      {NOTIF_GROUPS.map(g => {
+        const on = !off.includes(g.key);
+        return (
+          <div key={g.key} className="px-3 py-2.5" data-notif-group={g.key}>
+            <button type="button" role="switch" aria-checked={on} onClick={() => flip(g.key)}
+              className="w-full flex items-center gap-3 text-left">
+              <span className="flex-1 text-[12px] font-semibold text-fg">{g.label}</span>
+              <ShareSwitch on={on} />
+            </button>
+            {g.items.length > 0 && (
+              <div className={`flex flex-wrap gap-1.5 mt-2 transition-opacity ${on ? '' : 'opacity-40'}`}>
+                {g.items.map(it => {
+                  const key = `${g.key}.${it.key}`;
+                  const itOn = !off.includes(key);
+                  return (
+                    <button key={it.key} type="button" aria-pressed={itOn} disabled={!on} onClick={() => flip(key)}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-xs text-[11px] font-semibold border transition active:scale-95 disabled:pointer-events-none ${
+                        itOn ? 'bg-accent-weak text-accent-text border-transparent' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
+                      {itOn && <Check size={11} className="shrink-0" />}{it.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
