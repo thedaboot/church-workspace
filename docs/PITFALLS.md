@@ -1102,6 +1102,9 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 답 캐시 도장(`_wikiAsk.dataStamp`)에 배운 것의 `decided_at`(대기 중이면 비었다)을 그대로 더했으면 늘 null이 나와 '데이터가 안 바뀜'으로 읽혔을 것이다
 (20차 ⑧ · 0098). 승인된 것만(`eq('status','approved')`) 몇 줄 받아 빈 값을 걸러 고른다. 다른 도장 열(updated_at · edited_at · created_at)은 `not null`이라 괜찮다.
 가짜 DB(`tests/logcheck-wiki` 20차 ⑧)의 `update`는 표의 행을 그대로 고치므로, 같은 행 객체를 여러 가짜 DB에 넣으면 앞 검사가 닫은(resolved_at) 행이 뒤 검사로 샌다 — 표마다 복사본(`{ ...row }`)을 넣는다.
+**33-x.** **다붓이가 받아친 말(2026-10-17 '다붓이 말투')은 `answered`로 저장되지만 👎 하나로 열린 질문이 된다** — `openGroups`는 '몰랐거나 👎'를 연다.
+그래서 `answer.talk`를 달고 `faq.openGroups` · `reaskTodo`가 따로 뺀다(아침 고리가 다시 물어 받아친 말이면 cause `talk`로 닫는다). 새 받아치는 갈래를 붙일 때도 `talk: true`를 달 것 —
+안 달면 같은 말 기억(`dabooti.jsx` memoPut)이 앞 대화가 다른 답을 다시 쓰고, '학습하지 마'는 두 번째부터 서버에 안 가 앞 질문을 못 뺀다.
 
 ### 폰 키보드 · 업무 창 뒤로가기 (2026-10-14 반응형 점검)
 

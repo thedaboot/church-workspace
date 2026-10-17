@@ -233,7 +233,8 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
       // 서버가 흘려보내는 단계(기록 모음 → 답 작성 → flash-lite) — 기다리는 말풍선이 그 단계의 문구를 고른다(wikiCore.waitLine)
       const onStage = (stage) => setChat(c => c.map(m => (m.id === id && m.loading ? { ...m, stage } : m)));
       const a = await askDabooti(question, prev, { onStage });
-      if (!follow && !a.asked) memoPut(question, a);
+      // 받아친 말 · 학습하지 마(a.talk · 2026-10-17)는 앞 대화에 따라 다르고 '학습하지 마'는 서버가 앞 질문을 빼야 해서 기억하지 않는다
+      if (!follow && !a.asked && !a.talk) memoPut(question, a);
       setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, a } : m)));
     } catch (e) {
       setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, err: e.human || '답을 받지 못했어요' } : m)));

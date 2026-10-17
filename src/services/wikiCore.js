@@ -331,10 +331,15 @@ export function prefilter(q) {
 // ── 다붓이: 모델 없이 코드가 답하는 말 (사용자 결정 2026-10-04) ─────────────────
 // 다붓이 자신(누가 만들었나) · 인사·고마움·칭찬 · 알려 주는 말(질문이 아닌 문장)은 근거를 찾지 않는다.
 // 정보 답은 지금처럼 담백한 해요체이고, 이쪽만 조금 다정하게 — 짧게(1~2문장) · 이모지 없음 · 교회 사실은 말하지 않는다.
-// talkKind(질문, 앞 질문들) → { kind, answer, status } 또는 null(근거를 찾는 보통 길).
+// talkKind(질문, 앞 질문들) → { kind, answer, status, model? } 또는 null(근거를 찾는 보통 길).
 //   self      다붓이를 누가 만들었나 · 만든 사람을 알려 줌 — answered(칩 없음 · 저장하지 않는다)
 //   greet · thanks · praise · ok · bye — answered(저장하지 않는다)
 //   statement 알려 주는 말 — unknown으로 저장하고, 그 말은 배운 것 저장소(0098 dabooti_facts)로 간다(마스터면 바로 반영 · api/ai.js)
+// 다붓이 말투(사용자 승인 2026-10-17 · HANDOFF 다음 할 일 1): 질문마다 정규식 + 고정 문구를 더하지 않는다.
+//   model: true인 갈래(인사 · 고마움 · 칭찬 · 응 · 작별 · 마음(위기 빼고) · 신앙 · 청년부 밖)는 **모델이 다붓이 말투로 받아친다**
+//   (api/_wikiAsk.js TALK_VOICE 한 곳 · 앞 대화 prev도 넘긴다) — answer는 모델이 실패하거나 검사에 걸렸을 때의 대신 말이다.
+//   고정으로 남는 것: 위기(FEEL_CRISIS) · 만든 사람(makerAnswer · makerDid) · 다붓이 설정(PERSONA_ANSWERS — 사용자가 정한 생일·나이 같은 사실) · 알려 주는 말.
+//   업무를 찾거나 잇는 말(workAsk)은 받아치는 갈래보다 먼저 기록 쪽으로 간다(talkRoute — 위기·만든 사람만 그대로).
 export const MAKER = '노준석';
 export const TALK_ANSWERS = {
   // 묻는 말에 맞춰 고른다(사용자 결정 2026-10-16 — 꾸밈말 없이 '아빠'면 자손, '낳았어'면 탄생 · makerAnswer)
@@ -428,7 +433,7 @@ export function feelingKind(q) {
   if (FEEL_CRISIS.test(s)) return { kind: 'feeling', topic: 'crisis', status: 'answered', answer: FEEL_ANSWERS.crisis };
   if (FEEL_DATA.test(s)) return null;
   const topic = FEEL_CHURCH.test(s) ? 'church' : FEEL_LONELY.test(s) ? 'lonely' : FEEL_HARD.test(s) ? 'hard' : null;
-  return topic ? { kind: 'feeling', topic, status: 'answered', answer: `${FEEL_ANSWERS[topic]} ${CARE_LINK}` } : null;
+  return topic ? { kind: 'feeling', topic, status: 'answered', answer: `${FEEL_ANSWERS[topic]} ${CARE_LINK}`, model: true } : null;
 }
 
 // 신앙 질문 — 교리를 풀지 않는다. 따뜻한 한 문장 + 이을 사람 한 문장(모델 없음).
@@ -440,7 +445,7 @@ export const FAITH_ANSWER = `깊이 생각해 볼 만한 소중한 질문이에�
 export function faithKind(q) {
   const s = String(q || '').trim();
   if (!FAITH_TOPIC.test(s) || !FAITH_ASK.test(s) || FAITH_DATA.test(s)) return null;
-  return { kind: 'faith', status: 'answered', answer: FAITH_ANSWER };
+  return { kind: 'faith', status: 'answered', answer: FAITH_ANSWER, model: true };
 }
 
 // 청년부 밖 이야기(날씨 · 맛집 · 과제 · 주식 · 일반 상식) — 청년부 낱말이 같이 있으면 업무 질문이다('수련회 근처 맛집')
@@ -449,7 +454,7 @@ const OFF = /날씨|기온|미세\s?먼지|비\s?(?:와|올까|오나)|맛집|�
 const CHURCH_WORDS = /청년부|더다붓|교회|예배|수련회|체육대회|월례회|순모임|(?<![가-힣])순(?![가-힣])|[가-힣A-Za-z]순(?:에|은|의|이)?(?![가-힣])|팀|행사|MT|엠티|양육|찬양|주보|설교|모임|리더|순장|전도사|워크스페이스|업무|간식|회비|장소/;
 export function offTopicKind(q) {
   const s = String(q || '').trim();
-  return OFF.test(s) && !CHURCH_WORDS.test(s) ? { kind: 'offtopic', status: 'answered', answer: OFF_TOPIC_ANSWER } : null;
+  return OFF.test(s) && !CHURCH_WORDS.test(s) ? { kind: 'offtopic', status: 'answered', answer: OFF_TOPIC_ANSWER, model: true } : null;
 }
 
 // 꾸밈(부르는 말·문장부호·웃음)을 걷은 알맹이
@@ -498,18 +503,51 @@ export function talkKind(q, prev = []) {
   const c = core(s);
   // '다붓이 안뇽 ?!'처럼 물음표가 붙은 인사도 인사다(2026-10-05 — 모르는 질문으로 답했다)
   if (!isAsking(s) || /^[?？]*$/.test(c) || (GREET.test(c) && c.replace(/[?？!~.\s]/g, '').length <= 6)) {
-    if (THANKS.test(c) && c.length <= 30) return { kind: 'thanks', status: 'answered', answer: TALK_ANSWERS.thanks };
-    if (GREET.test(c) && c.length <= 20) return { kind: 'greet', status: 'answered', answer: TALK_ANSWERS.greet };
-    if (BYE.test(c) && c.length <= 15) return { kind: 'bye', status: 'answered', answer: TALK_ANSWERS.bye };
-    if (PRAISE.test(c) && c.length <= 20) return { kind: 'praise', status: 'answered', answer: TALK_ANSWERS.praise };
-    if (OK.test(c) && c.length <= 8) return { kind: 'ok', status: 'answered', answer: TALK_ANSWERS.ok };
-    if (!c) return { kind: 'greet', status: 'answered', answer: TALK_ANSWERS.greet };   // '다붓아!'만
+    const small = (kind) => ({ kind, status: 'answered', answer: TALK_ANSWERS[kind], model: true });
+    if (THANKS.test(c) && c.length <= 30) return small('thanks');
+    if (GREET.test(c) && c.length <= 20) return small('greet');
+    if (BYE.test(c) && c.length <= 15) return small('bye');
+    if (PRAISE.test(c) && c.length <= 20) return small('praise');
+    if (OK.test(c) && c.length <= 8) return small('ok');
+    if (!c) return small('greet');   // '다붓아!'만
   }
   const off = offTopicKind(s);
   if (off) return off;
   if (isStatement(s)) return { kind: 'statement', status: 'unknown', answer: TALK_ANSWERS.statement };
   return null;
 }
+
+// 업무 일(사용자 승인 2026-10-17) — 업무를 찾거나 잇는 말 · 일정·자리·담당을 묻는 말은 받아치는 갈래보다 먼저 기록 쪽으로.
+// 모델이 '받아칠 말'(talk)이라고 해도 이런 말이면 받지 않는다(acceptTalk — 못 찾음 그대로).
+const WORK_WORDS = /업무|할\s?일|태스크|task|카드|링크/i;
+const WORK_DATA = /언제|어디서|어디에|어디\s?있|몇\s?(?:시|명|일|번)|일정|장소|담당|마감|날짜|주보|파일|자료/;
+export const workAsk = (q) => { const s = String(q || ''); return WORK_WORDS.test(s) || WORK_DATA.test(s); };
+// 업무를 만들어 달라는 말 — 만들기는 아직 없다(3묶음 '다붓이에게 업무 요청'). 거르기의 make 문장으로 분명히 말하고 비슷한 업무를 찾아 잇는다.
+const TASK_WORDS = /업무|할\s?일|태스크|task|카드/i;
+const TASK_MAKE = /(?:만들어|만들|추가해|추가|등록해|등록|생성해|생성|작성해|짜)\s?(?:줘|주세요|줄래|줄\s?수|달라|주실|수\s?있)/;
+export const taskMake = (q) => { const s = String(q || ''); return TASK_WORDS.test(s) && TASK_MAKE.test(s); };
+// 받아치는 갈래 고르기 — 업무 일이면 위기·만든 사람(고정)만 그대로 두고 모델이 받아치는 갈래는 건너뛴다
+export function talkRoute(q, prev = []) {
+  const t = talkKind(q, prev);
+  return t?.model && workAsk(q) ? null : t;
+}
+// 기록 쪽 모델이 '받아칠 말'(talk)이라고 한 답을 받을까 — 못 찾았고(found 아님) 업무 일이 아닐 때만
+export const acceptTalk = (out, q) => !!out && out.talk === true && out.found !== true && !workAsk(q);
+
+// '학습하지 마' · '배우지 마' · '기억하지 마' · '저장하지 마'(사용자 승인 2026-10-17) — 코드가 알아보고 그 말과 바로 앞 질문을
+// 배우는 목록(아직 답하지 못한 질문 · 아침 고리 · 배운 것)에서 뺀다(api/_wikiAsk.js forgetOp). 답 문장은 모델이 이 말투 예시로 만든다.
+const FORGET = /(?:학습\s?하|기억\s?하|저장\s?하|배우)지\s?(?:마|말)/;
+export const forgetKind = (q) => FORGET.test(String(q || ''));
+export const FORGET_EXAMPLE = '알겠어요, 이 이야기는 비밀로 해둘게요.';   // 사용자 문구(말투 예시 · 모델이 실패하면 이 문장)
+
+// 모델이 받아친 말 검사 — 해요체 · 대시·금지어 없음 · 근거(hay)에 없는 숫자·금액 · strangers(글, hay)가 짚은 이름이 없을 때만 쓴다 → 걸린 까닭들
+export function talkIssues(text, hay = '', strangers = () => []) {
+  const t = String(text || '').trim();
+  if (!t) return ['빈 말'];
+  return [...styleIssues(t), ...strangeNumbers(t, hay).map(n => `숫자 ${n}`), ...strangeAmounts(t, hay).map(a => `금액 ${a}`), ...strangers(t, hay).map(n => `이름 ${n}`)];
+}
+// 받아친 말은 두 문장까지
+export const firstSentences = (text, n = 2) => String(text || '').trim().split(/(?<=[.!?])\s+/).slice(0, n).join(' ');
 
 // 사람을 묻는 질문 — 근거에 가입자 이름·팀·직함 줄을 싣는다(묻는 사람 세션 · RLS)
 const PEOPLE_Q = /누구|누가|명단|멤버|팀원|사역자|전도사|목사|교역자|팀장|인도자|싱어|가입자|담당자|들어가\s?있|소속/;

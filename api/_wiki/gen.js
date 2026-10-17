@@ -38,5 +38,6 @@ const STR = { type: 'STRING' };
 export const SCHEMA = {
   write: { type: 'ARRAY', items: { type: 'OBJECT', properties: { b: STR, s: { type: 'ARRAY', items: STR }, text: STR }, required: ['b', 's', 'text'] } },
   verify: { type: 'OBJECT', properties: { problems: { type: 'ARRAY', items: { type: 'OBJECT', properties: { n: { type: 'INTEGER' }, extra: { type: 'ARRAY', items: STR } }, required: ['n', 'extra'] } } }, required: ['problems'] },
-  answer: { type: 'OBJECT', properties: { found: { type: 'BOOLEAN' }, sentences: { type: 'ARRAY', items: { type: 'OBJECT', properties: { text: STR, e: { type: 'ARRAY', items: STR } }, required: ['text', 'e'] } } }, required: ['found', 'sentences'] },
+  // talk: 기록에서 찾을 일이 아닌 말이라 다붓이 말투로 받아쳤다(2026-10-17 · _wikiAsk acceptTalk가 업무 일이면 받지 않는다)
+  answer: { type: 'OBJECT', properties: { found: { type: 'BOOLEAN' }, talk: { type: 'BOOLEAN' }, sentences: { type: 'ARRAY', items: { type: 'OBJECT', properties: { text: STR, e: { type: 'ARRAY', items: STR } }, required: ['text', 'e'] } } }, required: ['found', 'sentences'] },
 };

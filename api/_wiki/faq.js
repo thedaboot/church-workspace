@@ -1,4 +1,4 @@
-import { FAQ_SOURCE, MASTER_PAGES, hashKey, kstDate, prefilter, stripBold, talkKind, termsOf, tokenCoverage } from '../../src/services/wikiCore.js';
+import { FAQ_SOURCE, MASTER_PAGES, hashKey, kstDate, prefilter, stripBold, talkKind, termsOf, tokenCoverage, forgetKind } from '../../src/services/wikiCore.js';
 import { leaderCited } from '../../src/services/visibility.js';
 
 // ── '아직 답하지 못한 질문' 장(id는 faq 그대로 — 딥링크·정책·푸시가 그 id를 안다) — 물어본 글로 매일 다시 세운다(모델 없음 · 마스터만 · 0090) ──
@@ -43,11 +43,13 @@ export function openGroups(questions = [], { leaderCards = new Set(), wikiLines 
     const bad = ask.feedback === 'bad';
     if (ask.status !== 'unknown' && !bad) continue;
     if (ask.answer?.told || talkKind(ask.question)?.kind === 'statement' || prefilter(ask.question) || answeredToday(ask.question, wikiLines)) continue;
+    // 다붓이 말투로 받아친 말(answer.talk · 👎가 붙어도) · 학습하지 마(옛 저장분 '아니야 학습하지마')는 질문이 아니다(2026-10-17 · PITFALLS 33-x)
+    if (ask.answer?.talk || forgetKind(ask.question)) continue;
     if (!ask.answer?.prev && !termsOf(ask.question).length) continue;
     if (list.some(q => q.status === 'answered' && leaderCited(q.answer, leaderCards))) continue;
     const night = [...list].reverse().find(q => q.via === 'nightly' && String(q.created_at) >= String(ask.created_at));
     const cause = night?.answer?.cause;
-    if (['dropped', 'known', 'told'].includes(cause) || (cause === 'missed' && night.status === 'answered' && (!bad || night.answer.fromBad))) continue;
+    if (['dropped', 'known', 'told', 'talk'].includes(cause) || (cause === 'missed' && night.status === 'answered' && (!bad || night.answer.fromBad))) continue;
     out.push({ norm, q: ask.question, id: ask.id, why: bad || cause === 'disputed' ? 'bad' : 'none', at: ask.created_at, n: list.filter(q => q.via !== 'nightly').length, row: ask });
   }
   return out;

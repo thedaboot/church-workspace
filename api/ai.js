@@ -158,7 +158,7 @@ export async function handleEmbed(raw, geminiKey, res) {
 const ASK_PER_MINUTE = 30;
 async function handleAsk(req, body, res) {
   const mod = await import('./_wikiAsk.js');
-  const { answerQuestion, saveAnswer, setFeedback, userClient, askNudge, statementQuestion, tellOp, whoAsks } = mod;
+  const { answerQuestion, saveAnswer, setFeedback, userClient, askNudge, statementQuestion, tellOp, whoAsks, forgetOp } = mod;
   const admin = adminClient();
   if (body.feedback != null) {
     const ok = await setFeedback(admin, body.feedback?.id, body.feedback?.v ?? null);
@@ -184,6 +184,10 @@ async function handleAsk(req, body, res) {
     // 알려 주는 말(talkKind statement)도 배운 것 저장소로(20차 ⑧ — 마스터 말이면 바로 반영) · 이미 아는 말(save: false)은 남기지 않는다
     if (out.kind === 'statement' && out.save !== false) {
       await whoAsks(db).then(who => tellOp(admin, { text: q, question: statementQuestion(q, prev), who })).catch(e => console.error('[ai] 알려 준 말 저장 실패:', e?.message || e));
+    }
+    // 학습하지 마(2026-10-17) — 그 말은 저장하지 않았고(save: false) 바로 앞 질문을 목록·아침 고리·배운 것에서 뺀다(forgetOp)
+    if (out.kind === 'forget') {
+      await whoAsks(db).catch(() => ({})).then(who => forgetOp(admin, { prev, who }));
     }
     const { dropped, wikiCards: _wc, ...shown } = out;   // wikiCards는 저장용(20차 ⑦ · leaderCited) — 화면에는 안 간다
     reply(200, { id, ...shown, ...(askNudge(out, q, prev) ? { nudge: true } : {}) });

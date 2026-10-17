@@ -533,8 +533,8 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.ok(!W.cacheFresh({ ...row, feedback: 'bad' }, '2026-10-04T02:00:00Z', '2026-10-04'));
   assert.ok(!W.cacheFresh({ ...row, answer: { sentences: row.answer.sentences } }, '2026-10-04T02:00:00Z', '2026-10-04'), '캐시해도 되는 답으로 저장된 것만');
   assert.ok(!W.cacheFresh({ ...row, answer: { cacheable: true, sentences: [{ text: 'a', cites: [{ t: 'page', id: 'faq' }] }] } }, '2026-10-04T02:00:00Z', '2026-10-04'), '마스터만 보는 장을 근거로 한 답');
-  // 순서: 거르기 → talkKind → 이어 묻기(위키 · 다붓이 10) → 성경 → 출석 → 생일 → 캐시 → 근거 · 밤 다시 묻기는 캐시 끔 · 저장은 캐시해도 되는 답 표시
-  const order = ['const pf = prefilter(raw);', 'const talk = talkKind(raw, prevLines);', 'const question = (prevLines.length && looksFollowUp(raw) && followUpRule(', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question) || isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today, db)', 'collectAll(db, today, { admin }),', 'const found = parseModelJson(await gen(LOCATE_SYS'];
+  // 순서: 학습하지 마 → 업무 만들기 → 거르기 → talkRoute(2026-10-17 — 업무 일이면 받아치는 갈래를 건너뛴다) → 이어 묻기(위키 · 다붓이 10) → 성경 → 출석 → 생일 → 캐시 → 근거 · 밤 다시 묻기는 캐시 끔 · 저장은 캐시해도 되는 답 표시
+  const order = ['if (forgetKind(raw))', 'const makeTask = taskMake(raw);', 'const pf = prefilter(raw);', 'const talk = talkRoute(raw, prevLines);', 'const question = (prevLines.length && looksFollowUp(raw) && followUpRule(', 'const ref = bibleRefIn(question, BOOKS);', 'if (!makeTask && (isAttendanceQuestion(question) || isBirthdayQuestion(question)))', 'const hit = await cachedAnswer(admin, question, today, db)', 'collectAll(db, today, { admin }),', 'const found = parseModelJson(await gen(LOCATE_SYS'];
   order.reduce((at, s) => { const i = ask.indexOf(s); assert.ok(i > at, `순서: ${s}`); return i; }, -1);
   assert.ok(ask.includes('answerQuestion(r.question, { db: admin, admin, prev, cache: false, key, today, hint: cites, wrong })') && ask.includes('...(out.cacheable ? { cacheable: true } : {})'));
   assert.ok(ask.includes("last('wiki_pages', 'updated_at'), last('wiki_edits', 'edited_at'), last('cards', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at')"), '데이터 도장');
@@ -718,7 +718,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.strictEqual(R('준비는 누가 해?', '가을 체육대회는 언제, 어디서 하나요?'), '가을 체육대회 준비는 누가 해?');
   assert.strictEqual(R('그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'), null, '코드가 모르는 갈래는 모델에게');
   // 배선 — 다시 쓴 질문으로 갈래가 돈다 · [앞 질문]은 모델에 안 싣는다 · 캐시와 저장은 다시 쓴 꼴 · 화면은 다시 쓴 꼴과 앞 답 첫 문장을 보낸다
-  assert.ok(dab.includes('const follow = done.length > 0 && looksFollowUp(question);') && dab.includes('[`[답] ${lastA') && dab.includes('if (!follow && !a.asked) memoPut(question, a);'));
+  assert.ok(dab.includes('const follow = done.length > 0 && looksFollowUp(question);') && dab.includes('[`[답] ${lastA') && dab.includes('if (!follow && !a.asked && !a.talk) memoPut(question, a);'));
   // 끝까지 — 가짜 DB로(모델 없음): 생일 이어 묻기 · 이미 아는 말 · 다붓이 자신 이야기
   const chain = (rows) => { const c = new Proxy({}, { get: (_, k) => (k === 'then' ? (res, rej) => Promise.resolve({ data: rows }).then(res, rej) : (k === 'maybeSingle' || k === 'single') ? async () => ({ data: rows[0] || null }) : () => c) }); return c; };
   const fakeDb = (tables) => ({ from: (t) => chain(tables[t] || []), rpc: async () => ({ data: null }) });
@@ -1895,4 +1895,166 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.strictEqual(await P.pushPreview(pdb, null, 'x'.repeat(300)), 'x'.repeat(P.MAX_PREVIEW), '업무 없는 알림은 상한만');
   assert.strictEqual(await P.pushPreview(fakeDb(base, { fail: ['cards'] }), 'cA', '확인'), '', '판정을 못 하면 비운다');
   console.log('PASS  다붓이 20차 ⑩(잠긴 업무 — 캐시에 안 남김 · 못 여는 사람에게 캐시 안 줌(여는 사람·마스터는 줌) · 짝 · card_secrets 본문 · 푸시 미리보기 비움)');
+}
+
+// 다붓이 말투(사용자 승인 2026-10-17 · HANDOFF 다음 할 일 1) — 근거가 없고 업무 일도 아닌 말은 모델이 다붓이 말투로 받아친다(못 찾음 아님 ·
+// 아직 답하지 못한 질문에 안 섬) · 학습하지 마는 그 말과 바로 앞 질문을 목록에서 뺀다 · 업무 일은 받아치는 갈래보다 먼저 기록 쪽 · 위기·만든 사람은 고정.
+// 모델은 fetch를 가로채 흉내 낸다(돈 들지 않음 · 회귀 묶음 dabooti-eval은 돌리지 않는다).
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const F = await import(new URL('../api/_wiki/faq.js', import.meta.url).href);
+  const ask = askSource();
+  const fakeDb = (tables, { inserts = [], updates = [] } = {}) => ({
+    from: (t) => {
+      let rows = [...(tables[t] || [])];
+      const q = {
+        update: (patch) => { const w = { t, patch, where: [] }; updates.push(w); const u = { eq: (k, v) => { w.where.push([k, v]); return u; }, then: (res, rej) => Promise.resolve({ error: null }).then(res, rej) }; return u; },
+        select: () => q, order: () => q, limit: (n) => { rows = rows.slice(0, n); return q; },
+        eq: (k, v) => { rows = rows.filter(r => r[k] === v); return q; },
+        is: (k, v) => { rows = rows.filter(r => (r[k] ?? null) === v); return q; },
+        not: (k, _op, v) => { rows = rows.filter(r => (r[k] ?? null) !== v); return q; },
+        in: (k, vs) => { rows = rows.filter(r => vs.includes(r[k])); return q; },
+        gte: (k, v) => { rows = rows.filter(r => r[k] == null || String(r[k]) >= String(v)); return q; },
+        lte: (k, v) => { rows = rows.filter(r => r[k] == null || String(r[k]) <= String(v)); return q; },
+        range: async (a, b) => ({ data: rows.slice(a, b + 1) }),
+        then: (res, rej) => Promise.resolve({ data: rows, count: rows.length }).then(res, rej),
+        insert: (row) => { inserts.push({ t, row }); const done = { data: { id: `n${inserts.length}` } }; return { select: () => ({ single: async () => done }), then: (res, rej) => Promise.resolve(done).then(res, rej) }; },
+      };
+      return q;
+    },
+    rpc: async () => ({ data: null }),
+  });
+  // 가짜 제미나이 — 기록 쪽(FULL_SYS)과 기록 없이 받아치기(TALK_SYS)를 가른다
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  const fakeGemini = (reply) => { globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    const sys = body.systemInstruction.parts[0].text;
+    calls.push({ kind: sys.includes('[기록]은') ? 'records' : 'talk', prompt: body.contents[0].parts[0].text });
+    const out = reply(calls.at(-1).kind);
+    if (out === 500) return new Response('{}', { status: 500 });
+    return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(out) }] } }] }), { status: 200 });
+  }; };
+  const today = W.kstDate(new Date().toISOString());
+  const people = { profiles: [{ id: 'u1', display_name: '신효진', role_note: '부장', approved: true, removed_at: null, merged_into: null, team_id: null }],
+    people: [{ id: 'p1', name: '신효진', profile_id: 'u1', gender: 'f', is_pastor: false, removed_at: null }], people_roles: [], teams: [], profile_teams: [] };
+  const recent = (min) => new Date(Date.now() - min * 60e3).toISOString();
+
+  // 말투 지침은 한 곳(TALK_VOICE) — 기록 쪽과 받아치기 둘 다 싣는다
+  assert.strictEqual((ask.match(/export const TALK_VOICE = \[/g) || []).length, 1, '말투 지침은 한 곳');
+  assert.ok(/const FULL_SYS = \[[\s\S]*?TALK_VOICE,[\s\S]*?\]\.join/.test(ask) && /const TALK_SYS = \[[\s\S]*?TALK_VOICE,[\s\S]*?\]\.join/.test(ask), '기록 쪽 · 받아치기 둘 다 TALK_VOICE');
+  assert.ok(A.TALK_VOICE.includes('해요체') && A.TALK_VOICE.includes('이름·날짜·숫자') && A.TALK_VOICE.includes('전도사님이나 순장님'), '말투 지침 — 해요체 · 기록에 없는 이름·날짜·숫자 · 교역자에게 잇기');
+
+  const SMALL = '아까 열심히 한다고 기도했는데 배고프고 졸리면 어떡해?';
+  const PREV = '월례회 언제 해요?\n[답] 월례회는 11월 8일이에요.';
+  try {
+    // ① 잡담(실제 질문) — 기록 쪽 모델이 talk=true → 못 찾음이 아니라 받아친 말 · 앞 대화(prev)가 모델에 간다 · 권유 줄 없음
+    calls.length = 0;
+    fakeGemini(() => ({ found: false, talk: true, sentences: [{ text: '기도하느라 애쓰셨네요. 든든히 먹고 푹 쉬어요.', e: [] }] }));
+    const t1 = await A.answerQuestion(SMALL, { db: fakeDb(people), prev: PREV, key: 'k', today });
+    assert.ok(t1.status === 'answered' && t1.kind === 'talk' && t1.talk === true && t1.sentences[0].text === '기도하느라 애쓰셨네요. 든든히 먹고 푹 쉬어요.', `받아친 말: ${JSON.stringify(t1)}`);
+    assert.ok(!t1.sentences.some(s => s.text === W.NOT_FOUND), '못 찾음 말이 아니다');
+    assert.ok(calls[0].kind === 'records' && calls[0].prompt.includes('[앞 대화]\n월례회 언제 해요?'), '기록 쪽 모델에 앞 대화');
+    assert.strictEqual(A.askNudge(t1, SMALL, PREV), false, '받아친 말에는 권유 줄이 없다');
+    // 저장 — answer.talk · 캐시 아님 → 👎가 붙어도 아직 답하지 못한 질문 · 아침 고리에 안 선다
+    const ins = [];
+    await A.saveAnswer(fakeDb({}, { inserts: ins }), SMALL, t1);
+    const saved = ins[0].row;
+    assert.ok(saved.status === 'answered' && saved.answer.talk === true && !saved.answer.cacheable, `저장 모양: ${JSON.stringify(saved.answer)}`);
+    const row = { id: 'q1', question: SMALL, norm: W.normQ(SMALL), status: 'answered', feedback: 'bad', via: 'ask', created_at: recent(5), answer: saved.answer };
+    assert.strictEqual(F.openGroups([row]).length, 0, '받아친 말은 👎여도 열린 질문이 아니다');
+    assert.strictEqual(A.reaskTodo([row]).length, 0, '받아친 말은 아침 고리에 안 선다');
+    assert.strictEqual(F.openGroups([{ ...row, answer: { sentences: [] } }]).length, 1, '(대조) 보통 👎 답은 열린 질문');
+    // 받아친 말에 기록에 없는 숫자·이름이 들면 버리고 예전처럼 못 찾음(지금 검사 그대로)
+    fakeGemini(() => ({ found: false, talk: true, sentences: [{ text: '47시간은 주무셔야 해요.', e: [] }] }));
+    const t2 = await A.answerQuestion(SMALL, { db: fakeDb(people), key: 'k', today });
+    assert.ok(t2.status === 'unknown' && t2.dropped.some(d => /숫자 47/.test(d.why)), `지어낸 숫자 → 못 찾음: ${JSON.stringify(t2)}`);
+    fakeGemini(() => ({ found: false, talk: true, sentences: [{ text: '김철수 형제에게 물어보세요.', e: [] }] }));
+    const t3 = await A.answerQuestion(SMALL, { db: fakeDb(people), key: 'k', today });
+    assert.ok(t3.status === 'unknown' && t3.dropped.some(d => /이름 김철수/.test(d.why)), `지어낸 이름 → 못 찾음: ${JSON.stringify(t3.dropped)}`);
+
+    // ② 인사·신앙 같은 받아치는 갈래 — 기록 없이 모델이(앞 대화와 함께) · 실패하거나 검사에 걸리면 예전 문장 · 저장 안 함
+    calls.length = 0;
+    fakeGemini(() => ({ text: '안녕하세요! 오늘도 만나서 반가워요.' }));
+    const g = await A.answerQuestion('안녕 다붓아', { db: fakeDb(people), prev: PREV, key: 'k', today });
+    assert.ok(g.kind === 'greet' && g.talk === true && g.save === false && g.sentences[0].text === '안녕하세요! 오늘도 만나서 반가워요.' && calls.length === 1 && calls[0].kind === 'talk' && calls[0].prompt.includes('[앞 대화]'), `인사 받아치기: ${JSON.stringify(g)}`);
+    fakeGemini(() => 500);
+    const g2 = await A.answerQuestion('안녕 다붓아', { db: fakeDb(people), key: 'k', today });
+    assert.strictEqual(g2.sentences[0].text, W.TALK_ANSWERS.greet, '모델이 실패하면 예전 문장');
+    fakeGemini(() => ({ text: '3일만 기도하면 돼요.' }));
+    const f1 = await A.answerQuestion('기도는 어떻게 해야 해?', { db: fakeDb(people), key: 'k', today });
+    assert.strictEqual(f1.sentences[0].text, W.FAITH_ANSWER, '받아친 말에 지어낸 숫자 → 예전 문장');
+
+    // ③ 위기 · 만든 사람은 고정 — 모델을 부르지 않는다(업무 말이 섞여도 위기는 그대로)
+    calls.length = 0;
+    fakeGemini(() => ({ text: '모델 문장' }));
+    for (const [q, a] of [['죽고 싶어', W.FEEL_ANSWERS.crisis], ['업무 때문에 죽고 싶어', W.FEEL_ANSWERS.crisis], ['너 누가 만들었누', '저를 만들어주신 분은 노준석 개발자님이세요.'],
+      ['너의 아버지가 누구야?', '저는 노준석 님의 자손이에요.'], ['노준석 개발자님이 뭐 했어?', W.TALK_ANSWERS.makerDid]]) {
+      const o = await A.answerQuestion(q, { db: fakeDb(people), key: 'k', today });
+      assert.ok(o.sentences.length === 1 && o.sentences[0].text === a && !o.talk, `${q}: 고정 답`);
+    }
+    assert.strictEqual(W.FEEL_ANSWERS.crisis, '그렇게까지 힘든 마음이라니 정말 걱정돼요. 지금 바로 순장님이나 임성빈 전도사님께 이야기해 주세요.');
+    assert.strictEqual(calls.length, 0, '위기·만든 사람 답은 모델을 부르지 않는다');
+    assert.ok(!W.talkKind('죽고 싶어').model && !W.talkKind('너 누가 만들었누').model && !W.talkKind('너 몇 살이야?').model, '위기 · 만든 사람 · 다붓이 설정은 model 아님');
+
+    // ④ 업무 일이 먼저 — 받아치는 갈래(인사·신앙)에 걸리던 업무 말도 기록 쪽 · 모델이 talk라 해도 받지 않는다 · 찾은 업무는 칩
+    assert.ok(W.talkKind('안녕! 업무 링크 좀')?.model && W.talkRoute('안녕! 업무 링크 좀', []) === null, '인사 + 업무 → 기록 쪽');
+    assert.ok(W.talkKind('기도 업무는 어떻게 해야 해?')?.kind === 'faith' && W.talkRoute('기도 업무는 어떻게 해야 해?', []) === null, '신앙 낱말 + 업무 → 기록 쪽');
+    assert.ok(!W.acceptTalk({ found: false, talk: true }, '수련회 준비 업무 찾아서 링크해줘') && W.acceptTalk({ found: false, talk: true }, SMALL), '업무 일이면 talk를 받지 않는다');
+    const cards = { ...people, cards: [{ id: 'c1', title: '수련회 숙소 예약', body: '수련회 숙소 예약 업무', updated_at: recent(60 * 24), created_at: recent(60 * 48), deleted_at: null }] };
+    calls.length = 0;
+    fakeGemini((kind) => {
+      if (kind !== 'records') return { text: '안녕하세요!' };
+      const rid = calls.at(-1).prompt.match(/(R\d+) [^\n]*수련회 숙소 예약/)?.[1];
+      return rid ? { found: true, talk: false, sentences: [{ text: '수련회 숙소 예약 업무가 있어요.', e: [rid] }] } : { found: false, talk: true, sentences: [{ text: '안녕하세요!', e: [] }] };
+    });
+    const w = await A.answerQuestion('안녕! 수련회 숙소 업무 링크 좀', { db: fakeDb(cards), key: 'k', today });
+    assert.ok(calls.length === 1 && calls[0].kind === 'records', '업무 말은 받아치기 모델이 아니라 기록 쪽 한 번');
+    assert.ok(w.status === 'answered' && !w.talk && w.sentences.some(s => s.cites.some(c => c.t === 'card' && c.id === 'c1')), `찾은 업무는 칩: ${JSON.stringify(w)}`);
+    // 업무 만들기 — 거르기 문장(만들 수 없음)을 먼저 말하고 비슷한 업무를 찾아 잇는다 · 못 찾으면 그 문장만
+    calls.length = 0;
+    const m = await A.answerQuestion('수련회 숙소 업무 하나 만들어줘', { db: fakeDb(cards), key: 'k', today });
+    assert.ok(m.kind === 'make' && m.sentences[0].text === W.PREFILTER_ANSWERS.make && m.sentences.slice(1).some(s => s.cites.some(c => c.t === 'card' && c.id === 'c1')), `업무 만들기 → 못 만든다 + 비슷한 업무: ${JSON.stringify(m)}`);
+    assert.ok(calls[0].prompt.includes('[업무 만들기 요청]'), '모델에 만들기 요청이라고 알린다');
+    fakeGemini(() => ({ found: false, talk: false, sentences: [] }));
+    const m2 = await A.answerQuestion('체육대회 업무 추가해 줘', { db: fakeDb(people), key: 'k', today });
+    assert.ok(m2.status === 'refused' && m2.sentences.length === 1 && m2.sentences[0].text === W.PREFILTER_ANSWERS.make, '비슷한 업무가 없으면 만들 수 없다는 문장만');
+    assert.strictEqual(W.prefilter('내년 동계수련회 기획안좀 만들어줘')?.kind, 'make', '업무가 아닌 만들기는 예전처럼 거른다');
+    assert.ok(!W.taskMake('업무 작성자 누구야?'), '업무를 묻는 말은 만들기가 아니다');
+
+    // ⑤ 학습하지 마 — 네 말을 알아본다 · 답은 모델이 말투 예시로(실패하면 그 예시) · 저장 안 함
+    for (const q of ['아니야 학습하지마', '배우지 마', '기억하지 말아줘', '저장하지 마세요']) assert.ok(W.forgetKind(q), q);
+    assert.ok(!W.forgetKind('이거 기억해줘') && !W.forgetKind('월례회 언제 해요?'));
+    calls.length = 0;
+    fakeGemini(() => ({ text: '네, 이건 우리끼리 비밀로 할게요.' }));
+    const fo = await A.answerQuestion('아니야 학습하지마', { db: fakeDb(people), prev: `${SMALL}\n[답] 든든히 먹어요.`, key: 'k', today });
+    assert.ok(fo.kind === 'forget' && fo.save === false && fo.talk && fo.sentences[0].text === '네, 이건 우리끼리 비밀로 할게요.', `학습하지 마 답: ${JSON.stringify(fo)}`);
+    assert.ok(calls[0].prompt.includes(W.FORGET_EXAMPLE) && calls[0].prompt.includes(`[앞 대화]\n${SMALL}`), '말투 예시 · 앞 대화가 모델에');
+    fakeGemini(() => 500);
+    assert.strictEqual((await A.answerQuestion('학습하지 마', { db: fakeDb(people), key: 'k', today })).sentences[0].text, '알겠어요, 이 이야기는 비밀로 해둘게요.', '실패하면 사용자 문구');
+    assert.strictEqual(await A.saveAnswer(fakeDb({}), '아니야 학습하지마', fo), null, '학습하지 마는 저장하지 않는다');
+    // 그 말과 바로 앞 질문을 목록에서 뺀다 — 앞 물음 행(30분 안 · 가장 늦은 것)을 닫고 · 그 사람이 알려 준 말을 버린다 · 남의 말은 그대로
+    const Q2 = '수련회 회비는 얼마야?';
+    const qs = [
+      { id: 'mine', question: Q2, norm: W.normQ(Q2), via: 'ask', status: 'unknown', resolved_at: null, created_at: recent(2) },
+      { id: 'old', question: Q2, norm: W.normQ(Q2), via: 'ask', status: 'unknown', resolved_at: null, created_at: recent(120) },
+    ];
+    const facts = [
+      { id: 'f1', text: '회비는 비밀이야', question: Q2, told_by: 'me', status: 'pending', created_at: recent(1) },
+      { id: 'f2', text: '회비는 비밀이야', question: Q2, told_by: 'other', status: 'pending', created_at: recent(1) },
+      { id: 'f3', text: '찬양은 금요일', question: '찬양 언제야?', told_by: 'me', status: 'pending', created_at: recent(1) },
+    ];
+    const updates = [];
+    const done = await A.forgetOp(fakeDb({ dabooti_questions: qs, dabooti_facts: facts }, { updates }), { prev: `${Q2}\n[답] 못 찾았어요.\n학습하지 마`, who: { uid: 'me' }, rebuild: false });
+    assert.deepStrictEqual(done, { question: 'mine', facts: ['f1'] }, `뺀 것: ${JSON.stringify(done)}`);
+    assert.ok(updates.some(u => u.t === 'dabooti_questions' && u.patch.resolved_at && u.where[0][1] === 'mine') && updates.some(u => u.t === 'dabooti_facts' && u.patch.status === 'rejected' && u.where[0][1] === 'f1'), '앞 물음 닫기 · 알려 준 말 버리기');
+    assert.ok(!updates.some(u => ['old', 'f2', 'f3'].includes(u.where[0][1])), '오래된 행 · 남의 말 · 다른 물음은 그대로');
+    // 닫힌 앞 물음과 학습하지 마(옛 저장분)는 아직 답하지 못한 질문 · 아침 고리에 안 선다
+    const closed = [{ ...qs[0], resolved_at: recent(0) }, { id: 'nf', question: '아니야 학습하지마', norm: W.normQ('아니야 학습하지마'), via: 'ask', status: 'unknown', created_at: recent(1), answer: { sentences: [] } }];
+    assert.strictEqual(F.openGroups(closed).length, 0, '닫힌 앞 물음 · 학습하지 마는 열린 질문이 아니다');
+    assert.strictEqual(A.reaskTodo(closed).length, 0, '아침 고리에도 안 선다');
+    assert.ok(/if \(out\.kind === 'forget'\) \{\s*await whoAsks\(db\)[^\n]*forgetOp\(admin, \{ prev, who \}\)/.test(readFileSync(new URL('../api/ai.js', import.meta.url), 'utf8')), 'api/ai.js가 학습하지 마 뒤에 forgetOp를 부른다');
+  } finally { globalThis.fetch = realFetch; }
+  console.log('PASS  다붓이 말투 2026-10-17(잡담은 모델이 받아침 · 열린 질문·아침 고리 아님 · 지어낸 숫자·이름 버림 · 위기·만든 사람 고정 · 업무 일 먼저 · 업무 만들기 · 학습하지 마)');
 }
