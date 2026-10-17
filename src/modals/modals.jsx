@@ -35,11 +35,12 @@ const EditorSkeleton = () => (
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { isMyUid } from '../services/supabaseClient.js';
-import { getMemberNames, loadCardDetail, loadCardPatch, cardWritePromise, lockCardCloud, unlockCardCloud, unlockOwnerCloud } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail, loadCardPatch, cardWritePromise, lockCardCloud, unlockCardCloud, unlockOwnerCloud, loadLockAsk, requestLockResetCloud, resetCardLockCloud } from '../services/cloudSync.js';
+import { PENDING_COPY } from '../services/pendingCopy.js';
 import { isCardClosed, allowTry } from '../services/cardLock.js';
 import { makeViewPw, verifyViewPw } from '../services/viewPw.js';
 import { failText } from '../services/errorText.js';
-import { CardLockButton, LockedPanel, LockGate } from '../components/cardLock.jsx';
+import { CardLockButton, LockedPanel, LockGate, LockResetNotice } from '../components/cardLock.jsx';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useLeave } from '../hooks/useExit.js';
@@ -107,7 +108,7 @@ function useAfterPaint() {
 // 넘기고, 그 자리에서 그 업무의 보기 화면이 된다(첨부는 예전처럼 카드가 들어간 뒤 올린다).
 export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddComment, onUpdateComment, onDeleteComment, onFileActivity, onDelete }) {
   const currentUser = useStore(selectCurrentUser);
-  const { enabled, session, isAdmin } = useAuth();
+  const { enabled, session, isAdmin, isMaster } = useAuth();
   const cloudMode = enabled && !!session;
   const userId = session?.user?.id;
   const isNew = !task.id;
@@ -432,6 +433,35 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       return true;
     } catch (e) { console.error('[cloud] 잠긴 업무 열기 실패:', e); showToast(failText('업무를 열지 못했어요', e)); throw e; }
   };
+  // 비밀번호를 까먹었어요(v5 B · 시안 승인 2026-10-17 · 0106). 못 여는 사람이 요청 → 마스터 알림·푸시 → 마스터가 그 업무 보기 위 한 줄에서
+  // 새 비밀번호 설정(맞혀 둔 계정은 그대로 · 요청은 걷힌다). 클라우드는 요청 표(card_lock_requests · 본인 행 · 마스터는 전부)를 창을 열 때 읽고,
+  // **못 읽으면(0106 전) 버튼·한 줄을 세우지 않는다**(예전 잠금 판 그대로). 게스트는 요청을 그 업무의 로컬 값(lockReset { by, at })에 적는다.
+  const [cloudAsk, setCloudAsk] = useState(null);   // { mine, by, at, count } | null(못 읽음·안 잠김)
+  useEffect(() => {
+    setCloudAsk(null);
+    if (!cloudMode || isNew || !source.locked) return undefined;
+    let alive = true;
+    loadLockAsk(cardId).then(a => { if (alive) setCloudAsk(a); }, e => console.warn('[cloud] 비밀번호 요청을 못 읽었어요:', e?.message || e));
+    return () => { alive = false; };
+  }, [cloudMode, isNew, cardId, source.locked]); // eslint-disable-line react-hooks/exhaustive-deps
+  const guestAsk = !cloudMode && !isNew && source.locked ? source.lockReset || null : null;
+  const lockAsk = cloudMode ? (cloudAsk?.count ? cloudAsk : null) : guestAsk;
+  const asked = cloudMode ? !!cloudAsk?.mine : (!!guestAsk && guestAsk.by === currentUser.name);
+  const askReset = isNew || !source.locked || (cloudMode && !cloudAsk) ? null : async () => {
+    if (!cloudMode) { sync({ id: cardId, lockReset: { by: currentUser.name || '', at: new Date().toISOString() } }); return; }
+    try {
+      await requestLockResetCloud(cardId, { actorName: currentUser.name || '', projectId: source.projectId || null });
+      setCloudAsk(a => ({ ...(a || { count: 0, by: '', at: null }), mine: true }));
+    } catch (e) { console.error('[cloud] 비밀번호 재설정 요청 실패:', e); showToast(failText(PENDING_COPY.lockResetAskFail, e)); throw e; }
+  };
+  const resetPw = async (pw) => {
+    try {
+      if (cloudMode) { await resetCardLockCloud(cardId, pw); setCloudAsk(a => (a ? { ...a, count: 0, by: '', at: null } : a)); }
+      else sync({ id: cardId, lockPw: await makeViewPw(pw), lockReset: null });
+      showToast('새 비밀번호를 설정했어요');
+    } catch (e) { console.error('[cloud] 새 비밀번호 설정 실패:', e); showToast(failText('새 비밀번호를 설정하지 못했어요', e)); throw e; }
+  };
+  const lockNotice = lockAsk && isMaster ? <LockResetNotice by={lockAsk.by} onReset={resetPw} /> : null;
 
   // ── 보기 ↔ 수정 ───────────────────────────────────────────────────────
   const enterEdit = () => { setMode('edit'); if (isMobile) setMobileTab('detail'); };
@@ -613,6 +643,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />
       : <TaskView key={task.id} task={source} commit={commit} co={co} coPending={cloudMode && !co && !coFailed && !closed}
           liveMd={liveMd} editors={editors} closed={closed} onUnlock={tryUnlock}
+          lockNotice={lockNotice} onForgot={askReset} asked={asked}
           cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />;
   // 잠금 판이 서 있으면 댓글·활동·버전 기록 자리는 비운다 — 사이드바는 접히고(데스크톱) 탭은 상세 하나(폰). 판은 본문 자리 하나뿐이다.
@@ -652,7 +683,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
         ) : (
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* 상세는 탭을 옮겨도 **내리지 않는다** — 같이 쓰기 편집기와 치던 초안이 탭마다 새로 서지 않게 */}
-            <div className={`flex-1 overflow-y-auto p-5 ${mobileTab === 'detail' ? '' : 'hidden'}`}>{detailBody}</div>
+            <div className={`flex-1 overflow-y-auto p-5 ${mobileTab === 'detail' ? 'flex flex-col' : 'hidden'}`}>{detailBody}</div>
             {mobileTab === 'comments' && <div ref={cmtBox} data-cmt-box onScroll={onCmtScroll} className="flex-1 overflow-y-auto p-4">{commentsPanel}</div>}
             {mobileTab === 'activity' && <div className="flex-1 overflow-y-auto p-4">{activityPanel}</div>}
             {mobileTab === 'versions' && <div className="flex-1 overflow-y-auto p-4">{versionsPanel}</div>}
@@ -691,13 +722,19 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       {/* 전체 화면이면 창이 뷰포트를 다 쓴다 — 딤·모서리·최대 폭이 전부 사라져야
           "확대된 창"이 아니라 "전체 화면"으로 읽힌다. 복귀 버튼은 헤더의 같은 자리. */}
       <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden dc-dialog${out} duration-150 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[min(85dvh,calc(var(--app-vh,100dvh)-2rem))] rounded-lg'}`}>
-        {/* 스크롤 막대 자리를 늘 잡아 둔다 — 보기(짧다)와 수정(길다)을 오갈 때 막대가 생겼다 없어지며 닫기·본문이 옆으로 뛰었다 */}
-        <div className="flex-1 min-w-0 flex flex-col border-r-0 md:border-r border-line overflow-y-auto [scrollbar-gutter:stable]">
-          {/* sticky 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을
+        {/* 머리줄·바닥 줄은 구르는 칸 **밖**이다(시안 2차 2026-10-16) — 예전에는 셋이 한 구르는 통 안(sticky)이었고 그 통에
+            `scrollbar-gutter: stable`이 걸려, 막대가 없을 때도 비워 둔 막대 자리만큼 머리줄·바닥 줄이 창 오른쪽 테두리에
+            못 닿아 빈 띠가 섰다. 막대 자리는 본문 통에만 잡아 둔다 — 보기(짧다)와 수정(길다)을 오갈 때 본문이 옆으로 뛰지 않게.
+            본문 통은 flex 열이라 잠금 판(flex-1)이 바닥 줄까지 채운다. 서식 바(MarkdownEditor useStickyTop)는 통 안에
+            머리줄이 없으면 통 위 끝 — 곧 머리줄 바로 밑 — 에 붙는다(폰 업무 창과 같은 셈). */}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col border-r-0 md:border-r border-line">
+          {/* 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을
               다시 블러링해서 창 스크롤이 눌린다 → 불투명 배경으로 */}
-          <div className="sticky top-0 bg-surface z-10 px-4 py-3 border-b border-line flex justify-between items-center gap-2">{headerInner}</div>
-          <div className="p-5 md:p-8 flex-1">{detailBody}</div>
-          <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2">{footerInner}</div>
+          <div className="shrink-0 bg-surface z-10 px-4 py-3 border-b border-line flex justify-between items-center gap-2">{headerInner}</div>
+          <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] flex flex-col">
+            <div className="p-5 md:p-8 flex-1 flex flex-col">{detailBody}</div>
+          </div>
+          <div className="shrink-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2">{footerInner}</div>
         </div>
         {/* 접을 때 언마운트하지 않는다 — 쓰다 만 댓글이 날아간다. 폭만 0으로 줄이고
             overflow-hidden으로 가린다. 모션은 이 앱의 이징 하나(--ease-out-quint)로
@@ -890,7 +927,7 @@ function moveStatus(cardId, status, commit, cloudMode) {
 // editors(나 말고 수정 화면에 있는 사람)가 있으면 본문 위 알약과 그 사람이 있는 줄 표시(coedit.jsx)가 선다.
 // **본문 통은 오른쪽 28px(pr-7)을 늘 비워 둔다** — 줄 표시 얼굴이 그 안에 서서 잘리지 않고, 누가 들어와도 글줄이 다시 흐르지 않는다.
 // closed(업무 잠금 · 0099)면 위 줄들(상태·팀·제목·담당자·날짜·선행 업무) 아래가 **잠금 판 하나**다(LockGate — 잠길 때·열릴 때만 움직인다).
-function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = false, onUnlock, cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
+function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = false, onUnlock, lockNotice = null, onForgot = null, asked = false, cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
   const summary = useTaskSummary(task, cloudMode);
   const md = liveMd ?? task.content ?? '';
   const [bodyEl, setBodyEl] = useState(null);   // 줄 표시가 재는 통(coedit.jsx PresenceMarks)
@@ -924,7 +961,7 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
   const closeStatus = useCallback(() => setStatusOpen(false), []);
   const dot = <span className={`w-[5px] h-[5px] rounded-full ${CONFIG.STATUS_DOTS[task.status] || 'bg-fg-faint'}`} />;
   return (
-    <div data-task-view="">
+    <div data-task-view="" className={closed ? 'flex-1 flex flex-col' : undefined}>
       {/* 상태는 점, 팀은 팀 색 글자 — 카드와 같은 표기법을 쓴다(배지 남발 금지) */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5 text-[11px] font-bold">
         {closed ? (
@@ -950,7 +987,8 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
         <DependsViewRow dependsOn={task.dependsOn} />
       </div>
 
-      <LockGate closed={closed} panel={(stir) => <div className="mt-5"><LockedPanel onUnlock={onUnlock} stir={stir} /></div>}>
+      {lockNotice}
+      <LockGate closed={closed} panel={(stir) => <div className="mt-5 flex-1 flex flex-col"><LockedPanel onUnlock={onUnlock} stir={stir} onForgot={onForgot} asked={asked} /></div>}>
       <div>
       {summary.block && <div className="mt-4">{summary.block}</div>}
       {/* 본문 위 한 줄 — 왼쪽은 '○○○님이 수정 중'(남이 수정 화면일 때만), 오른쪽은 3줄 요약 버튼(hover로 숨기지 않는다) */}

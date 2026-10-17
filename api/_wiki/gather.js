@@ -9,7 +9,7 @@ import { dropTrashed } from '../../src/services/trashItems.js';
 import { trashedIds } from '../_trash.js';
 
 // ── 원본 읽기 (서버 키 — 모두가 읽는 위키라 RLS로 갈리는 것은 넣지 않는다) ───────────────
-// 리더만 보는 프로젝트(0092)도 그런 것이다 — 그 프로젝트·업무·댓글·첨부를 읽은 자리에서 걷는다(visibility.dropLeaderOnly).
+// 리더만 보는 프로젝트(0092)·직접 선택한 프로젝트(0105)도 그런 것이다 — 그 프로젝트·업무·댓글·첨부를 읽은 자리에서 걷는다(visibility.dropLeaderOnly — 둘 다).
 // 걷은 뒤의 값만 돌려주므로 장 뼈대·쓰기·src_hash가 리더 프로젝트를 모른다(바뀌면 그 장이 다시 모인다).
 // leaderCards(걷은 업무 id)만은 따로 넘긴다 — 자주 묻는 질문 장이 그 기록에 기댄 다붓이 답을 싣지 않게(_wiki/faq.js · 20차 ⑥).
 // 잠긴 업무(0099)도 같은 자리에서 걷는다(업무·댓글·첨부 — services/cardLock.dropLocked). 본문은 이미 비어 있지만(card_secrets로 옮겼다)

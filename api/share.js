@@ -1,5 +1,5 @@
 import { adminClient, UUID_RE, STATUS, escHtml as esc } from './_lib.js';
-import { isLeaderOnly } from '../src/services/visibility.js';
+import { isRestricted } from '../src/services/visibility.js';
 import { isTrashed } from './_trash.js';
 
 // ============================================================================
@@ -12,7 +12,7 @@ import { isTrashed } from './_trash.js';
 // 값을 보고 신청까지 한다(services/entryQuery.js의 딥링크 약속). vercel.json의
 // rewrite(`/s/:type/:id`)는 나머지 쿼리를 그대로 넘긴다.
 //
-// **리더만 보는 프로젝트(0092)와 그 업무는 일반 문구로 낸다** — 제목·상태·마감을 싣지 않는다. 공유 카드는
+// **리더만 보는 프로젝트(0092)·직접 선택한 프로젝트(0105)와 그 업무는 일반 문구로 낸다**(visibility.isRestricted) — 제목·상태·마감을 싣지 않는다. 공유 카드는
 // 카카오톡 미리보기처럼 로그인 없이 읽히는 자리다. 딥링크는 그대로 둔다(앱에서 리더가 아니면 RLS가 행을
 // 안 줘서 대시보드로 떨어진다 — 없는 프로젝트와 같은 길).
 // **잠긴 업무(0099)는 제목만** 싣는다(상태·마감은 빼고 설명 줄은 기본 문구) — 본문은 원래 싣지 않는다. 딥링크는 그대로(앱에서 잠금 판).
@@ -52,7 +52,7 @@ export default async function handler(req, res) {
         if (error) console.error('[share] 프로젝트 조회 실패:', error);
         // 휴지통(0104)에 있으면 없는 프로젝트와 같다 — 제목을 싣지 않는다
         if (data && !(await isTrashed(supabase, 'projects', id))) {
-          if (!isLeaderOnly(data)) {
+          if (!isRestricted(data)) {
             title = `더다붓 · ${data.name}`;
             description = '팀과 함께 준비하는 프로젝트예요.';
           }
@@ -63,7 +63,7 @@ export default async function handler(req, res) {
         if (error) console.error('[share] 업무 조회 실패:', error);
         // 휴지통(0104)의 업무 · 휴지통 프로젝트의 업무는 없는 업무와 같다
         if (data && !(await isTrashed(supabase, 'cards', id)) && !(await isTrashed(supabase, 'projects', data.project_id))) {
-          if (!isLeaderOnly(data.projects)) {
+          if (!isRestricted(data.projects)) {
             title = `더다붓 · ${data.title}`;
             const parts = [STATUS[data.status] || ''];
             if (data.due_date) parts.push(`마감 ${data.due_date}`);

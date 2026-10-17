@@ -4,8 +4,8 @@ import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOrig
 import { syncDocVectors } from './_docsync.js';
 import { buildWiki } from './_wikiBuild.js';
 import { reaskUnknown } from './_wikiAsk.js';
-import { isLeaderOnly, visibleRecipients } from '../src/services/visibility.js';
-import { leaderIdSet, leaderOnlyOf, lockedOf } from './_leaders.js';
+import { isLeaderOnly, isCustomOnly, visibleRecipients } from '../src/services/visibility.js';
+import { leaderIdSet, audienceFor, audienceMap, lockedOf } from './_leaders.js';
 import { trashedIds, goneCard, purgeTrash } from './_trash.js';
 
 // ============================================================================
@@ -177,14 +177,15 @@ async function handleSend(req, res) {
   let ids = [...new Set((Array.isArray(recipientIds) ? recipientIds : [])
     .filter(id => typeof id === 'string' && id && id !== user.id))].slice(0, MAX_RECIPIENTS);
   if (!ids.length) { res.status(200).json({ sent: 0 }); return; }
-  // 리더만 보는 프로젝트(0092)의 업무 알림은 리더에게만 — 앱(cloudSync)이 먼저 거르지만 미리보기가 기기 밖으로
-  // 나가는 자리라 여기서 한 번 더. 업무는 지금 프로젝트로 본다(몸통의 projectId는 믿지 않는다 · _leaders.js).
+  // 좁혀진 프로젝트(리더만 0092 · 직접 선택 0105)의 업무 알림은 그 프로젝트를 볼 수 있는 사람에게만 — 앱(cloudSync)이 먼저 거르지만
+  // 미리보기가 기기 밖으로 나가는 자리라 여기서 한 번 더. 업무는 지금 프로젝트로 본다(몸통의 projectId는 믿지 않는다 · _leaders.js).
   // 판정을 못 하면 보내지 않는다(닫힌 쪽이 기본 — 앱 안 알림은 이미 들어갔다).
   if (cardId || projectId) {
     try {
-      if (await leaderOnlyOf(db, { cardId, projectId })) ids = visibleRecipients(ids, { leaderOnly: true, leaderIds: await leaderIdSet(db) });
+      const audience = await audienceFor(db, { cardId, projectId });
+      if (audience) ids = visibleRecipients(ids, { leaderOnly: true, leaderIds: audience });
     } catch (e) {
-      console.error('[push] 리더 프로젝트 판정 실패 — 보내지 않는다:', e?.message || e);
+      console.error('[push] 보는 사람 판정 실패 — 보내지 않는다:', e?.message || e);
       res.status(200).json({ sent: 0 }); return;
     }
     if (!ids.length) { res.status(200).json({ sent: 0 }); return; }
@@ -222,12 +223,14 @@ export const kstDate = (offsetDays = 0, now = Date.now()) => new Date(
 
 // 마감 임박 카드 → 넣을 알림 줄(순수 · tests/push.mjs가 직접 부른다). 리더만 보는 프로젝트(0092)의 업무는
 // **리더인 담당자에게만** — 리더 프로젝트로 바꾸기 전에 붙어 있던 담당자는 그 업무를 더는 못 본다.
-// leaderIds가 없으면(못 읽었다) 그 카드들은 아무에게도 안 간다(visibleRecipients의 닫힌 쪽).
-export function dueSoonWanted(cards = [], today, leaderIds = new Set()) {
+// 직접 선택(0105)의 업무는 그 프로젝트의 audience(고른 사람 ∪ 마스터 · Map<프로젝트 id, Set>)에 든 담당자에게만.
+// leaderIds·audience를 못 읽었으면(없다) 그 카드들은 아무에게도 안 간다(visibleRecipients의 닫힌 쪽).
+export function dueSoonWanted(cards = [], today, leaderIds = new Set(), audiences = new Map()) {
   const out = [];
   for (const c of cards || []) {
     const when = c.due_date === today ? '오늘 마감' : '내일 마감';
-    const to = visibleRecipients((c.card_assignees || []).map(a => a.profile_id), { leaderOnly: isLeaderOnly(c.projects), leaderIds });
+    const allowed = isCustomOnly(c.projects) ? (audiences.get(c.project_id) || new Set()) : leaderIds;
+    const to = visibleRecipients((c.card_assignees || []).map(a => a.profile_id), { leaderOnly: isLeaderOnly(c.projects) || isCustomOnly(c.projects), leaderIds: allowed });
     for (const id of to) out.push({ cardId: c.id, projectId: c.project_id, recipientId: id, preview: `${c.title} · ${when}` });
   }
   return out;
@@ -262,7 +265,13 @@ async function handleDueSoon(req, res) {
   if (live.some(c => isLeaderOnly(c.projects))) {
     try { leaderIds = await leaderIdSet(db); } catch (e) { console.error('[push] 리더 목록 조회 실패 — 리더 프로젝트 마감은 건너뛴다:', e?.message || e); }
   }
-  const wanted = dueSoonWanted(live, today, leaderIds);
+  // 직접 선택(0105) 카드가 있을 때만 audience를 읽는다. 못 읽으면 그 카드들만 빠진다(닫힌 쪽)
+  let audiences = new Map();
+  const customIds = [...new Set(live.filter(c => isCustomOnly(c.projects)).map(c => c.project_id))];
+  if (customIds.length) {
+    try { audiences = await audienceMap(db, customIds); } catch (e) { console.error('[push] 보는 사람 목록 조회 실패 — 직접 선택 프로젝트 마감은 건너뛴다:', e?.message || e); }
+  }
+  const wanted = dueSoonWanted(live, today, leaderIds, audiences);
   if (!wanted.length) { res.status(200).json({ cards: 0, notified: 0, sent: 0 }); return; }
 
   // 같은 날 두 번 알리지 않는다. 하루 한 번 도는 작업이지만 손으로 부를 수도 있고,

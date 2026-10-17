@@ -13,7 +13,7 @@ import { splitRoleNote, callName, PASTOR_TITLE, ROLE_TITLE } from '../src/servic
 import { STATUS, liveProfile, readAll, geminiFetch } from './_lib.js';
 import { EMBED_MODEL, EMBED_DIM, embedQueryPayload, unitVec } from './ai.js';
 import { plain, serviceLine, serviceText, wikiEvidence } from './_wiki/evidence.js';
-import { leaderCardIds, lockedCardIds, lockedHiddenFor, unseenCardIds } from './_leaders.js';
+import { leaderCardIds, customCardIds, hiddenFor, lockedCardIds, lockedHiddenFor, unseenCardIds } from './_leaders.js';
 import { leaderCited } from '../src/services/visibility.js';
 import { approvedFacts, factEvidence, saveFact, decideFact, rebuildLearned, rebuildFaq } from './_wiki/learn.js';
 import { openGroups } from './_wiki/faq.js';
@@ -49,6 +49,9 @@ export { serviceLine };
 // 20차 ⑩(업무 잠금 0099 뒤): 잠긴 업무도 서버 키에는 '안 보이는 업무'다 — ⑥의 자리(저장 · 아침 고리 · 짝 · 승인 즉시 다시 답하기)는
 //   리더 업무 ∪ 잠긴 업무(_leaders.unseenCardIds)로 가르고 · 캐시 꺼내기는 잠긴 업무 근거 답을 그 업무를 여는 사람에게만(lockedHiddenFor —
 //   묻는 사람 세션) · 여는 사람의 기록에는 잠긴 업무 본문을 card_secrets에서 얹는다(collectAll · RLS가 열 수 있는 행만 준다).
+// v5 B(보는 사람 직접 선택 0105 뒤): 직접 선택 프로젝트도 서버 키에는 '안 보이는 업무'다 — ⑥⑩의 자리는 unseenCardIds(리더 ∪ 직접 선택 ∪ 잠긴)로
+//   가르고 · 캐시 꺼내기는 그 업무 근거 답을 그 프로젝트를 보는 사람에게만(hiddenFor — 묻는 사람 세션의 hidden_ids · 리더라도 안 고르면 못 본다) ·
+//   알려 준 말의 리더 표시(tellOp)는 리더 ∪ 직접 선택 업무로 본다. 묻는 사람의 기록은 세션이라 RLS가 이미 거른다.
 // 지키는 것(사용자 결정 2026-10-02~05):
 //   · 찾기는 **묻는 사람의 권한으로**(그 사람 세션의 클라이언트 → RLS). 비밀번호 첨부는 이름·자리만, 내용은 싣지 않는다.
 //   · 노트·묵상·비밀 값·기도제목·사람 평가는 코드가 먼저 걸러 모델을 부르지 않는다(wikiCore.prefilter).
@@ -423,24 +426,28 @@ async function dataStamp(admin) {
 // 리더 업무 id를 못 읽거나 리더 판정을 못 받으면 주지 않는다(새로 답한다 · 20차 ⑥).
 // 잠긴 업무(0099)에 기댄 답은 묻는 사람이 그 업무를 열 수 있을 때만(그 사람 세션의 locked_hidden_ids에 안 들 때 · 20차 ⑩) —
 // 잠긴 업무 id를 못 읽거나 그 사람 몫을 못 받으면 주지 않는다. 판정 질의는 그런 답이 있을 때만 부른다.
+// 직접 선택(0105) 프로젝트 기록에 기댄 답은 묻는 사람이 그 프로젝트를 볼 때만(그 사람 세션의 hidden_ids에 안 들 때 — 고른 사람·마스터) —
+// 그 업무 id를 못 읽거나 그 사람 몫을 못 받으면 주지 않는다(리더라도 고르지 않았으면 못 본다 — is_leader로 가르지 않는다).
 export async function cachedAnswer(admin, question, today, db = null) {
   const since = new Date(`${today}T00:00:00+09:00`).toISOString();
-  const [{ data }, stamp, leaders, locked] = await Promise.all([
+  const [{ data }, stamp, leaders, custom, locked] = await Promise.all([
     admin.from('dabooti_questions').select('status, feedback, answer, created_at').eq('norm', normQ(question)).gte('created_at', since).order('created_at', { ascending: false }).limit(10),
     dataStamp(admin),
     leaderCardIds(admin).catch(() => null),
+    customCardIds(admin).catch(() => null),
     lockedCardIds(admin).catch(() => null),
   ]);
   // 오늘 같은 질문에 '도움이 안 됐어요'가 하나라도 있으면 캐시를 쓰지 않는다(다시 찾는다)
   if (!data?.length || data.some(r => r.feedback === 'bad')) return null;
   const fresh = data.filter(r => cacheFresh(r, stamp, today));
-  if (!fresh.length || !leaders || !locked) return null;
+  if (!fresh.length || !leaders || !custom || !locked) return null;
   const needs = (set) => !!db && fresh.some(r => leaderCited(r.answer, set));
-  const [amLeader, shut] = await Promise.all([
+  const [amLeader, shut, unseenMine] = await Promise.all([
     needs(leaders) ? db.rpc('is_leader').then(r => r.data === true, () => false) : false,
     needs(locked) ? lockedHiddenFor(db).catch(() => locked) : locked,
+    needs(custom) ? hiddenFor(db).catch(() => custom) : custom,
   ]);
-  const row = fresh.find(r => (amLeader || !leaderCited(r.answer, leaders)) && !leaderCited(r.answer, shut));
+  const row = fresh.find(r => (amLeader || !leaderCited(r.answer, leaders)) && !leaderCited(r.answer, shut) && !leaderCited(r.answer, unseenMine));
   if (!row) return null;
   return { status: 'answered', sentences: row.answer.sentences, files: row.answer.files || [], dropped: [], model: WIKI_MODEL, cached: true, cacheable: true };
 }
@@ -1054,12 +1061,13 @@ async function afterLearn(admin, fact, { key }) {
 
 // 👎 뒤 알려 준 말(/api/ai { tell }) · 알려 주는 말 갈래 · 자주 묻는 질문의 '답을 알려 주기' → 배운 것 저장.
 // questionId가 있으면 그 물음 글을 잇고, 그 물음의 답이 리더 프로젝트 기록에 기댔으면 리더 관련 사실로 둔다(못 읽으면 리더 쪽 — 닫힌 쪽).
+// 직접 선택(0105) 프로젝트 기록에 기댄 답도 리더 관련으로 둔다 — 사실 표에 '고른 사람만' 칸이 없어서 모두에게 가는 것보다 좁은 쪽을 고른다.
 export async function tellOp(admin, { text, questionId = null, question = '', who = {}, key = process.env.GEMINI_API_KEY } = {}) {
   let q = question; let from = null; let leader = false;
   if (questionId && /^[0-9a-f-]{36}$/.test(String(questionId))) {
     const [{ data }, hidden] = await Promise.all([
       admin.from('dabooti_questions').select('id, question, answer').eq('id', questionId).limit(1),
-      leaderCardIds(admin).catch(() => null),
+      Promise.all([leaderCardIds(admin), customCardIds(admin)]).then(([a, b]) => new Set([...a, ...b])).catch(() => null),
     ]);
     const row = data?.[0];
     if (row) { from = row.id; q = row.question; leader = !hidden || leaderCited(row.answer, hidden); }

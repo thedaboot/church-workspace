@@ -228,6 +228,8 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0100_card_lock_gaps` | 업무 잠금의 남은 틈 — `card_secrets.subtasks`(하위 업무도 잠긴 동안 거울로 · 거울 트리거가 쓰기를 돌림) · `scrub_locked_card`(잠그는 순간 그 업무를 가리키는 위키 블록·위키 조각·알림 미리보기를 걷는다) · 잠긴 업무의 새 알림 미리보기를 비우는 트리거 | ⏳ |
 | `0103_assignee_comment_notice` | 알림 종류 `assignee_comment` — 업무에 댓글·답글이 달리면 그 업무 담당자에게 '○○님이 내가 담당한 업무에 댓글을 남겼어요'(같은 댓글로 멘션·답글을 받는 사람은 그쪽 한 통). CHECK와 INSERT 정책(alter · 0101 꼴)을 같이 넓힌다 |
 | `0104_trash` | 휴지통 · 복원(v5 1묶음 A · 사용자 승인 시안 2026-10-17) — `cards`·`projects`의 `deleted_at`·`deleted_by`(지우지 않고 표시) · `hidden_ids()`에 휴지통 갈래(댓글·첨부·활동 등이 따라 가려진다) · cards·projects 정책 alter(`deleted_at is null` · 정책 수 그대로) · 함수 `trash_card`·`trash_project`·`restore_card`·`restore_project`(지운 사람·마스터)·`trash_list` · 지운 표시만 바뀐 update는 `updated_at`을 밀지 않는다 · 30일 뒤 아침 크론(`api/_trash.js`)이 행·드라이브를 정리. 앱은 칸을 읽지 않아 마이그레이션보다 먼저 나가도 예전 삭제로 돈다(PITFALLS 61) |
+| `0105_project_viewers` | 보는 사람 직접 선택 — `projects.visibility` `custom` · `viewer_teams` · `project_viewers`(읽기만 · 쓰기는 함수) · `hidden_ids`·`can_see_project`·`can_see_card`에 custom 갈래(기존 정책은 그대로 따라온다) · projects는 restrictive `projects_custom_guard` 하나 · `is_project_viewer` · `project_audiences` · `set_project_viewers`(리더만) · 보호 트리거에 viewer_teams · custom이 되는 순간 바꾼 사람을 넣는 트리거. 고른 사람 + 마스터가 본다 |
+| `0106_lock_reset_request` | 잠긴 업무 비밀번호 재설정 요청 — `card_lock_requests`(본인·마스터 읽기) · 알림 종류 `lock_reset`(CHECK만 · INSERT 정책 밖) · `request_lock_reset`(마스터마다 알림 한 줄 · 첫 요청만) · `reset_card_lock`(마스터만 · 맞혀 둔 계정은 그대로) · 낡은 요청을 걷는 트리거 셋 |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

@@ -1,33 +1,61 @@
 // ============================================================================
-// 리더만 보는 프로젝트(0092) — 판정 한 벌(import 0 · 앱·서버·노드 검사가 같이 문다)
+// 리더만 보는 프로젝트(0092) · 보는 사람 직접 선택(0105) — 판정 한 벌(import 0 · 앱·서버·노드 검사가 같이 문다)
 // ----------------------------------------------------------------------------
-// 실제 경계는 DB다(0092 정책 · hidden_ids). 여기는 **RLS를 안 타는 자리**가 같은 규칙을 쓰게 모은 것이다:
+// 실제 경계는 DB다(0092·0105 정책 · hidden_ids). 여기는 **RLS를 안 타는 자리**가 같은 규칙을 쓰게 모은 것이다:
 //   앱   — 알림 받는 사람·멘션 후보 거르기(cloudSync) · 자물쇠·칩을 세울지(projectView·mobileNav·업무 창)
 //   서버 — 서비스 키 경로(api/_wiki/gather.js 위키 장 · api/share.js 공유 카드 · api/push.js 알림 · api/ics.js 달력 ·
 //          api/_wikiAsk.js 다붓이 답 캐시·짝 — leaderCited)
 // 리더 = 마스터·관리자·교역자·그 해 임원진(leader_profile_ids()와 같은 판정 · 순장은 아니다).
+// 직접 선택(custom) = 고른 사람(project_viewers) + 마스터(project_audiences()가 그 id 배열을 준다).
+// 서버 키에는 '좁혀진 프로젝트'(리더만 · 직접 선택)가 다 '안 보이는 프로젝트'다 — 누구 몫인지 모르는 자리(위키 장 · 공유 카드 ·
+// 다붓이 캐시를 남기기)는 둘을 같이 걷고, 받는 사람이 정해진 자리(푸시 · 달력)는 그 사람이 audience에 드는지 본다.
 // 게스트(localStorage)에는 리더 판정이 없다 — 자물쇠를 숨기지 않고 로컬 값으로 돈다(스위트가 게스트로 돈다).
 // ============================================================================
 
 export const LEADERS = 'leaders';
+export const CUSTOM = 'custom';
 
 // 프로젝트 행(앱 모양이든 DB 모양이든) — visibility가 없으면(0092 전 · 게스트의 옛 저장) 공개다
 export const isLeaderOnly = (project) => project?.visibility === LEADERS;
+// 고른 사람만(0105)
+export const isCustomOnly = (project) => project?.visibility === CUSTOM;
+// 누가 보나가 좁혀진 프로젝트(리더만 · 고른 사람만) — 탭 자물쇠·폰 제목 자물쇠 · 서버 키 경로의 '안 보이는 프로젝트'
+export const isRestricted = (project) => isLeaderOnly(project) || isCustomOnly(project);
+// DB 칸 값 → 앱 값(모르는 값·없는 칸은 공개)
+export const visibilityOf = (project) => (isRestricted(project) ? project.visibility : 'all');
+
+// 팀 칩을 켜고 끌 때 고른 사람(이름 배열)을 고친다(순수 · people = [{ name, teams }] · 시안 승인 2026-10-17).
+// 켜면 그 팀 사람을 **전부 넣고**(골라 뺄 수 있게 기본은 다 체크) 칩을 뒤에 붙인다.
+// 끄면 그 팀에만 걸려 있던 사람을 뺀다 — 다른 켜진 팀에도 있는 사람·팀 밖에서 따로 더한 사람·나(keep)는 남긴다.
+// 팀 칩은 사람을 한 번에 넣는 손잡이일 뿐이고 보는 사람은 viewers 하나가 정한다(DB도 project_viewers 하나).
+export function toggleViewerTeam({ viewers = [], viewerTeams = [] }, team, people = [], keep = '') {
+  const inTeam = (p, t) => (p.teams || []).includes(t);
+  if (!viewerTeams.includes(team)) {
+    const add = people.filter(p => inTeam(p, team)).map(p => p.name);
+    return { viewers: [...new Set([...viewers, ...add])], viewerTeams: [...viewerTeams, team] };
+  }
+  const rest = viewerTeams.filter(t => t !== team);
+  const drop = new Set(people.filter(p => inTeam(p, team) && !rest.some(t => inTeam(p, t))).map(p => p.name));
+  drop.delete(keep);
+  return { viewers: viewers.filter(n => !drop.has(n)), viewerTeams: rest };
+}
 
 // 자물쇠를 세울까 — 클라우드는 리더에게만, 게스트는 언제나(로컬 값)
 export const canSetVisibility = ({ cloudOn, amLeader }) => (cloudOn ? amLeader === true : true);
 
-// 알림 받는 사람 — 리더 프로젝트의 업무면 리더에게만. 리더 목록을 못 읽었으면(빈 Set) **아무에게도** 안 간다
+// 알림 받는 사람 — 좁혀진 프로젝트의 업무면 볼 수 있는 사람(leaderIds — 리더 목록이거나 직접 선택의 audience)에게만.
+// 그 목록을 못 읽었으면(빈 Set) **아무에게도** 안 간다
 // (통과가 기본값인 거르개는 깨져도 소리가 안 난다 — PITFALLS §6-29 · 여기서는 닫힌 쪽이 기본이다).
 export function visibleRecipients(ids, { leaderOnly = false, leaderIds = new Set() } = {}) {
   const list = (ids || []).filter(Boolean);
   return leaderOnly ? list.filter(id => leaderIds.has(id)) : list;
 }
 
-// 서버 키로 통째로 읽은 원본에서 리더 프로젝트 몫을 걷는다(위키 장). 업무가 원본이다 — 댓글·첨부는 업무로 가른다.
+// 서버 키로 통째로 읽은 원본에서 좁혀진 프로젝트(리더만 · 직접 선택 · 0105) 몫을 걷는다(위키 장). 업무가 원본이다 — 댓글·첨부는 업무로 가른다.
 // 주보 첨부(card_id 없음)는 그대로 둔다. 업무를 못 찾는 댓글·첨부(지운 업무의 흔적)도 그대로다(예전 그대로).
+// 이름은 0092 때 것 그대로 둔다(위키 장·검사가 이 이름으로 문다) — 뜻은 '리더만 ∪ 직접 선택'이다.
 export function dropLeaderOnly({ projects = [], cards = [], comments = [], files = [] } = {}) {
-  const hiddenProjects = new Set(projects.filter(isLeaderOnly).map(p => p.id));
+  const hiddenProjects = new Set(projects.filter(isRestricted).map(p => p.id));
   if (!hiddenProjects.size) return { projects, cards, comments, files };
   const hiddenCards = new Set(cards.filter(c => hiddenProjects.has(c.project_id)).map(c => c.id));
   return {
@@ -38,7 +66,7 @@ export function dropLeaderOnly({ projects = [], cards = [], comments = [], files
   };
 }
 
-// 리더 프로젝트의 업무 id Set — dropLeaderOnly가 걷는 업무와 같다(위키 장 gather · api/_leaders.leaderCardIds)
+// 좁혀진 프로젝트(리더만 · 직접 선택)의 업무 id Set — dropLeaderOnly가 걷는 업무와 같다(위키 장 gather · api/_leaders.leaderCardIds·customCardIds)
 export function leaderCardIdsOf({ projects = [], cards = [] } = {}) {
   const kept = new Set(dropLeaderOnly({ projects, cards }).cards.map(c => c.id));
   return new Set(cards.filter(c => !kept.has(c.id)).map(c => c.id));

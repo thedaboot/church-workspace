@@ -805,7 +805,7 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
     (await verifyViewPw(stored, 'cue!')) === true && (await verifyViewPw(stored, 'cue')) === false);
 }
 
-// ── 리더만 보는 프로젝트(0092 · 2026-10-12 시안) — 자물쇠 → `리더만 보기` 토글 → 제목 옆·업무 창 머리 칩 · 폰 상단바 제목 앞 자물쇠 ──
+// ── 리더만 보는 프로젝트(0092 · 2026-10-12 시안) — 자물쇠 → `보는 사람` 판(모두 · 리더만 · 직접 선택 — 0105 · v5 B) → 제목 옆·업무 창 머리 칩 · 폰 상단바 제목 앞 자물쇠 ──
 // 게스트에는 리더 판정이 없어 자물쇠가 언제나 서고 값은 localStorage에 남는다(services/visibility.js canSetVisibility).
 // 실제 경계(리더가 아니면 행이 안 온다)는 DB라 여기서는 못 본다 — 0092 리허설(psql)이 그 몫이다.
 // **되돌리기**(§3-5): projectView에서 LeaderLockButton 줄을 지우면 '자물쇠' 셋이, LeaderChip을 지우면 '칩'이,
@@ -817,17 +817,18 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
     const share = document.querySelector('button[title*="프로젝트 공유"]');
     const titleBtn = document.querySelector('button[title="프로젝트 이름 수정"]');
     const chip = titleBtn?.parentElement?.querySelector('[data-leader-chip]');
-    const sw = document.querySelector('[data-leader-switch]');
-    const pop = sw?.closest('div');
+    const pk = document.querySelector('[data-viewers-picker]');
+    const pop = pk?.parentElement;
+    const sel = pk?.querySelector('[data-visibility-pick][aria-pressed="true"]');
     const s = JSON.parse(localStorage.getItem('church_app_v4') || '{}');
     return { lock: !!lock, pressed: lock?.getAttribute('aria-pressed'),
              lockBeforeShare: !!(lock && share && (lock.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING)),
              chip: chip ? chip.textContent.trim() : null,
              chipPx: chip ? parseFloat(getComputedStyle(chip).fontSize) : null,
              chipBg: chip ? getComputedStyle(chip).backgroundColor : null,
-             switchOn: sw ? sw.getAttribute('aria-checked') : null, label: sw ? sw.textContent.trim() : null,
+             pick: sel ? sel.getAttribute('data-visibility-pick') : null, label: pk ? pk.firstElementChild?.firstElementChild?.textContent.trim() : null,
              popW: pop ? Math.round(pop.getBoundingClientRect().width) : null,
-             popLines: pop ? pop.querySelectorAll('p').length : null,
+             items: pk ? [...pk.querySelectorAll('[data-visibility-pick]')].map(b => b.textContent.trim()).join('·') : null,
              saved: s.projects?.byId?.p1?.visibility || null };
   })()`);
   const before = await head();
@@ -836,12 +837,12 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
   await ev(`document.querySelector('button[data-leader-lock]').click()`);
   await sleep(400);
   const open = await head();
-  check("리더만: 팝오버는 '리더만 보기' 토글 한 줄(설명 줄 없음)", open.label === '리더만 보기' && open.switchOn === 'false' && open.popLines === 0, JSON.stringify(open));
-  check('리더만: 팝오버 폭은 내용만큼(200px 미만)', open.popW > 0 && open.popW < 200, JSON.stringify(open));
-  await ev(`document.querySelector('[data-leader-switch]').click()`);
+  check("보는 사람: 팝오버는 '보는 사람' + 세 칸(모두 · 리더만 · 직접 선택) · 지금은 모두", open.label === '보는 사람' && open.items === '모두·리더만·직접 선택' && open.pick === 'all', JSON.stringify(open));
+  check('보는 사람: 판 폭 312px', open.popW === 312, JSON.stringify(open));
+  await ev(`document.querySelector('[data-visibility-pick="leaders"]').click()`);
   await sleep(500);
   const on = await head();
-  check("리더만: 켜면 제목 옆에 '리더만' 칩 · 토글·자물쇠가 켜짐으로", on.chip === '리더만' && on.switchOn === 'true' && on.pressed === 'true', JSON.stringify(on));
+  check("리더만: 고르면 제목 옆에 '리더만' 칩 · 칸·자물쇠가 켜짐으로", on.chip === '리더만' && on.pick === 'leaders' && on.pressed === 'true', JSON.stringify(on));
   check('리더만: 값이 저장소에 남는다(게스트=localStorage)', on.saved === 'leaders', JSON.stringify(on));
   // 누가·언제 바꿨나(0099 · 20차 ⑨) — 화면 문구 없이 저장에만(클라우드는 DB 트리거가 visibility_by·visibility_at을 적는다).
   // **되돌리기**: leaderOnly.useSetVisibility에서 visibilityBy·visibilityAt을 빼면 깨진다.
@@ -899,17 +900,99 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
     return { lock: !!t1?.querySelector('[data-tab-lock]'), other: !!t2?.querySelector('[data-tab-lock]') };
   })()`);
   check('리더만: 폰 탭 줄에도 그 탭에만 자물쇠', mobTab.lock === true && mobTab.other === false, JSON.stringify(mobTab));
-  // 제목 자물쇠를 누르면 머리 자물쇠와 같은 '리더만 보기' 팝오버(화면 안) — 거기서 끄면 칩·자물쇠가 걷히고 공개로 저장
+  // 제목 자물쇠를 누르면 같은 '보는 사람' 판이 아래 시트로(화면 안) — 거기서 모두를 고르면 칩·자물쇠가 걷히고 공개로 저장
   await ev(`document.querySelector('button[data-title-lock]')?.click()`);
-  await sleep(400);
-  const tpop = await ev(`(() => { const sw = document.querySelector('[data-leader-switch]'); const r = sw?.parentElement.getBoundingClientRect();
-    return { label: sw?.textContent.trim() || null, on: sw?.getAttribute('aria-checked') || null, inside: !!r && r.left >= 0 && r.right <= innerWidth }; })()`);
-  check("리더만: 폰 제목 자물쇠 → '리더만 보기' 팝오버(켜짐 · 화면 안)", tpop.label === '리더만 보기' && tpop.on === 'true' && tpop.inside, JSON.stringify(tpop));
-  await ev(`document.querySelector('[data-leader-switch]')?.click()`);
+  await sleep(600);
+  const tpop = await ev(`(() => { const sh = document.querySelector('[data-viewers-sheet]'); const r = sh?.getBoundingClientRect();
+    const sel = sh?.querySelector('[data-visibility-pick][aria-pressed="true"]');
+    return { sheet: !!sh, on: sel?.getAttribute('data-visibility-pick') || null, inside: !!r && r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight + 1 }; })()`);
+  check("리더만: 폰 제목 자물쇠 → '보는 사람' 아래 시트(리더만 · 화면 안)", tpop.sheet && tpop.on === 'leaders' && tpop.inside, JSON.stringify(tpop));
+  await ev(`document.querySelector('[data-viewers-sheet] [data-visibility-pick="all"]')?.click()`);
   await sleep(500);
   const off = await ev(`(() => { const s = JSON.parse(localStorage.getItem('church_app_v4') || '{}');
     return { chips: document.querySelectorAll('[data-leader-chip]').length, titleLock: !!document.querySelector('[data-title-lock]'), saved: s.projects?.byId?.p1?.visibility }; })()`);
   check('리더만: 끄면 칩·제목 자물쇠가 걷히고 공개로 저장', off.chips === 0 && !off.titleLock && off.saved === 'all', JSON.stringify(off));
+}
+
+// ── 보는 사람 직접 선택(0105 · v5 B · 시안 승인 2026-10-17) — 팀 칩 · 고를 때마다 저장 · 칩 'N명' · 구르는 칸 하나 · 판이 안 뛴다 · 표준 칸 · 폰 시트는 보이는 창 안 ──
+// 게스트 스토어에는 가입한 사람(members)이 없어 여기서 심는다(앱은 스토어의 members를 쓴다 — 시연 씨앗 사람은 없다).
+// **되돌리기**: leaderOnly의 팝오버 높이 고정(panel 셋째 인자)을 빼면 '판이 안 뛴다'가, 시트 바깥을 `fixed inset-0`으로 되돌리면
+// '보이는 창 안'이, 이름 칸을 손으로 그린 클래스로 되돌리면 '표준 칸'이, toggleViewerTeam을 끄면 '팀 칩'이 깨진다.
+{
+  const { readFileSync } = await import('node:fs');
+  const FIELD = readFileSync(new URL('../src/components/groupsParts.jsx', import.meta.url), 'utf8').match(/export const FIELD = '([^']+)'/)[1];
+  const T = (name, teams) => ({ id: name, name, teams });
+  const members = [T('노준석', ['미디어팀']), T('김은지', ['웰컴팀', '임원진']), T('이수빈', ['웰컴팀']), T('최다은', ['웰컴팀']), T('정하늘', ['웰컴팀']),
+    T('박서연', ['워십팀']), T('윤가람', ['워십팀']), T('강민준', ['찬양팀']), T('오예린', ['찬양팀']), T('한지우', ['찬양팀']), T('문채원', ['미디어팀']),
+    T('배현우', ['미디어팀']), T('임성빈', ['임원진']), T('박지훈', ['임원진']), T('조은혜', ['교역자'])];
+  const seeded = { ...st, members };
+  const seed = async (metrics, state = seeded) => {
+    await send('Emulation.setDeviceMetricsOverride', metrics);
+    await send('Emulation.setTouchEmulationEnabled', { enabled: !!metrics.mobile, maxTouchPoints: 5 });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(state))}); localStorage.setItem('theme','light')`);
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
+  };
+  const saved = () => ev(`(() => { const p = JSON.parse(localStorage.getItem('church_app_v4') || '{}').projects?.byId?.p1 || {};
+    return { v: p.visibility || null, viewers: p.viewers || [], teams: p.viewerTeams || [] }; })()`);
+  const box = (host) => ev(`(() => { const h = ${host}; if (!h) return null; const r = h.getBoundingClientRect();
+    const rolls = [...h.querySelectorAll('*')].filter(n => /auto|scroll/.test(getComputedStyle(n).overflowY));
+    const foot = h.querySelector('[data-viewer-count]')?.getBoundingClientRect();
+    return { top: Math.round(r.top), h: Math.round(r.height), bottom: Math.round(r.bottom), rolls: rolls.length,
+      contain: rolls[0] ? getComputedStyle(rolls[0]).overscrollBehaviorY : null, footIn: !!foot && foot.bottom <= r.bottom + 0.5 && foot.top >= r.top }; })()`);
+  const chipTap = (t) => ev(`document.querySelector('[data-viewer-team-chip="${t}"]')?.click()`);
+  // 데스크톱 — 직접 선택을 고르면 나 하나로 저장 · 팀 칩을 켜면 그 팀 사람이 다 들어간다 · 사람을 빼면 곧바로 저장
+  await seed(DESK);
+  await ev(`document.querySelector('button[data-leader-lock]').click()`); await sleep(500);
+  await ev(`document.querySelector('[data-visibility-pick="custom"]').click()`); await sleep(400);
+  const c0 = await saved();
+  check('직접 선택: 고르는 순간 나 하나로 저장(custom)', c0.v === 'custom' && JSON.stringify(c0.viewers) === '["노준석"]', JSON.stringify(c0));
+  await chipTap('웰컴팀'); await sleep(300);
+  const c1 = await saved();
+  check('직접 선택: 팀 칩을 켜면 그 팀 사람이 다 들어가고 칩이 남는다', c1.viewers.length === 5 && ['김은지', '이수빈', '최다은', '정하늘'].every(n => c1.viewers.includes(n)) && c1.teams.join() === '웰컴팀', JSON.stringify(c1));
+  await ev(`document.querySelector('[data-viewer-row="정하늘"] input')?.click()`); await sleep(300);
+  const c2 = await saved();
+  const meRow = await ev(`!!document.querySelector('[data-viewer-row="노준석"] input')?.disabled`);
+  check('직접 선택: 사람을 빼면 곧바로 저장 · 나는 뺄 수 없다', !c2.viewers.includes('정하늘') && c2.viewers.length === 4 && meRow, JSON.stringify(c2));
+  const chip = await ev(`(() => { const c = document.querySelector('[data-viewers-chip]'); return c ? { text: c.textContent.trim(), faces: c.querySelectorAll('[class*="ring-"]').length } : null; })()`);
+  check("직접 선택: 제목 옆 칩은 자물쇠 + 얼굴 셋 + 'N명'", !!chip && chip.text.endsWith('4명') && chip.faces === 3, JSON.stringify(chip));
+  const count = await ev(`document.querySelector('[data-viewer-count]')?.textContent.trim()`);
+  check("직접 선택: 바닥 줄 'N명이 볼 수 있어요'", count === '4명이 볼 수 있어요', String(count));
+  // 판이 안 뛴다 — 칩을 더 켜도 판 자리·높이 그대로 · 구르는 칸 하나
+  const POP = `document.querySelector('[data-viewers-picker]')?.parentElement`;
+  const p0 = await box(POP);
+  for (const t of ['찬양팀', '미디어팀', '임원진', '워십팀']) { await chipTap(t); await sleep(150); }
+  const p1 = await box(POP);
+  check('직접 선택: 데스크톱 판 — 구르는 칸 하나(overscroll contain) · 바닥 줄이 판 안 · 사람이 늘어도 판 자리·높이 그대로',
+    !!p0 && !!p1 && p1.rolls === 1 && p1.contain === 'contain' && p1.footIn && p0.top === p1.top && p0.h === p1.h, JSON.stringify({ p0, p1 }));
+  const field = await ev(`(() => { const i = document.querySelector('[data-viewer-search]'); const ref = document.createElement('input'); ref.className = ${JSON.stringify(FIELD)};
+    document.body.appendChild(ref); const pick = (el) => { const c = getComputedStyle(el); return [c.fontSize, c.paddingTop, c.paddingLeft, c.borderTopWidth, c.borderTopColor, c.borderRadius, c.backgroundColor, c.color].join(' '); };
+    const out = { mine: i ? pick(i) : null, std: pick(ref) }; ref.remove(); return out; })()`);
+  check('직접 선택: 이름 칸은 앱의 표준 칸(groupsParts FIELD)과 같은 글자·여백·테두리·바탕', !!field.mine && field.mine === field.std, JSON.stringify(field));
+  // 폰 시트 — 키보드가 올라온 셈(--app-vh를 줄인다 · App이 하는 일) · 시트 바닥과 이름 칸이 그 안
+  const custom = { ...seeded, projects: { ...seeded.projects, byId: { ...seeded.projects.byId,
+    p1: { ...seeded.projects.byId.p1, visibility: 'custom', viewers: ['노준석'], viewerTeams: [] } } } };
+  await seed(MOB, custom);
+  await ev(`document.querySelector('button[data-title-lock]')?.click()`); await sleep(600);
+  const SHEET = `document.querySelector('[data-viewers-sheet]')`;
+  const s0 = await box(SHEET);
+  for (const t of ['웰컴팀', '찬양팀', '미디어팀']) { await chipTap(t); await sleep(150); }
+  const s1 = await box(SHEET);
+  check('직접 선택: 폰 시트 — 구르는 칸 하나 · 바닥 줄이 시트 안 · 사람이 늘어도 시트 머리가 그대로', !!s0 && !!s1 && s1.rolls === 1 && s1.footIn && s0.top === s1.top && s0.h === s1.h,
+    JSON.stringify({ s0, s1 }));
+  await ev(`document.documentElement.style.setProperty('--app-vh', '480px')`); await sleep(300);
+  const kb = await ev(`(() => { const s = ${SHEET}?.getBoundingClientRect(); const i = document.querySelector('[data-viewer-search]')?.getBoundingClientRect();
+    return s && i ? { sheetBottom: Math.round(s.bottom), inputBottom: Math.round(i.bottom), inputTop: Math.round(i.top), pageY: Math.round(scrollY) } : null; })()`);
+  check('직접 선택: 폰 — 보이는 창이 줄면(키보드) 시트 바닥이 그 위 · 이름 칸이 보이는 자리 · 문서는 안 굴렀다',
+    !!kb && kb.sheetBottom <= 480 && kb.inputBottom <= 480 && kb.inputTop >= 0 && kb.pageY === 0, JSON.stringify(kb));
+  await ev(`document.documentElement.style.removeProperty('--app-vh')`);
+  // 이름으로 추가하기 — 다른 팀 사람을 찾아 넣으면 '별도로 추가한 사람'
+  await ev(`(() => { const i = document.querySelector('[data-viewer-search]'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    set.call(i, '조은'); i.dispatchEvent(new Event('input', { bubbles: true })); })()`); await sleep(300);
+  await ev(`document.querySelector('[data-viewer-add="조은혜"]')?.click()`); await sleep(400);
+  const extra = await ev(`(() => { const x = document.querySelector('[data-viewer-extra]'); return x ? x.textContent : null; })()`);
+  const c3 = await saved();
+  check("직접 선택: 이름으로 추가하면 저장되고 '별도로 추가한 사람'에 선다", c3.viewers.includes('조은혜') && !!extra && extra.includes('별도로 추가한 사람') && extra.includes('조은혜'), JSON.stringify({ c3, extra }));
 }
 
 console.log(results.join('\n'));

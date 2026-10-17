@@ -619,10 +619,10 @@ import { loadSource, readSplit } from './_load.mjs';
   // 서버 키 경로 배선
   const rd = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
   const share = rd('api/share.js');
-  ok(/from\('projects'\)\.select\('name, visibility'\)/.test(share) && /if \(!isLeaderOnly\(data\)\) \{\s+title = `더다붓 · \$\{data\.name\}`/.test(share),
-    '공유 카드: 리더 프로젝트면 이름을 싣지 않는다');
-  ok(/projects\(visibility\)/.test(share) && /if \(!isLeaderOnly\(data\.projects\)\) \{\s+title = `더다붓 · \$\{data\.title\}`/.test(share),
-    '공유 카드: 리더 프로젝트의 업무면 제목·상태·마감을 싣지 않는다');
+  ok(/from\('projects'\)\.select\('name, visibility'\)/.test(share) && /if \(!isRestricted\(data\)\) \{\s+title = `더다붓 · \$\{data\.name\}`/.test(share),
+    '공유 카드: 리더 프로젝트·직접 선택(0105)이면 이름을 싣지 않는다');
+  ok(/projects\(visibility\)/.test(share) && /if \(!isRestricted\(data\.projects\)\) \{\s+title = `더다붓 · \$\{data\.title\}`/.test(share),
+    '공유 카드: 좁혀진 프로젝트의 업무면 제목·상태·마감을 싣지 않는다');
   const ics = rd('api/ics.js');
   ok((ics.match(/await seeProject\(supabase, /g) || []).length === 2 && /if \(!proj\) \{ reply\(null\); return; \}/.test(ics),
     '달력: 등록(POST — 읽기·쓰기)과 구독(GET) 둘 다 주인이 볼 수 있는 프로젝트인지');
@@ -631,6 +631,71 @@ import { loadSource, readSplit } from './_load.mjs';
   ok(/rpc\('leader_profile_ids'\)/.test(rd('api/_leaders.js')) && /select\('project_id, projects\(visibility\)'\)\.eq\('id', cardId\)/.test(rd('api/_leaders.js')),
     '서버 판정: 리더 목록은 DB 함수 한 벌 · 업무는 지금 프로젝트로');
   console.log(`PASS  0092 리더만 보는 프로젝트의 모양·판정·서버 키 경로 ${n}가지`);
+}
+
+// ── 0105 보는 사람 직접 선택 · 0106 비밀번호 재설정 요청 (v5 B · 2026-10-17) — 마이그레이션 모양 · 순수 판정 · 앱 배선 ──
+// 실제 경계(행 수)는 레포 밖 리허설(PGlite 하네스 · 운영 DB ROLLBACK SQL)이 본다 — 여기는 모양이 0092·0101·0102 관례를 지키는지.
+// **되돌리기**: 0105의 restrictive 정책을 지우면 '①', hidden_ids의 custom 갈래를 지우면 '②', 0106 INSERT 정책에 lock_reset을 넣으면 '⑤',
+// toggleViewerTeam의 rest.some 거르기를 빼면 '겸직', leaderOnly의 viewersReady 판정을 빼면 '배선'이 깨진다.
+{
+  const rd = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const m105 = rd('supabase/migrations/0105_project_viewers.sql');
+  const b105 = m105.slice(0, m105.indexOf('-- ── 확인'));
+  assert.ok(/create policy projects_custom_guard on public\.projects as restrictive for all to authenticated/.test(b105)
+    && /visibility <> 'custom' or coalesce\(id <> all \(\(select public\.hidden_ids\(\)\)::uuid\[\]\), true\)/.test(b105), '① projects는 restrictive 하나(custom이 아니면 참)');
+  assert.ok(!/alter policy projects_(select|update|delete)/.test(b105), 'projects의 기존 정책은 alter하지 않는다(휴지통 묶음과 겹치지 않게)');
+  const hid = b105.slice(b105.indexOf('create or replace function public.hidden_ids()'));
+  assert.ok(/nar\.visibility = 'custom' and not me\.master/.test(hid.slice(0, 1500)) && /where exists \(select 1 from nar\)/.test(hid.slice(0, 1500)), '② hidden_ids에 custom 갈래 · 좁혀진 프로젝트가 없으면 판정 함수를 안 부른다');
+  assert.ok(/check \(visibility in \('all', 'leaders', 'custom'\)\)/.test(b105), '③ CHECK에 custom');
+  for (const f of ['is_project_viewer(uuid)', 'project_audiences(uuid[])', 'set_project_viewers(uuid, uuid[], text[])']) {
+    assert.ok(b105.includes(`revoke all on function public.${f} from public, anon;`), `${f} 익명 회수`);
+  }
+  for (const f of ['ensure_custom_viewer()', 'guard_project_visibility()', 'stamp_project_visibility()']) {
+    assert.ok(b105.includes(f) && /revoke execute on function public\.ensure_custom_viewer\(\) from public, anon, authenticated;/.test(b105), `트리거 함수 EXECUTE 회수(${f})`);
+  }
+  assert.ok(/create policy project_viewers_select on public\.project_viewers for select to authenticated\s+using \(\(select public\.is_approved\(\)\)/.test(b105)
+    && !/create policy project_viewers_(insert|update|delete)/.test(b105), '④ 고른 사람 표: 읽기만 · to authenticated · (select …) 꼴 · 쓰기는 함수만');
+  assert.ok(/if not public\.is_leader\(\) then raise exception 'not a leader' using errcode = '42501'/.test(b105)
+    && /if not public\.can_see_project\(p\) then raise exception 'not visible'/.test(b105), 'set_project_viewers는 리더 · 보는 사람만');
+  assert.ok(m105.includes('-- ── 되돌리기') && m105.includes('--   drop table if exists public.project_viewers;'), '되돌리는 SQL은 맨 아래 주석');
+  const m106 = rd('supabase/migrations/0106_lock_reset_request.sql');
+  const b106 = m106.slice(0, m106.indexOf('-- ── 확인'));
+  assert.ok(b106.includes("'assignee_comment', 'lock_reset'));") && !/alter policy notifications_insert_authenticated/.test(b106), '⑤ lock_reset은 CHECK만 — INSERT 정책에는 없다(위조 못 함)');
+  assert.ok(/create policy card_lock_requests_select on public\.card_lock_requests for select to authenticated\s+using \(profile_id = any \(array\[\(select auth\.uid\(\)\), \(select public\.effective_uid\(\)\)\]\) or \(select public\.is_master\(\)\)\)/.test(b106),
+    '⑥ 요청 읽기는 본인 · 마스터((select …) 꼴)');
+  assert.ok(/if not public\.is_master\(\) then raise exception 'not master' using errcode = '42501'/.test(b106) && !/delete from public\.card_unlocks/.test(b106),
+    '⑦ reset_card_lock은 마스터만 · 맞혀 둔 계정은 걷지 않는다');
+  assert.ok(/on conflict \(card_id, profile_id\) do nothing;\n\s+get diagnostics n = row_count;\n\s+if n = 0 then return '\{\}'::uuid\[\]; end if;/.test(b106), '⑧ 같은 사람의 두 번째 요청은 알림 없이 빈 배열');
+  assert.ok(/revoke execute on function public\.clear_lock_requests\(\) from public, anon, authenticated;/.test(b106)
+    && /revoke all on function public\.request_lock_reset\(uuid\) from public, anon;/.test(b106), '트리거 함수 회수 · RPC 익명 회수');
+  // 순수 판정(visibility.js)
+  const V = await import(new URL('../src/services/visibility.js', import.meta.url).href);
+  assert.ok(V.isCustomOnly({ visibility: 'custom' }) && V.isRestricted({ visibility: 'custom' }) && V.isRestricted({ visibility: 'leaders' }) && !V.isRestricted({}),
+    '좁혀진 프로젝트 = 리더만 ∪ 직접 선택');
+  assert.ok(V.visibilityOf({ visibility: 'custom' }) === 'custom' && V.visibilityOf({ visibility: 'weird' }) === 'all' && V.visibilityOf(null) === 'all', 'DB 값 → 앱 값(모르면 공개)');
+  const people = [{ name: '나', teams: ['미디어팀'] }, { name: '은지', teams: ['웰컴팀', '임원진'] }, { name: '수빈', teams: ['웰컴팀'] }, { name: '지훈', teams: ['임원진'] }];
+  let v = V.toggleViewerTeam({ viewers: ['나'], viewerTeams: [] }, '웰컴팀', people, '나');
+  assert.deepStrictEqual(v, { viewers: ['나', '은지', '수빈'], viewerTeams: ['웰컴팀'] }, '팀 칩을 켜면 그 팀 사람이 다 들어간다');
+  v = V.toggleViewerTeam(v, '임원진', people, '나');
+  assert.deepStrictEqual(v.viewers, ['나', '은지', '수빈', '지훈'], '겸직은 한 번만');
+  v = V.toggleViewerTeam(v, '웰컴팀', people, '나');
+  assert.deepStrictEqual(v, { viewers: ['나', '은지', '지훈'], viewerTeams: ['임원진'] }, '겸직: 끄면 그 팀에만 걸린 사람만 빠진다(은지는 남는다)');
+  assert.deepStrictEqual(V.toggleViewerTeam({ viewers: ['나'], viewerTeams: ['미디어팀'] }, '미디어팀', people, '나').viewers, ['나'], '나는 빠지지 않는다');
+  const d = V.dropLeaderOnly({ projects: [{ id: 'p1' }, { id: 'p3', visibility: 'custom' }], cards: [{ id: 'c1', project_id: 'p1' }, { id: 'c3', project_id: 'p3' }] });
+  assert.ok(d.projects.map(x => x.id).join() === 'p1' && d.cards.map(x => x.id).join() === 'c1', '위키 원본에서 직접 선택 프로젝트도 걷는다');
+  // 앱 배선
+  const lo = rd('src/components/leaderOnly.jsx');
+  assert.ok(/const viewersReady = useStore\(s => s\.viewersReady === true\);\n\s+const pick = enabled && !!session \? viewersReady : true;/.test(lo) && !/GUEST_PEOPLE|s\.demo/.test(lo),
+    '배선: 직접 선택 판은 클라우드에서 0105를 읽었을 때만(시연 표시·씨앗 사람 없음)');
+  const cs = readSplit('src/services/cloudSync.js');
+  assert.ok(/const viewerInfo = Promise\.resolve\(\)\.then\(\(\) => Promise\.all\(\[cloud\.listProjectViewers\(\), cloud\.projectAudiences\(\)\]\)\)\n\s+\.catch\(/.test(cs)
+    && cs.includes('viewersReady: !!viewers,'), '배선: 고른 사람·audience는 없어도 되는 값(마이그레이션 전에도 오류 화면 없음)');
+  const md = rd('src/modals/modals.jsx');
+  assert.ok(/const askReset = isNew \|\| !source\.locked \|\| \(cloudMode && !cloudAsk\) \? null/.test(md) && !/s\.demo/.test(md),
+    '배선: 클라우드는 요청 표를 읽었을 때만 비밀번호를 까먹었어요');
+  assert.ok(!/PENDING_COPY/.test(rd('src/components/cardLock.jsx')) && /lock_reset: PENDING_COPY\.lockResetNotif/.test(rd('src/services/notifyText.js')),
+    '확인 전 문구는 pendingCopy 한 곳에서 온다');
+  console.log('PASS  0105 보는 사람 직접 선택 · 0106 비밀번호 재설정 요청 — 마이그레이션 모양 · 순수 판정 · 앱 배선');
 }
 
 // ── 승인 대기가 저절로 넘어가기 · 승인 알림 · 화면에 기술 원문 안 싣기 (2026-09-25) ──

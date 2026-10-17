@@ -139,10 +139,11 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
   const lk = readFileSync(new URL('../src/components/cardLock.jsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
   const spec = {
-    title: /className="text-\[12\.5px\] font-bold text-fg">업무 잠그기</.test(lk),
+    // 두 칸 판은 LockForm 한 벌이다(시안 2026-10-16 — 마스터의 '새 비밀번호 정하기'가 같이 쓴다) — 글자는 부르는 쪽이 넘긴다
+    title: /className="text-\[12\.5px\] font-bold text-fg">\{title\}</.test(lk) && /title="업무 잠그기" submitLabel="잠그기"/.test(lk),
     labels: (lk.match(/text-\[11px\] text-fg-muted">비밀번호( 확인)?\n/g) || []).length === 2,
     cancel: /bg-surface-hover text-fg-muted text-\[12px\] font-semibold[^"]*">취소</.test(lk),
-    submit: /bg-accent hover:bg-accent-strong text-white text-\[12px\] font-bold[^"]*">잠그기</.test(lk),
+    submit: /bg-accent hover:bg-accent-strong text-white text-\[12px\] font-bold[^"]*">\{submitLabel\}</.test(lk),
     panel: /data-lock-panel="" className="[^"]*rounded-\[10px\] bg-surface-2"/.test(lk) && /text-\[13px\] leading-relaxed text-center text-fg">이 업무는 현재 잠겨있어요</.test(lk),
     enter: /h-9 px-3\.5 rounded-\[9px\] bg-accent hover:bg-accent-strong text-white text-\[12\.5px\] font-bold[^"]*">입력</.test(lk),
     red: /border-tag-red-fg/.test(lk) && !/(border|ring)-red-\d/.test(lk),

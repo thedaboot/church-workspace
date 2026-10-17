@@ -21,27 +21,30 @@ import { usePresence } from './useExit.js';
 //   `open`은 그 사이에도 false다 — 부르는 쪽의 '열렸나'는 바로 바뀐다.
 // · 포털로 나간 판도 useDismiss의 '안'에 넣는다(PITFALLS 17-d).
 // · portal: false — 판을 앵커 곁(rootRef 안)에 그대로 둔다. 알림 종이 원래 그렇다(옮기면 자리·쌓임이 바뀐다).
+// · fit: 고른 쪽(아래가 기본)에 남은 높이를 pos.maxHeight로 준다(useAnchoredPos fitHeight · estHeight가 위 한계).
+//   panel의 셋째 인자(style)로 그 높이를 판에 걸면, 안이 늘어도 판이 위로 밀려 올라가지 않고 판 안의 한 칸만 구른다
+//   (보는 사람 고르기 · 시안 2026-10-16).
 export const POP_MOTION = 'transition-none dc-pop';
 
-export function usePopover(width, estHeight, { gap, measure = false, portal = true } = {}) {
+export function usePopover(width, estHeight, { gap, measure = false, portal = true, fit = false } = {}) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const btnRef = useRef(null);
   const popRef = useRef(null);
-  const [pos, place] = useAnchoredPos(btnRef, open, width, estHeight, gap, measure ? popRef : null);
+  const [pos, place] = useAnchoredPos(btnRef, open, width, estHeight, gap, measure ? popRef : null, fit ? { fitHeight: true } : null);
   useDismiss(open, () => setOpen(false), [rootRef, popRef]);
   const toggle = () => { place(); setOpen(o => !o); };
   const close = () => setOpen(false);
   const { shown, leaving } = usePresence(open);
-  const panel = (className, children) => {
+  const panel = (className, children, style = null) => {
     if (!shown) return null;
     const el = createElement('div', {
       ref: popRef,
-      style: { position: 'fixed', left: pos.left, top: pos.top, width, ...popMotion(pos) },
+      style: { position: 'fixed', left: pos.left, top: pos.top, width, ...style, ...popMotion(pos) },
       className: `${className} ${POP_MOTION}${leaving ? ' dc-out' : ''}`,
       'aria-hidden': leaving || undefined,
     }, children);
     return portal ? createPortal(el, document.body) : el;
   };
-  return { open, close, toggle, rootRef, btnRef, panel };
+  return { open, close, toggle, rootRef, btnRef, panel, pos };
 }

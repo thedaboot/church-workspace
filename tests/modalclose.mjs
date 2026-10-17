@@ -969,7 +969,7 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
       edit: [...m.querySelectorAll('button')].some(b => b.textContent.trim() === '수정'), lockBtn: !!m.querySelector('[data-card-lock-btn]'),
       cmtInput: !!m.querySelector('textarea[placeholder*="댓글"]'), title: m.querySelector('[data-task-view] h2')?.textContent }; })()`);
   check("잠금 ④ 잠금 판: '이 업무는 현재 잠겨있어요' · 비밀번호 칸 + '입력' · 제목은 보이고 본문·수정·댓글 칸·자물쇠 버튼은 없다",
-    !!shut && !shut.phase && shut.panel === '이 업무는 현재 잠겨있어요 입력' && shut.enter && shut.placeholder === '비밀번호' && !shut.body && !shut.leak
+    !!shut && !shut.phase && shut.panel === '이 업무는 현재 잠겨있어요 입력 비밀번호를 까먹었어요' && shut.enter && shut.placeholder === '비밀번호' && !shut.body && !shut.leak
     && !shut.edit && !shut.lockBtn && !shut.cmtInput && shut.title === '잠글 업무', JSON.stringify(shut));
   const tryPw = async (text) => {
     await ev(`(() => { const i = document.querySelector('.fixed.z-50 [data-lock-field="unlock"]'); i.focus(); i.select(); })()`);
@@ -1007,6 +1007,28 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   const capped = await ev(`({ panel: !!document.querySelector('.fixed.z-50 [data-lock-panel]'), open: window.__store.getState().tasks.byId.k1.lockedOpen })`);
   check('잠금 ⑤ 1분에 5번 넘게 틀리면 맞는 비밀번호도 안 받는다(서버와 같은 흐름)', capped.panel && !capped.open, JSON.stringify(capped));
   await send('Emulation.setEmulatedMedia', { features: [] });
+  // ⑥ 비밀번호를 까먹었어요(0106 · v5 B) — 확인 → 요청이 그 업무에 남고 '개발자에게 요청했어요' · 게스트는 마스터이기도 해서
+  //    보기 위 한 줄 + '새 비밀번호 설정' → 두 칸 → 토스트 '새 비밀번호를 설정했어요' · 요청이 걷힌다.
+  // **되돌리기**: modals의 askReset을 null로 두면 '버튼', LockResetNotice 줄을 빼면 '마스터 한 줄', resetPw의 lockReset: null을 빼면 '걷힌다'가 깨진다.
+  await ev(`document.querySelector('.fixed.z-50 [data-lock-forgot]')?.click()`); await sleep(350);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '요청하기')?.click()`); await sleep(400);
+  const asked = await ev(`(() => { const m = document.querySelector('.fixed.z-50'); const t = window.__store.getState().tasks.byId.k1;
+    return { asked: m.querySelector('[data-lock-forgot-asked]')?.textContent.trim() || null, btn: !!m.querySelector('[data-lock-forgot]'), by: t.lockReset?.by || null,
+      notice: m.querySelector('[data-lock-reset-ask]')?.innerText.replace(/\\s+/g, ' ').trim() || null }; })()`);
+  check("잠금 ⑥ 요청하면 '개발자에게 요청했어요' · 그 업무에 누가 · 마스터에게 보기 위 한 줄",
+    asked.asked === '개발자에게 요청했어요' && !asked.btn && asked.by === '노준석' && !!asked.notice?.startsWith('노준석님이 비밀번호를 다시 설정해 달라고 요청했어요'), JSON.stringify(asked));
+  const oldHash = await ev(`window.__store.getState().tasks.byId.k1.lockPw?.view_pw`);
+  await ev(`document.querySelector('.fixed.z-50 [data-lock-reset-open]')?.click()`); await sleep(350);
+  const rpop = await ev(`(() => { const p = document.querySelector('[data-card-lock-pop]'); return p ? { title: p.firstElementChild?.textContent.trim(), buttons: [...p.querySelectorAll('button')].map(b => b.textContent.trim()) } : null; })()`);
+  check("잠금 ⑥ '새 비밀번호 설정' → 잠그기와 같은 두 칸 · 취소/설정", !!rpop && rpop.title === '새 비밀번호 설정' && JSON.stringify(rpop.buttons) === '["취소","설정"]', JSON.stringify(rpop));
+  await ev(`document.querySelector('[data-card-lock-pop] [data-lock-field="pw"]')?.focus()`); await send('Input.insertText', { text: '5678' }); await sleep(60);
+  await ev(`document.querySelector('[data-card-lock-pop] [data-lock-field="confirm"]')?.focus()`); await send('Input.insertText', { text: '5678' }); await sleep(60);
+  await ev(`document.querySelector('[data-card-lock-pop] [data-lock-submit]')?.click()`); await sleep(600);
+  const reset = await ev(`(() => { const t = window.__store.getState().tasks.byId.k1;
+    return { toast: [...document.querySelectorAll('[data-toast]')].map(x => x.textContent).join('|'), req: t.lockReset || null, hash: t.lockPw?.view_pw || null,
+      notice: !!document.querySelector('.fixed.z-50 [data-lock-reset-ask]'), forgot: !!document.querySelector('.fixed.z-50 [data-lock-forgot]') }; })()`);
+  check("잠금 ⑥ 설정하면 토스트 '새 비밀번호를 설정했어요' · 해시가 바뀌고 요청·한 줄이 걷힌다 · 버튼이 다시 선다",
+    reset.toast.includes('새 비밀번호를 설정했어요') && !reset.req && !!reset.hash && reset.hash !== oldHash && !reset.notice && reset.forgot, JSON.stringify({ ...reset, oldHash }));
   await ev(`${byLabel('닫기')}?.click()`); await sleep(300);
 }
 

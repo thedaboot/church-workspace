@@ -3,8 +3,8 @@ import { adminClient, readJson, requireApprovedUser, safeEqual, isAdminEmail, UU
 import { readNoticeDate, buildIcs, noticeEvent } from '../src/services/noticeDate.js';
 import { isApprovedProfile } from '../src/services/approval.js';
 import { STATUS_KO, feedKeepRow, feedEvent, buildFeedIcs, feedCalName, feedUrls, taskLink } from '../src/services/calendarFeed.js';
-import { isLeaderOnly } from '../src/services/visibility.js';
-import { leaderIdSet } from './_leaders.js';
+import { isLeaderOnly, isRestricted } from '../src/services/visibility.js';
+import { leaderIdSet, audienceMap } from './_leaders.js';
 import { trashedIds, goneCard } from './_trash.js';
 
 // ============================================================================
@@ -28,8 +28,8 @@ import { trashedIds, goneCard } from './_trash.js';
 //   재작성의 마지막 도막은 `:file`(= `<서명>.ics`)로 통째로 받아 여기서 `.ics`를 뗀다 — `:sig.ics` 모양은
 //   경로 패턴 해석기에 따라 점을 이름에 넣기도 해서 믿지 않았다.
 //
-// **리더만 보는 프로젝트(0092)**는 주인이 리더일 때만 — 등록(POST)도 구독(GET)도. 서비스 키라 RLS를 안 타서
-// 여기서 직접 본다(seeProject). 프로젝트가 나중에 리더만으로 바뀌면 리더가 아닌 사람의 구독 주소는 404로 닫힌다.
+// **리더만 보는 프로젝트(0092)**는 주인이 리더일 때만, **직접 선택(0105)**은 주인이 고른 사람·마스터일 때만 — 등록(POST)도
+// 구독(GET)도. 서비스 키라 RLS를 안 타서 여기서 직접 본다(seeProject). 프로젝트가 나중에 좁혀지면 못 보는 사람의 구독 주소는 404로 닫힌다.
 // **발행된 주보만**이다(작성 중 주보는 RLS가 편집 자격자에게만 준다 — 서비스 키라 여기서 직접 본다).
 // 두 걸음 모두 **화면과 같은 파서**(src/services/noticeDate.js)로 광고를 다시 읽는다 — 칩은 섰는데
 // 누르면 엉뚱한 날이 들어가는 일이 없게, 그리고 주소를 손으로 바꿔 아무 광고나 달력으로 만들지 못하게.
@@ -69,8 +69,8 @@ async function ownerOf(supabase, uid) {
   return data?.merged_into || uid;
 }
 
-// 주인이 이 프로젝트를 볼 수 있는가 → 프로젝트 행(이름 포함) | null. 리더만 보는 프로젝트면 주인이 리더여야 한다(0092).
-// 리더 목록을 못 읽으면 못 본다고 한다(닫힌 쪽).
+// 주인이 이 프로젝트를 볼 수 있는가 → 프로젝트 행(이름 포함) | null. 리더만 보는 프로젝트면 주인이 리더여야 하고(0092),
+// 직접 선택이면 주인이 고른 사람이거나 마스터여야 한다(0105 project_audiences). 목록을 못 읽으면 못 본다고 한다(닫힌 쪽).
 async function seeProject(supabase, projectId, owner) {
   const { data: proj, error } = await supabase.from('projects').select('id, name, visibility').eq('id', projectId).maybeSingle();
   if (error) { console.error('[ics] 프로젝트 조회 실패:', error); return null; }
@@ -79,9 +79,12 @@ async function seeProject(supabase, projectId, owner) {
   try { if ((await trashedIds(supabase)).projects.has(projectId)) return null; } catch (e) {
     console.error('[ics] 휴지통 조회 실패:', e?.message || e); return null;
   }
-  if (!isLeaderOnly(proj)) return proj;
-  try { return (await leaderIdSet(supabase)).has(owner) ? proj : null; } catch (e) {
-    console.error('[ics] 리더 목록 조회 실패:', e?.message || e); return null;
+  if (!isRestricted(proj)) return proj;
+  try {
+    const allowed = isLeaderOnly(proj) ? await leaderIdSet(supabase) : ((await audienceMap(supabase, [proj.id])).get(proj.id) || new Set());
+    return allowed.has(owner) ? proj : null;
+  } catch (e) {
+    console.error('[ics] 보는 사람 목록 조회 실패:', e?.message || e); return null;
   }
 }
 

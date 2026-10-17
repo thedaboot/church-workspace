@@ -1157,7 +1157,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     fakeGemini(() => ({ found: true, sentences: [] }));
     await assert.rejects(A.answerQuestion(Q, { db: fakeDb(people), key: 'k', today, gate: Promise.resolve(true) }), (e) => e.busy === true);
     assert.strictEqual(calls.length, 0, '상한이 넘으면 모델을 부르지 않는다');
-    assert.ok(ask.includes('const [{ data }, stamp, leaders, locked] = await Promise.all([') && ask.includes('dataStamp(admin),\n    leaderCardIds(admin).catch(() => null),\n    lockedCardIds(admin).catch(() => null),\n  ]);'), '캐시 행과 데이터 도장(과 리더 업무 id · 20차 ⑥ · 잠긴 업무 id · 20차 ⑩)은 함께');
+    assert.ok(ask.includes('const [{ data }, stamp, leaders, custom, locked] = await Promise.all([') && ask.includes('dataStamp(admin),\n    leaderCardIds(admin).catch(() => null),\n    customCardIds(admin).catch(() => null),\n    lockedCardIds(admin).catch(() => null),\n  ]);'), '캐시 행과 데이터 도장(과 리더 업무 id · 20차 ⑥ · 직접 선택 업무 id · 0105 · 잠긴 업무 id · 20차 ⑩)은 함께');
     assert.ok(/const \[\{ evidence: everything, hasName, files, roster, teamItems \}, pairs, hits\] = await Promise\.all\(\[\n\s+collectAll\(db, today, \{ admin \}\),\n\s+hint \|\| \(admin \? pairedCites\(admin, question\)/.test(ask), '기록과 짝(과 검색 모드의 찾기)은 함께');
     assert.ok(/comments'\),\n\s+db\.from\('qt_schedule'\)/.test(ask) && !ask.includes('const { data: qt } = await'), 'QT도 같은 묶음');
     const aiSrc = readFileSync(new URL('../api/ai.js', import.meta.url), 'utf8');
@@ -1380,7 +1380,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
   const B = await import(new URL('../api/_wikiBuild.js', import.meta.url).href);
   const V = await import(new URL('../src/services/visibility.js', import.meta.url).href);
-  const fakeDb = (tables, { inserts = [], leader = false, fail = [] } = {}) => ({
+  const fakeDb = (tables, { inserts = [], leader = false, fail = [], hidden = null } = {}) => ({
     from: (t) => {
       if (fail.includes(t)) return { select: () => ({ eq: async () => ({ data: null, error: { message: 'down' } }) }) };
       let rows = [...(tables[t] || [])];
@@ -1399,7 +1399,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
       };
       return q;
     },
-    rpc: async (fn) => ({ data: fn === 'is_leader' ? leader : null }),
+    rpc: async (fn) => ({ data: fn === 'is_leader' ? leader : fn === 'hidden_ids' ? hidden : null }),
   });
   const today = W.kstDate(new Date().toISOString());
   const proj = [{ id: 'pL', name: '리더 가을 MT', year: 2026, visibility: 'leaders' }, { id: 'pA', name: '가을 체육대회', year: 2026, visibility: 'all' }];
@@ -1431,6 +1431,21 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.strictEqual((await A.cachedAnswer(admin(leaderAns), '리더 MT 숙소 어디야?', today, fakeDb({}, { leader: true })))?.cached, true, '리더에게는 준다');
   assert.strictEqual((await A.cachedAnswer(admin(publicAns), '리더 MT 숙소 어디야?', today, fakeDb({}, { leader: false })))?.cached, true, '공개 근거는 누구에게나');
   assert.ok(askSource().includes('const hit = await cachedAnswer(admin, question, today, db).catch(() => null);'), '낮의 답은 묻는 사람 세션을 넘긴다');
+  // 직접 선택(0105) — 그 프로젝트 근거 답은 묻는 사람 세션의 hidden_ids에 안 드는 사람(고른 사람·마스터)에게만. 리더라도 안 고르면 못 받는다.
+  // **되돌리기**: cachedAnswer의 unseenMine 거름을 빼면 '고르지 않은 리더'가, hiddenFor의 배열 검사를 빼면 '모르는 답이면 닫힘'이 깨진다.
+  {
+    const cbase = { projects: [...proj, { id: 'pC', name: '새신자 초청', year: 2026, visibility: 'custom' }], cards: [...cards, card('cC', 'pC', '환영 선물', '선물은 머그컵이에요')] };
+    const customAns = { sentences: [{ text: '선물은 머그컵이에요.', cites: [{ t: 'card', id: 'cC', label: '환영 선물' }] }], files: [] };
+    const cadmin = fakeDb({ ...cbase, dabooti_questions: [row(customAns)], wiki_pages: [{ updated_at: '2000-01-01T00:00:00Z' }] });
+    const Q2 = '리더 MT 숙소 어디야?';
+    assert.strictEqual(await A.cachedAnswer(cadmin, Q2, today, fakeDb({}, { leader: true, hidden: ['pC', 'cC'] })), null, '고르지 않은 리더에게 직접 선택 근거 캐시를 안 준다');
+    assert.strictEqual((await A.cachedAnswer(cadmin, Q2, today, fakeDb({}, { hidden: [] })))?.cached, true, '고른 사람(hidden_ids에 없음)에게는 준다');
+    assert.strictEqual(await A.cachedAnswer(cadmin, Q2, today, fakeDb({}, { leader: true })), null, 'hidden_ids를 모르면(배열 아님) 닫힌다');
+    assert.strictEqual(await A.cachedAnswer(cadmin, Q2, today), null, '묻는 사람을 모르면 안 준다');
+    const L = await import(new URL('../api/_leaders.js', import.meta.url).href);
+    assert.deepStrictEqual([...await L.unseenCardIds(fakeDb(cbase))].sort(), ['cC', 'cL'], '서버 키의 안 보이는 업무에 직접 선택 업무가 든다');
+    assert.deepStrictEqual([...V.leaderCardIdsOf(cbase)].sort(), ['cC', 'cL'], '위키 장(gather)도 직접 선택 업무를 걷는다');
+  }
 
   // (c) 짝 — 리더 근거로 답한 아침 고리 행은 [참고]로 안 쓴다 · 아침 고리가 저장한 답도 캐시로 남지 않는다
   const Q = '리더 MT 숙소 어디야?';

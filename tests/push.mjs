@@ -245,12 +245,73 @@ assert.equal(notified[0].meta.kind, 'reply');
   assert.deepStrictEqual(api.dueSoonWanted(cards, '2026-10-12').map(w => w.cardId), ['c1'], '리더 목록이 없으면 리더 프로젝트 마감은 건너뛴다');
   const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
   assert.ok(/projects!inner\(archived, visibility\)/.test(src), '마감 임박 조회가 visibility를 같이 읽는다');
-  assert.ok(/leaderOnlyOf\(db, \{ cardId, projectId \}\)/.test(src) && /res\.status\(200\)\.json\(\{ sent: 0 \}\); return;\n\s*\}/.test(src),
-    'POST 푸시도 리더 프로젝트면 리더만 · 판정 실패면 보내지 않는다');
+  assert.ok(/audienceFor\(db, \{ cardId, projectId \}\)/.test(src) && /res\.status\(200\)\.json\(\{ sent: 0 \}\); return;\n\s*\}/.test(src),
+    'POST 푸시도 좁혀진 프로젝트면 볼 수 있는 사람만 · 판정 실패면 보내지 않는다');
   // 되돌려 두기 — 아래 검사는 0092 전 모양을 본다
   C.listProjects = keep.listProjects; delete C.getLeaderInfo;
   await sync.loadCloudState();
   console.log('PASS  리더만 보는 프로젝트(0092) — 알림 받는 사람·멘션 후보·판정 실패는 닫힘·마감 임박 13가지');
+}
+
+// ── 보는 사람 직접 선택(0105 · v5 B) — 알림 받는 사람·멘션 후보·저장 모양·마감 임박·POST 푸시 · 비밀번호 재설정 요청 알림(0106) ──
+// 리더 프로젝트와 같은 길이다: RLS는 행을 걷지만 알림 받는 사람은 보내는 쪽이 고른다 — project_audiences(고른 사람 ∪ 마스터)로 거른다.
+// **되돌리기**(§3-5): cloudSync seeing의 isCustomProject 갈래를 빼면 '배정·멘션', getMemberNames의 갈래를 빼면 '멘션 후보',
+// primeViewers의 customProjects를 빼면 '못 읽으면 닫힘', dueSoonWanted의 audiences 갈래를 빼면 '마감 임박',
+// _leaders.audienceFor의 custom 갈래를 빼면 'POST 푸시', notifyText의 lock_reset 줄을 빼면 '요청 알림 문구'가 깨진다.
+{
+  const C = globalThis.__CLOUD;
+  C.listProjects = async () => [{ id: 'p1', name: '2026 하계 수련회' }, { id: 'p3', name: '새신자 초청 주일', visibility: 'custom', viewer_teams: ['웰컴팀'] }];
+  C.listProjectViewers = async () => [{ project_id: 'p3', profile_id: 'u1' }, { project_id: 'p3', profile_id: 'u2' }];
+  C.projectAudiences = async () => [{ project_id: 'p3', profile_ids: ['u1', 'u2'] }];
+  const { state } = await sync.loadCloudState();
+  assert.strictEqual(state.viewersReady, true, '고른 사람 표를 읽으면 직접 선택을 쓸 수 있다');
+  assert.deepStrictEqual([state.projects.byId.p3.visibility, state.projects.byId.p3.viewers, state.projects.byId.p3.viewerTeams],
+    ['custom', ['노준석', '조준환'], ['웰컴팀']], '앱 프로젝트에 custom · 고른 사람 이름 · 팀 칩');
+  assert.deepStrictEqual(sync.getMemberNames('p3'), ['노준석', '조준환'], '직접 선택의 멘션·담당자 후보는 볼 수 있는 사람만');
+  notified.length = 0;
+  await sync.notifyAssignees(['u2', 'u3'], { actorName: '노준석', cardId: 'c3', projectId: 'p3', preview: '선물' });
+  await sync.notifyComment('@천진영 @조준환 봐 주세요', { actorName: '노준석', cardId: 'c3', projectId: 'p3' });
+  assert.deepStrictEqual(notified.map(n => [n.meta.kind, n.ids]), [['assign', ['u2']], ['mention', ['u2']]], '배정·멘션은 고른 사람에게만(천진영 빠짐)');
+  // 저장 — 이름 → 계정 id로 set_project_viewers 한 번 · 다시 읽은 값으로 돌려준다
+  const calls = [];
+  C.setProjectViewers = async (id, ids, teams) => { calls.push([id, ids, teams]); return { id, visibility: 'custom', visibility_by: 'u1', visibility_at: 't', viewer_teams: teams }; };
+  C.announceProjectVisibility = async () => {};
+  C.listProjectViewers = async () => [{ project_id: 'p3', profile_id: 'u1' }, { project_id: 'p3', profile_id: 'u3' }];
+  C.projectAudiences = async () => [{ project_id: 'p3', profile_ids: ['u1', 'u3'] }];
+  const saved = await sync.projectVisibilityCloud('p3', { visibility: 'custom', viewers: ['노준석', '천진영'], viewerTeams: [] });
+  assert.deepStrictEqual(calls, [['p3', ['u1', 'u3'], []]], '이름을 계정 id로 바꿔 한 번에 보낸다');
+  assert.deepStrictEqual([saved.visibility, saved.viewers, saved.visibilityBy], ['custom', ['노준석', '천진영'], 'u1'], '돌려받은 값(다시 읽은 고른 사람)');
+  notified.length = 0;
+  await sync.notifyAssignees(['u2', 'u3'], { actorName: '노준석', cardId: 'c3', projectId: 'p3', preview: '선물' });
+  assert.deepStrictEqual(notified.map(n => n.ids), [['u3']], '바꾼 뒤에는 새 audience로');
+  // 표·함수를 못 읽으면(0105 전 · 실패) 로드는 던지지 않고 예전 토글 · custom 프로젝트 알림은 닫힌다
+  C.listProjectViewers = async () => { throw new Error('relation "project_viewers" does not exist'); };
+  const { state: s3 } = await sync.loadCloudState();
+  assert.strictEqual(s3.viewersReady, false, '못 읽으면 viewersReady false(예전 토글)');
+  notified.length = 0;
+  await sync.notifyAssignees(['u2'], { actorName: '노준석', cardId: 'c3', projectId: 'p3', preview: 'x' });
+  assert.deepStrictEqual(notified, [], '못 읽으면 직접 선택 프로젝트 알림은 닫힌다');
+  // 마감 임박(서버 키)
+  const cards = [{ id: 'c3', title: '선물', project_id: 'p3', due_date: '2026-10-12', card_assignees: [{ profile_id: 'u2' }, { profile_id: 'u3' }], projects: { archived: false, visibility: 'custom' } }];
+  assert.deepStrictEqual(api.dueSoonWanted(cards, '2026-10-12', new Set(['u3']), new Map([['p3', new Set(['u2'])]])).map(w => w.recipientId), ['u2'], '직접 선택 마감은 audience 담당자에게만(리더 목록이 아니다)');
+  assert.deepStrictEqual(api.dueSoonWanted(cards, '2026-10-12', new Set(['u2', 'u3'])), [], 'audience를 못 읽으면 건너뛴다');
+  // POST 푸시의 판정 — _leaders.audienceFor(가짜 db)
+  const L = await import('file://' + join(ROOT, 'api', '_leaders.js').replace(/\\/g, '/'));
+  const fdb = (vis) => ({
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { project_id: 'p3', projects: { visibility: vis } } }) }) }) }),
+    rpc: async (fn, args) => ({ data: fn === 'project_audiences' ? [{ project_id: args.ps[0], profile_ids: ['u2'] }] : fn === 'leader_profile_ids' ? ['u9'] : null }),
+  });
+  assert.deepStrictEqual([...await L.audienceFor(fdb('custom'), { cardId: 'c3' })], ['u2'], 'POST 푸시: 직접 선택은 project_audiences');
+  assert.deepStrictEqual([...await L.audienceFor(fdb('leaders'), { cardId: 'c3' })], ['u9'], '리더만은 leader_profile_ids 그대로');
+  assert.strictEqual(await L.audienceFor(fdb('all'), { cardId: 'c3' }), null, '공개는 거르지 않는다');
+  // 비밀번호 재설정 요청 알림(0106) — 사람이 만든 업무 알림 · 문구는 pendingCopy 한 곳
+  const PC = await import('file://' + join(ROOT, 'src', 'services', 'pendingCopy.js').replace(/\\/g, '/'));
+  assert.equal(notify.notifLine('lock_reset', '천진영'), `천진영님이 ${PC.PENDING_COPY.lockResetNotif}`, '요청 알림 문구는 pendingCopy에서');
+  assert.ok(!notify.isSystemNotif('lock_reset') && notify.notifArea('lock_reset') === 'task', '사람이 만든 업무 알림(얼굴 · 업무 갈래)');
+  delete C.listProjectViewers; delete C.projectAudiences; delete C.setProjectViewers; delete C.announceProjectVisibility;
+  C.listProjects = async () => [{ id: 'p1', name: '2026 하계 수련회' }];
+  await sync.loadCloudState();
+  console.log('PASS  보는 사람 직접 선택(0105) — 알림 받는 사람·멘션 후보·저장·못 읽으면 닫힘·마감 임박·POST 푸시 · 요청 알림(0106) 15가지');
 }
 
 // ── 댓글 반응 (0032) ────────────────────────────────────────────────────────

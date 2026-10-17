@@ -2,7 +2,7 @@ import * as cloud from './cloud.js';
 import { statusToDb, statusFromDb } from './cloud.js';
 import { setWriteObserver } from './supabaseClient.js';
 import { reconnectWatcher } from './realtimeStatus.js';
-import { LEADERS, isLeaderOnly, visibleRecipients } from './visibility.js';
+import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly, visibilityOf, visibleRecipients } from './visibility.js';
 import { withSecret } from './cardLock.js';
 import { itemsFromRows } from './trashItems.js';
 import {
@@ -36,6 +36,31 @@ let profileRows = new Map();
 let leaderIds = new Set();
 let leaderProjects = new Set();
 let leaderNames = [];
+// 보는 사람 직접 선택(0105) — 알림 받는 사람·멘션 후보를 그 프로젝트를 볼 수 있는 사람(고른 사람 ∪ 마스터 · project_audiences)으로.
+//   customAud    'custom'인 프로젝트 id → 볼 수 있는 계정 id Set. 목록에 없으면(못 읽었다) **아무에게도** 안 간다(닫힌 쪽)
+//   viewerIdsOf  'custom'인 프로젝트 id → 고른 사람 id 배열(project_viewers · 화면의 체크 · 팀 칩과 같이 앱 프로젝트에 이름으로 싣는다)
+let customAud = new Map();
+let customProjects = new Set();   // 'custom'인 프로젝트 id — customAud를 못 읽었어도 이 목록으로 닫는다
+let viewerIdsOf = new Map();
+const audienceNames = (ids) => [...new Set([...ids].map(id => profileRows.get(id)).filter(p => p && !p.removed_at && !p.merged_into)
+  .map(p => p.display_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+// 로드마다 다시 만든다(직접 선택 · 0105). viewers = [project_viewers 행, project_audiences 행] | null(못 읽었다 — 그러면 custom
+// 프로젝트는 customProjects에만 들어 알림이 아무에게도 안 간다). project_audiences는 리더 프로젝트 줄도 주지만 그 갈래는 leaderIds가 맡는다.
+function primeViewers(projects, viewers) {
+  customProjects = new Set((projects || []).filter(isCustomOnly).map(p => p.id));
+  const [rows, auds] = viewers || [[], []];
+  viewerIdsOf = new Map();
+  for (const r of rows || []) {
+    const list = viewerIdsOf.get(r.project_id);
+    if (list) list.push(r.profile_id); else viewerIdsOf.set(r.project_id, [r.profile_id]);
+  }
+  customAud = new Map((auds || []).filter(r => customProjects.has(r.project_id)).map(r => [r.project_id, new Set(r.profile_ids || [])]));
+}
+// 고른 사람 이름 → 계정 id(합친 계정은 남긴 계정으로 · 동명이인은 둘 다 — 멘션 받는 사람과 같은 규칙)
+const viewerIdsOfNames = (names) => {
+  const map = nameToIdsMap();
+  return [...new Set((names || []).flatMap(n => map.get(n) || []))];
+};
 // 잠긴 업무(0099 · services/cardLock.js) id — 알림 미리보기에 본문·댓글 글을 싣지 않으려고 든다(받는 사람이 못 여는 글일 수 있다).
 // 로드마다 다시 만들고 카드 1건을 다시 읽을 때 고친다. 화면에서 본문을 가리는 일은 DB가 한다(card_secrets).
 let lockedCards = new Set();
@@ -85,13 +110,18 @@ const primeMaps = (teams, profiles) => {
 };
 
 // 멘션·담당자 자동완성용 멤버 표시명 목록(클라우드 로드 후 프라이밍됨)
-// projectId가 리더만 보는 프로젝트면 리더 이름만(0092) — 볼 수 없는 사람을 부르거나 맡기지 않는다.
+// projectId가 리더만 보는 프로젝트면 리더 이름만(0092) · 직접 선택이면 볼 수 있는 사람(고른 사람 ∪ 마스터 · 0105) 이름만 —
+// 볼 수 없는 사람을 부르거나 맡기지 않는다.
 export function getMemberNames(projectId) {
+  if (isCustomProject(projectId)) return audienceNames(customAud.get(projectId) || []);
   return (projectId && leaderProjects.has(projectId) ? leaderNames : memberNames).slice();
 }
 export const isLeaderProject = (projectId) => !!projectId && leaderProjects.has(projectId);
-// 알림 받는 사람 — 리더 프로젝트의 업무면 리더만(멘션·배정·답글·반응 넷이 이 한 줄을 지난다)
-const seeing = (ids, projectId) => visibleRecipients(ids, { leaderOnly: isLeaderProject(projectId), leaderIds });
+const isCustomProject = (projectId) => !!projectId && (customAud.has(projectId) || customProjects.has(projectId));
+// 알림 받는 사람 — 리더 프로젝트의 업무면 리더만 · 직접 선택이면 볼 수 있는 사람만(멘션·배정·답글·반응·담당 업무 댓글이 이 한 줄을 지난다)
+const seeing = (ids, projectId) => (isCustomProject(projectId)
+  ? visibleRecipients(ids, { leaderOnly: true, leaderIds: customAud.get(projectId) || new Set() })
+  : visibleRecipients(ids, { leaderOnly: isLeaderProject(projectId), leaderIds }));
 
 // 표시명 → 프로필 사진 주소. 없으면 빈 문자열 → 화면은 이름 첫 글자 원으로 떨어진다.
 // 게스트 모드에서는 표가 비어 있어 언제나 글자 원이다.
@@ -419,8 +449,12 @@ const projectToApp = (p, linksByProject) => ({
   // · created_by — '비밀번호를 걸 수 있는 사람'을 가르는 칸이다(첨부의 uploaded_by와 같은 자리).
   //   이 값이 없으면 관리자만 걸 수 있게 되어, 자기가 만든 링크에 자기가 못 건다.
   pinnedLinks: linkRows(linksByProject.get(p.id)),
-  // 보는 사람(0092) — 'leaders'면 리더만. 칸이 없으면(마이그레이션 전) 공개다
-  visibility: isLeaderOnly(p) ? LEADERS : 'all',
+  // 보는 사람(0092 · 0105) — 'leaders'면 리더만 · 'custom'이면 고른 사람만. 칸이 없으면(마이그레이션 전) 공개다
+  visibility: visibilityOf(p),
+  // 직접 선택(0105) — 고른 사람(이름 · project_viewers를 계정 이름으로 풀었다)과 펼친 팀 칩. 공개·리더만이어도 남은 값은 싣는다
+  // (다시 직접 선택으로 돌리면 그 목록이 다시 선다 — DB도 행을 지우지 않는다)
+  viewers: (viewerIdsOf.get(p.id) || []).map(id => profileIdToName.get(id)).filter(Boolean),
+  viewerTeams: Array.isArray(p.viewer_teams) ? p.viewer_teams : [],
   // 누가 언제 바꿨나(0099 트리거가 적는다) — 화면 문구 없음
   visibilityBy: p.visibility_by || null,
   visibilityAt: p.visibility_at || null,
@@ -436,6 +470,10 @@ export async function loadCloudState() {
   // 조회가 실패해도 아래 Promise.all이 깨지면 모두에게 오류 화면이 뜬다(HANDOFF §3-4). 그때는 '리더 아님 · 목록 없음'.
   const leaderInfo = Promise.resolve().then(() => cloud.getLeaderInfo())
     .catch((e) => { console.warn('[cloud] 리더 판정을 못 읽었어요:', e?.message || e); return null; });
+  // 보는 사람 직접 선택(0105)도 **없어도 되는 값**이다 — 표·함수가 없으면(마이그레이션 전) null이고, 그러면 화면은 예전
+  // '리더만 보기' 토글을 세운다(viewersReady false · leaderOnly.jsx). 알림 받는 사람은 project_audiences가 정한다.
+  const viewerInfo = Promise.resolve().then(() => Promise.all([cloud.listProjectViewers(), cloud.projectAudiences()]))
+    .catch((e) => { console.warn('[cloud] 보는 사람 목록을 못 읽었어요:', e?.message || e); return null; });
   const [teams, profiles, projects, cards, links, files, initialProfile, sessionRes, profileTeams, activityRows] = await cloud.withClockSkewRetry(() => Promise.all([
     cloud.listTeams(), cloud.listProfiles(), cloud.listProjects(), cloud.listAllCards(),
     cloud.listAllLinks(), cloud.listAllFiles(), cloud.getMyProfile(),
@@ -483,6 +521,8 @@ export async function loadCloudState() {
     return t;   // comments·activityLog는 창을 열 때 채운다(loadCardDetail)
   });
 
+  const viewers = await viewerInfo;
+  primeViewers(projects, viewers);
   const projectsApp = projects.map(p => projectToApp(p, linksByProject));
   const leaders = await leaderInfo;
   leaderIds = new Set(leaders?.ids || []);
@@ -556,6 +596,8 @@ export async function loadCloudState() {
       currentUser, members,
       // 나는 리더인가(0092) — 프로젝트 머리의 자물쇠를 세울지만 가른다. 못 읽었으면 false(자물쇠 없음)
       amLeader: leaders?.amLeader === true,
+      // 보는 사람 직접 선택(0105)을 쓸 수 있나 — 표를 못 읽었으면(마이그레이션 전) false라 자물쇠 판은 예전 토글이다
+      viewersReady: !!viewers,
       activityFeed: (activityRows || []).map(activityFeedToApp),
       projects: normalize(projectsApp), tasks: normalize(tasks),
     },
@@ -811,15 +853,30 @@ export async function ensureCardFolder(project, card) {
 }
 
 export async function projectArchiveCloud(id, archived) { return write(() => cloud.updateProject(id, { archived })); }
-// 보는 사람 바꾸기(0092) → 저장된 값('all' | 'leaders'). 리더가 아니면 DB 트리거가 옛 값으로 되돌리므로
-// 돌려받은 행이 곧 사실이다. 리더가 아닌 화면은 이 변경을 실시간으로 못 받는다 — 공개 채널에 id만 알린다(notify.js).
+// 보는 사람 바꾸기(0092 · 0105) → 저장된 값. next: 'all' | 'leaders' | { visibility: 'custom', viewers(이름), viewerTeams }.
+// 리더가 아니면 DB 트리거가 옛 값으로 되돌리므로(직접 선택은 함수가 42501) 돌려받은 행이 곧 사실이다.
+// 리더가 아닌·고르지 않은 화면은 이 변경을 실시간으로 못 받는다 — 공개 채널에 id만 알린다(notify.js · 받은 쪽이 다시 읽는다).
 // 누가·언제(visibility_by·visibility_at)는 DB 트리거가 적는다(0099 — 위조 못 함) · 돌려받은 행 그대로 싣는다.
-export async function projectVisibilityCloud(id, visibility) {
-  const saved = await write(() => cloud.updateProject(id, { visibility }));
-  const v = isLeaderOnly(saved) ? LEADERS : 'all';
+// 직접 선택은 set_project_viewers 한 번(고른 사람 · 팀 칩 · 나는 늘 남는다) 뒤 고른 사람과 볼 수 있는 사람을 다시 읽는다 —
+// DB가 넣은 대로(나 · 환송 빼기) 화면과 알림 받는 사람이 같이 선다.
+export async function projectVisibilityCloud(id, next) {
+  const want = typeof next === 'string' ? next : next?.visibility;
+  const saved = want === CUSTOM
+    ? await write(() => cloud.setProjectViewers(id, viewerIdsOfNames(next.viewers), next.viewerTeams || []))
+    : await write(() => cloud.updateProject(id, { visibility: want }));
+  const v = visibilityOf(saved);
   if (v === LEADERS) leaderProjects.add(id); else leaderProjects.delete(id);
+  if (v === CUSTOM) customProjects.add(id); else { customProjects.delete(id); customAud.delete(id); }
+  if (v === CUSTOM) {
+    const [rows, auds] = await Promise.all([cloud.listProjectViewers(), cloud.projectAudiences([id])]);
+    viewerIdsOf.set(id, (rows || []).filter(r => r.project_id === id).map(r => r.profile_id));
+    const aud = (auds || []).find(r => r.project_id === id);
+    if (aud) customAud.set(id, new Set(aud.profile_ids || [])); else customAud.delete(id);
+  }
   cloud.announceProjectVisibility(id).catch(e => console.warn('[cloud] 보는 사람 바뀜 알리기 실패:', e?.message || e));
-  return { visibility: v, visibilityBy: saved?.visibility_by || null, visibilityAt: saved?.visibility_at || null };
+  return { visibility: v, visibilityBy: saved?.visibility_by || null, visibilityAt: saved?.visibility_at || null,
+    viewers: (viewerIdsOf.get(id) || []).map(pid => profileIdToName.get(pid)).filter(Boolean),
+    viewerTeams: Array.isArray(saved?.viewer_teams) ? saved.viewer_teams : [] };
 }
 
 // ── 업무 잠금 (0099) ────────────────────────────────────────────────────────
@@ -840,6 +897,27 @@ export async function unlockCardCloud(id, pw) {
 export async function unlockOwnerCloud(id) {
   await write(() => cloud.unlockOwner(id));
   return loadCardPatch(id);
+}
+// ── 비밀번호 재설정 요청 (0106) ────────────────────────────────────────────
+// 그 업무의 요청 → { mine: 내가 했나, by: 가장 최근에 요청한 사람 이름(마스터 화면 한 줄), at, count }.
+// RLS가 본인 행만(마스터는 전부) 준다. 표가 없으면(0106 전) 던진다 — 업무 창이 삼키고 '비밀번호를 까먹었어요'를 세우지 않는다.
+export async function loadLockAsk(cardId) {
+  const [rows, uid] = await Promise.all([cloud.listLockRequests(cardId), myUserId()]);
+  const keep = profileRows.get(uid)?.merged_into || uid;
+  const list = rows || [];
+  return { mine: !!uid && list.some(r => r.profile_id === uid || r.profile_id === keep),
+    by: list[0] ? (profileIdToName.get(list[0].profile_id) || '') : '', at: list[0]?.at || null, count: list.length };
+}
+// 못 여는 사람의 요청 — 알림 행은 DB 함수가 마스터에게 넣는다(위조 못 하게 INSERT 정책 밖 · 0106). 첫 요청이면 그 마스터 id가
+// 돌아오고, 푸시는 앱 알림과 같은 길(/api/push)로 그 id에만 부탁한다(미리보기 없음 — 잠긴 업무 · 서버도 비운다).
+export async function requestLockResetCloud(cardId, { actorName = '', projectId = null } = {}) {
+  const ids = await write(() => cloud.requestLockReset(cardId));
+  if (ids.length) void cloud.requestPush(ids, { kind: 'lock_reset', actorName, cardId, projectId, preview: '' });
+  return ids;
+}
+// 마스터의 새 비밀번호 설정(0106 reset_card_lock — 해시는 서버 · 요청은 트리거가 걷는다 · 맞혀 둔 계정은 그대로)
+export async function resetCardLockCloud(cardId, pw) {
+  return write(() => cloud.resetCardLock(cardId, pw));
 }
 export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
 

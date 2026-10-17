@@ -81,7 +81,8 @@ export async function insertNotifications(recipientIds, { actorName, cardId, pro
 
 // /api/push에 발송을 부탁한다. VAPID 개인키는 서버에만 있으므로 브라우저가 직접
 // 보낼 수는 없다. 배포 전(라우트 없음)·미설정(501)에서도 조용히 지나간다.
-async function requestPush(recipientIds, payload) {
+// 알림 행을 DB 함수가 넣는 종류(비밀번호 재설정 요청 lock_reset · 0106)는 그 함수가 돌려준 받는 사람 id로 이것만 부른다.
+export async function requestPush(recipientIds, payload) {
   try {
     // 토큰이 없으면 보내지 않고 조용히 지나간다(게스트는 client()가 던져 아래에서 삼킨다)
     await authedPost('/api/push', { recipientIds, ...payload }, { noToken: () => null });

@@ -835,7 +835,7 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.ok(/\.on\('broadcast', \{ event: 'project-visibility' \}, \(msg\) => onChange\(\{ table: 'projects',/.test(notifySrc),
     '보는 사람 바뀜 알림이 workspace-all 채널에서 projects 변경으로 들어온다');
   assert.ok(/send\(\{ type: 'broadcast', event: 'project-visibility', payload: \{ id \} \}\)/.test(notifySrc), '실리는 것은 id 하나');
-  assert.ok(/export async function projectVisibilityCloud[\s\S]{0,600}cloud\.announceProjectVisibility\(id\)\.catch\(/.test(readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8')),
+  assert.ok(/export async function projectVisibilityCloud[\s\S]{0,1600}cloud\.announceProjectVisibility\(id\)\.catch\(/.test(readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8')),
     '보는 사람을 바꾸면 알린다(실패는 삼킨다 — 다음 재조회에 따라온다)');
   // 재접속 판정 — 처음 SUBSCRIBED는 무시, 끊겼다 다시 붙을 때만 한 번
   let n = 0;

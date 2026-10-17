@@ -310,6 +310,34 @@ export async function unlockCard(cardId, pw) {
 export async function unlockOwner(cardId) {
   return unwrap(await client().rpc('unlock_owner', { c: cardId }));
 }
+// 비밀번호 재설정 요청(0106) — 그 업무의 요청 행(본인 것 · 마스터는 전부 — RLS가 가른다). 표가 없으면(0106 전) 던진다.
+export async function listLockRequests(cardId) {
+  return unwrap(await client().from('card_lock_requests').select('card_id, profile_id, at').eq('card_id', cardId).order('at', { ascending: false }));
+}
+// 못 여는 사람의 요청 → 알림을 넣은 마스터 id 배열(첫 요청일 때만 · 이미 했거나 열 수 있으면 빈 배열 — 푸시는 부르는 쪽이 이 id로)
+export async function requestLockReset(cardId) {
+  const ids = unwrap(await client().rpc('request_lock_reset', { c: cardId }));
+  return Array.isArray(ids) ? ids : [];
+}
+// 마스터의 새 비밀번호 설정 — 서버가 해시한다(0099 규칙 그대로) · 요청은 트리거가 걷는다
+export async function resetCardLock(cardId, pw) {
+  return unwrap(await client().rpc('reset_card_lock', { c: cardId, pw })) === true;
+}
+
+// ── 보는 사람 직접 선택 (0105) ──────────────────────────────────────────────
+// 고른 사람 행 — RLS가 내가 볼 수 있는 프로젝트 몫만 준다. 표가 없으면(0105 전) 던진다(부르는 쪽이 삼키고 예전 토글을 세운다).
+export async function listProjectViewers() {
+  return unwrap(await client().from('project_viewers').select('project_id, profile_id'));
+}
+// 좁혀진 프로젝트(리더만 · 직접 선택)마다 볼 수 있는 계정 id — 알림 받는 사람·멘션 후보(서버 키 경로도 같은 함수)
+export async function projectAudiences(ids = null) {
+  const rows = unwrap(await client().rpc('project_audiences', ids ? { ps: ids } : {}));
+  return Array.isArray(rows) ? rows : [];
+}
+// 보는 사람을 직접 선택으로 + 고른 사람(id) · 팀 칩을 한 번에 → 고친 프로젝트 행(누가·언제는 트리거가 적는다)
+export async function setProjectViewers(projectId, ids, teams) {
+  return unwrap(await client().rpc('set_project_viewers', { p: projectId, ids, teams }));
+}
 
 // 카드 순서만 쓴다 — 카드 폼 전체를 실어 보내면 순서를 바꾸는 사람이 남의 편집을
 // 같이 덮는다(요약 고정이 cardSummaryCloud로 세 칸만 쓰는 것과 같은 이유).
