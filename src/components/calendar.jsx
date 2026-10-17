@@ -115,6 +115,7 @@ function layoutWeek(weekStart, tasks, laneCount = CAL_LANES) {
 // 행사 일정(시안 · mock/b2 · components/events.jsx)이 같은 띠 그리기를 쓰려고 받는 것 — 넘기지 않으면 지금 그대로다:
 //   paintOf(item) 띠 색(기본 팀색) · dotOf(item) 점 색(기본 첫 팀색) · legend 머리 범례(기본 상태 넷 · null이면 없음)
 //   renderDay({ iso, list, birthdays, tight }) 고른 날 목록을 대신 그린다 · bdayPeople 생일 재료(기본 가입한 사람)
+//   headerExtra가 함수면 (보고 있는 달 { y, m }) => 노드 — 행사의 내 달력은 그 달의 행사를 고르게 한다
 //   onDayAdd(iso) 날짜에서 바로 추가 — 데스크톱은 날짜 칸 오른쪽 클릭(그 칸에서만 브라우저 메뉴를 막는다), 폰은 길게 누르기
 export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, headerExtra = null,
   paintOf = null, dotOf = null, legend, renderDay = null, bdayPeople = null, onDayAdd = null }) => {
@@ -245,7 +246,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
         {headerExtra && (
           <>
             <span className="hidden sm:block w-px h-4 shrink-0" style={{ background: 'var(--app-line)' }} />
-            {headerExtra}
+            {typeof headerExtra === 'function' ? headerExtra(view) : headerExtra}
           </>
         )}
       </div>

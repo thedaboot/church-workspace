@@ -669,8 +669,9 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.deepStrictEqual(E.eventSpan({ start: '2026-12-30', end: '2026-12-28' }), { start: '2026-12-28', end: '2026-12-30' }, '거꾸로 적힌 기간은 뒤집는다');
   assert.deepStrictEqual(E.eventSpan({ start: '2026-11-07', end: '' }), { start: '2026-11-07', end: '2026-11-07' }, '종료일이 없으면 하루');
   assert.strictEqual(E.eventSpan({ start: '', end: '' }), null, '날짜가 없으면 달력에 얹지 않는다');
+  assert.deepStrictEqual(E.EVENT_KINDS.map(k => k.label), ['예배', '행사', '수련회'], '종류는 예배 · 행사 · 수련회 차례(사용자 결정) — 절기는 없다');
   const list = [
-    { id: 'a', title: '대림절', start: '2026-11-29', end: '2026-12-24', kind: 'season' },
+    { id: 'a', title: '대림절', start: '2026-11-29', end: '2026-12-24', kind: 'event' },
     { id: 'b', title: '성탄 예배', start: '2026-12-25', end: '2026-12-25', kind: 'event' },
     { id: 'c', title: '날짜 없음', start: '', kind: 'event' },
   ];
@@ -683,12 +684,26 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.strictEqual(E.normalizeEvent({ title: '  ', start: '2026-11-07' }), null, '제목이 비면 저장하지 않는다');
   const n = E.normalizeEvent({ title: ' 체육대회 ', start: '2026-11-07', end: '2026-11-01', kind: '없는 종류' });
   assert.ok(n.title === '체육대회' && n.end === '2026-11-07' && n.kind === 'event', '종료일이 앞이면 시작일로 · 모르는 종류는 행사');
+  assert.strictEqual(E.normalizeEvent({ title: '대림절', start: '2026-11-29', kind: 'season' }).kind, 'event', '1차 시안의 절기는 행사로 읽힌다');
+  assert.deepStrictEqual(E.normalizeEvent({ title: 'x', start: '2026-11-07', taskIds: ['t1', 't1', '', 't2'] }).taskIds, ['t1', 't2'], '관련 업무는 겹치지 않게');
+  // 내 달력 — 보고 있는 달의 일정만 고르기 목록에 · 고른 것은 한 피드(다른 달 것도 남는다)
+  assert.deepStrictEqual(E.monthEvents(list, 2026, 11).map(e => e.id), ['a', 'b'], '12월: 11월에 시작한 일정도 걸친다');
+  assert.deepStrictEqual(E.monthEvents(list, 2026, 10).map(e => e.id), ['a'], '11월: 성탄 예배는 없다');
+  assert.deepStrictEqual(E.monthEvents(list, 2027, 0), [], '1월: 비었다');
+  assert.deepStrictEqual(E.togglePick(['a'], 'b'), ['a', 'b'], '고르면 더한다(다른 달 것은 그대로)');
+  assert.deepStrictEqual(E.togglePick(['a', 'b'], 'a'), ['b'], '다시 누르면 푼다');
+  assert.deepStrictEqual(E.livePicks(['a', 'gone', 'b'], list), ['a', 'b'], '지워진 일정은 피드에서 빠진다');
+  assert.strictEqual(E.eventFeedSentence([]), '내 달력에 넣을 일정을 골라 주세요.');
+  assert.strictEqual(E.eventFeedSentence(['대림절 예배', '대림절 예배', '성탄 예배', '송구영신 예배']), '대림절 예배, 성탄 예배 외 1건이 내 달력에 들어가요.', '같은 제목은 한 번만 부르고 나머지를 센다');
+  assert.strictEqual(E.eventFeedSentence(['성탄 예배']), '성탄 예배 일정이 내 달력에 들어가요.');
   // 화면 배선 — 추가 길(오른쪽 클릭·길게 누르기·+ 새 일정)은 canEdit일 때만
   const evUi = readFileSync(new URL('../src/components/events.jsx', import.meta.url), 'utf8');
   const viewsUi = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
-  assert.ok(evUi.includes('onDayAdd={canEdit ? openNew : null}') && /\{canEdit && \(\s*<button type="button" onClick=\{onAdd\}/.test(evUi), '추가 길은 canEdit일 때만');
+  assert.ok(evUi.includes('onDayAdd={canEdit ? openNew : null}') && /\{canEdit && \(\s*<button type="button" onClick=\{\(\) => openNew\(localDate/.test(evUi), '추가 길(날짜 · 새 일정)은 canEdit일 때만');
+  assert.ok(/\{canEdit && \(\s*<button type="button" onClick=\{startEdit\}/.test(evUi) && /const startEdit = \(\) => \{ if \(canEdit/.test(evUi), '수정은 canEdit일 때만 · 아니면 읽기 상태뿐');
+  assert.ok(!evUi.includes('data-event-add'), '고른 날 목록의 + 새 일정은 뺐다(2차)');
   assert.ok(viewsUi.includes('canEditEvents({ isMaster, amLeader })'), '전체 일정이 판정 한 곳을 쓴다');
-  console.log('PASS  행사 일정 — 추가 권한 · 기간 · 띠 자리 · 다듬기 · 배선');
+  console.log('PASS  행사 일정 — 추가·수정 권한 · 종류 차례 · 기간 · 띠 자리 · 다듬기 · 관련 업무 · 내 달력 고르기 · 배선');
 }
 
 

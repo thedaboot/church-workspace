@@ -1,8 +1,9 @@
 // ============================================================================
 // 행사 일정(시안 · mock/b2 · 2026-10-18) — 순수 규칙. import 0(logcheck가 노드에서 그대로 들인다).
 // ----------------------------------------------------------------------------
-// '전체 일정'의 '행사' 칸에 서는 것: 수련회·절기(대림절 기간)·체육대회처럼 청년부 전체가 보는 큰 일.
-// 업무가 아니다 — 담당자·상태·프로젝트가 없고, 하루 종일 일정만 있다(시작일 ~ 종료일 · 장소 · 메모 · 종류 색).
+// '전체 일정'의 '행사' 칸에 서는 것: 수련회·예배(대림절·성탄·송구영신)·체육대회처럼 청년부 전체가 보는 큰 일.
+// 절기 기간 띠(대림절 11/29~12/24 같은)는 두지 않는다(사용자 결정 2026-10-18 — 절기 종류를 뺐다). 대림절은 주일마다 '예배' 하루씩.
+// 업무가 아니다 — 담당자·상태·프로젝트가 없고, 하루 종일 일정만 있다(시작일 ~ 종료일 · 장소 · 메모 · 종류 색 · 관련 업무 taskIds).
 // 저장 자리는 아직 게스트뿐이다(services/eventStore.js). 실제 DB에 붙일 때 필요한 것은 그 파일 머리말.
 //
 // 누가 추가·수정·삭제하나 — **리더진 + 마스터**(사용자 결정 2026-10-18). 바꾸려면 EVENT_EDITORS 한 줄이다
@@ -18,12 +19,14 @@ export function canEditEvents(who = {}, rule = EVENT_EDITORS) {
 }
 
 // 종류 — 색 세 벌(띠 바탕 · 진한 글자 · 레일). 토큰만 쓴다(다크 모드를 따라간다 · HANDOFF §8).
+// 차례는 어디서나 예배 · 행사 · 수련회(사용자 결정 2026-10-18 — 칩 · 범례 · 고르기)
 export const EVENT_KINDS = [
+  { key: 'service', label: '예배', token: 'purple' },
   { key: 'event', label: '행사', token: 'blue' },
-  { key: 'season', label: '절기', token: 'purple' },
   { key: 'retreat', label: '수련회', token: 'green' },
 ];
-export const kindOf = (key) => EVENT_KINDS.find(k => k.key === key) || EVENT_KINDS[0];
+// 모르는 종류는 '행사'로 본다(차례의 첫 칸이 아니다)
+export const kindOf = (key) => EVENT_KINDS.find(k => k.key === key) || EVENT_KINDS[1];
 export const eventPaint = (ev, strong = false) => {
   const tk = kindOf(ev?.kind).token;
   return { background: `var(--app-tag-${tk}${strong ? '-fg' : ''})`, color: `var(--app-tag-${tk}-fg)` };
@@ -74,5 +77,32 @@ export function normalizeEvent(draft = {}) {
     place: String(draft.place || '').trim(),
     memo: String(draft.memo || '').trim(),
     kind: kindOf(draft.kind).key,
+    taskIds: [...new Set((draft.taskIds || []).filter(x => typeof x === 'string' && x))],
   };
+}
+
+// 그 달에 걸친 행사(내 달력 고르기 목록 — 지금 보고 있는 달) · m은 0부터
+export function monthEvents(list = [], y, m) {
+  const pre = `${y}-${String(m + 1).padStart(2, '0')}`;
+  const from = `${pre}-01`, to = `${pre}-31`;
+  return eventCalItems(list).filter(e => e.startDate <= to && e.dueDate >= from);
+}
+
+// ── 내 달력(개인 행사 피드) ─────────────────────────────────────────────────
+// 프로젝트 달력의 내 달력(services/calendarFeed.js)과 같은 모양 — 사람마다 고른 행사가 한 피드(구독 주소 하나)에 모인다.
+// 달마다 열어 고르지만 피드는 하나라 다른 달에서 고른 것도 그대로 남는다. 지워진 행사의 id는 걸러 낸다.
+export function togglePick(picks = [], id) {
+  return picks.includes(id) ? picks.filter(x => x !== id) : [...picks, id];
+}
+export const livePicks = (picks = [], list = []) => {
+  const ids = new Set(list.map(e => e.id));
+  return picks.filter(id => ids.has(id));
+};
+// 판 위 설명 한 줄(고른 것 전체 — 이 달만이 아니다). 같은 제목(대림절 예배 넷)은 한 번만 부르고 나머지는 '외 N건'에 센다.
+export function eventFeedSentence(titles) {
+  const all = titles || [];
+  if (!all.length) return '내 달력에 넣을 일정을 골라 주세요.';
+  const named = [...new Set(all)].slice(0, 2);
+  const rest = all.filter(t => !named.includes(t)).length;
+  return rest ? `${named.join(', ')} 외 ${rest}건이 내 달력에 들어가요.` : `${named.join(', ')} 일정이 내 달력에 들어가요.`;
 }
