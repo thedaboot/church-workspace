@@ -476,8 +476,9 @@ export function MembersView({ isAdmin, isMaster, onNavigate }) {
       showToast(`${made.name}${objectParticle(made.name)} 청년 명단에 올렸어요`);
     }, '청년 명단에 올리지 못했어요'),
 
+    // 겹침은 올해 팀장 줄만 본다 — 다음 해 팀장은 지금 그 팀 팀원이어도 된다(1월 1일 적용이 뺀다 · handover.seatYearApplies)
     save: (p, patch) => write(p.id, () => roster.updatePerson(p.id, patch, {
-      ledTeam: (shownBook?.roles || []).find(r => r.person_id === p.id && r.role === roster.TEAM_LEAD)?.team || null,
+      ledTeam: year > THIS_YEAR ? null : (shownBook?.roles || []).find(r => r.person_id === p.id && r.role === roster.TEAM_LEAD)?.team || null,
     }), () => {
       patchPerson(p.id, patch);
       showToast(`${patch.name || p.name} 정보를 저장했어요`);
@@ -528,7 +529,7 @@ export function MembersView({ isAdmin, isMaster, onNavigate }) {
         roles: [...prev.roles.filter(r => !(r.person_id === p.id && r.year === year && r.role === roster.TEAM_LEAD)),
           ...(team ? [{ person_id: p.id, year, role: roster.TEAM_LEAD, team }] : [])],
       }));
-      showToast(team ? `${year}년 ${roster.teamLeadLabel(team)}으로 지정했어요` : `${year}년 팀장 지정을 해제했어요`);
+      showToast(team ? `${year}년 ${roster.teamLeadPhrase(team)}으로 지정했어요` : `${year}년 팀장 지정을 해제했어요`);
     }, team ? '팀장으로 지정하지 못했어요' : '팀장 지정을 해제하지 못했어요'),
   };
 

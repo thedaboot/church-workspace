@@ -1,7 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, guestStore, HONORIFIC } from './people.js';
 import { generateId } from '../utils.js';
-import { seatsValid } from './handover.js';
+import { seatsValid, seatYearApplies } from './handover.js';
 
 // ============================================================================
 // v2 명단(people) 쓰기 계층 — 멤버 화면의 '명단' 구역이 쓴다 (docs/V2.md §1 결정 1·13)
@@ -54,6 +54,8 @@ export const TEAM_LEAD = 'team_lead';
 export const TEAM_LEAD_LABEL = '팀장';
 export const GRAD_LABEL = '졸업';
 export const teamLeadLabel = (team) => (team ? `${team}장` : TEAM_LEAD_LABEL);
+// 문장 자리(토스트 · 홈 인계 카드)는 띄어 쓴다 — '찬양팀 팀장'(사용자 결정 2026-10-17 · 칩·배지는 '찬양팀장' 그대로)
+export const teamLeadPhrase = (team) => (team ? `${team} ${TEAM_LEAD_LABEL}` : TEAM_LEAD_LABEL);
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — tests/roster.mjs 앞부분) ───────────
 
@@ -266,16 +268,18 @@ export async function setYearRole(personId, year, role, on) {
 // 팀장 — 한 사람이 그 해 한 팀(기본 키 person_id·year·role). team이 비면 푼다. 같은 팀 소속이면 화면이 먼저 막고
 // DB 트리거(0107 guard_team_lead_seat)도 막는다.
 export async function setTeamLead(personId, year, team, teams = null) {
+  // 다음 해 팀장은 지금 그 팀 팀원이어도 된다 — 1월 1일 적용이 소속에서 뺀다(handover.seatYearApplies · 0109)
+  const now = seatYearApplies(year, new Date().getFullYear());
   if (!cloudOn()) {
     const me = guestRows('people').find(p => p.id === personId);
-    if (team && !seatsValid(me?.teams || [], team)) throw new Error('겹치는 자리');
+    if (team && now && !seatsValid(me?.teams || [], team)) throw new Error('겹치는 자리');
     const rows = guestRows('people_roles').filter(r =>
       !(r.person_id === personId && r.year === year && r.role === TEAM_LEAD));
     const row = team ? { person_id: personId, year, role: TEAM_LEAD, team } : null;
     guestSet('people_roles', row ? [...rows, row] : rows);
     return row;
   }
-  if (team && teams && !seatsValid(teams, team)) throw new Error('겹치는 자리');
+  if (team && now && teams && !seatsValid(teams, team)) throw new Error('겹치는 자리');
   const key = { person_id: personId, year, role: TEAM_LEAD };
   if (!team) {
     const { error } = await supabase.from('people_roles').delete().match(key);

@@ -1547,10 +1547,10 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.ok(!H.seatsValid(['순장', '순원']) && !H.seatsValid(['찬양팀'], '찬양팀') && H.seatsValid(['찬양팀'], '워십팀') && H.seatsValid([]), '저장 길도 같은 판정');
   const rosterSvc = readSrc('src/services/roster.js');
   assert.ok(/if \('teams' in patch && !seatsValid\(patch\.teams \|\| \[\], ledTeam\)\) throw/.test(rosterSvc)
-    && /if \(team && !seatsValid\(me\?\.teams \|\| \[\], team\)\) throw/.test(rosterSvc)
-    && /if \(team && teams && !seatsValid\(teams, team\)\) throw/.test(rosterSvc), '저장(소속 · 팀장 — 게스트·클라우드)이 겹침을 막는다');
+    && /if \(team && now && !seatsValid\(me\?\.teams \|\| \[\], team\)\) throw/.test(rosterSvc)
+    && /if \(team && now && teams && !seatsValid\(teams, team\)\) throw/.test(rosterSvc), '저장(소속 · 팀장 — 게스트·클라우드)이 겹침을 막는다');
   const rosterUi2 = readSrc('src/components/roster.jsx');
-  assert.ok(/disabled=\{!teams\.includes\(t\) && blocked\.has\(t\)\}/.test(rosterUi2) && /blocked=\{blockedLeadTeams\(person\.teams \|\| \[\]\)\}/.test(rosterUi2), '화면은 겹치는 칩을 비활성으로');
+  assert.ok(/disabled=\{!teams\.includes\(t\) && blocked\.has\(t\)\}/.test(rosterUi2) && /blocked=\{leadTeamsBlocked\(person\.teams \|\| \[\], year, new Date\(\)\.getFullYear\(\)\)\}/.test(rosterUi2), '화면은 겹치는 칩을 비활성으로');
 
   const items = H.buildHandovers(pairs, ['msy', 'kdy']);
   const msy = items.find(i => i.from === 'msy');
@@ -1621,14 +1621,29 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   const m7 = readSrc('supabase/migrations/0107_team_lead_and_seats.sql');
   assert.ok(/create or replace function public\.is_leader\(\) returns boolean[\s\S]{0,120}select public\.is_leader_for\(public\.kst_year\(\)\);/.test(m7), 'is_leader()는 이름 그대로 · 몸은 is_leader_for(올해)');
   assert.ok(/pr\.role <> 'vision_maker'/.test(m7.slice(m7.indexOf('function public.is_leader_for'), m7.indexOf('function public.is_leader()'))), '그해 팀장·예배팀장도 리더(비전 메이커만 아니다)');
-  assert.ok(/if new\.role = 'team_lead' and new\.year >= public\.kst_year\(\)/.test(m7) && /r\.role = 'team_lead' and r\.year >= public\.kst_year\(\)/.test(m7), '겹침 트리거는 팀장 줄만(예배팀장은 소속과 겹쳐도 된다)');
+  assert.ok(/if new\.role = 'team_lead' and new\.year = public\.kst_year\(\)/.test(m7) && /r\.role = 'team_lead' and r\.year = public\.kst_year\(\)/.test(m7),
+    '겹침 트리거는 올해 팀장 줄만(예배팀장은 소속과 겹쳐도 된다 · 다음 해 팀장 지정은 막지 않는다)');
   assert.ok(/revoke execute on function public\.guard_team_lead_seat\(\) from public, anon, authenticated;/.test(m7) && /revoke execute on function public\.guard_people_seats\(\) from public, anon, authenticated;/.test(m7), '트리거 함수 EXECUTE 회수');
   const m9 = readSrc('supabase/migrations/0109_handover.sql');
+  // 1월 1일 적용의 첫 단계 — 올해 팀장을 그 팀 소속에서 빼고 기록(2026 줄은 건드리지 않는다).
+  // 되돌리기: apply_handovers의 ① 블록(array_remove)이나 2026 거르기를 지우면 깨진다.
+  assert.ok(/update public\.people p set teams = array_remove\(p\.teams, hit\.team\)/.test(m9) && /insert into public\.handover_seat_log/.test(m9)
+    && /r2\.year = public\.kst_year\(\) and r2\.year > 2026/.test(m9), '그해 팀장을 그 팀 소속에서 빼고 기록한다(2026 줄 제외)');
   assert.ok(/revoke all on function public\.apply_handovers\(\) from public, anon, authenticated;/.test(m9) && /grant execute on function public\.apply_handovers\(\) to service_role;/.test(m9), '적용 함수는 서버 키만');
-  assert.ok((m9.match(/create policy [^\n]* to authenticated/g) || []).length === 5 && /\(to_person = \(select public\.my_person_id\(\)\) and applied_at is not null\)/.test(m9), '새 정책은 authenticated · 인수자는 적용 뒤부터');
+  assert.ok((m9.match(/create policy [^\n]* to authenticated/g) || []).length === 6 && /\(to_person = \(select public\.my_person_id\(\)\) and applied_at is not null\)/.test(m9), '새 정책은 authenticated · 인수자는 적용 뒤부터');
   const m10 = readSrc('supabase/migrations/0110_past_year_leaders.sql');
   assert.strictEqual((m10.slice(m10.indexOf('alter policy projects_select')).match(/OR \(year = ANY \(\(SELECT my_leader_years\(\)\)\)\)/g) || []).length, 4, 'projects 정책 셋(update는 using·check 둘)에 연도 갈래');
   assert.ok(/x\.year = any \(public\.my_leader_years\(\)\)/.test(m10) && /select unnest\(public\.leader_hidden_project_ids\(\)\) as id/.test(m10), 'can_see_project · hidden_ids도 연도 갈래');
+  // 다음 해 팀장은 지금 그 팀 팀원이어도 고른다(사용자 결정 2026-10-17) — 겹침은 그해부터.
+  // 되돌리기: seatYearApplies를 늘 참으로 하면 첫 단정이, 명단 화면이 blockedLeadTeams로 돌아가면 둘째가 깨진다.
+  assert.ok(H.leadTeamsBlocked(['찬양팀'], 2027, 2026).size === 0 && H.leadTeamsBlocked(['찬양팀'], 2026, 2026).has('찬양팀'), '다음 해 팀장은 지금 팀원이어도 고른다 · 올해는 막는다');
+  assert.ok(/blocked=\{leadTeamsBlocked\(person\.teams \|\| \[\], year, new Date\(\)\.getFullYear\(\)\)\}/.test(rosterUi2)
+    && /if \(team && now && teams && !seatsValid\(teams, team\)\) throw/.test(rosterSvc), '화면·저장도 그해부터만 막는다');
+  // 문장 자리는 '찬양팀 팀장'(칩은 '찬양팀장' 그대로 · 사용자 결정 2026-10-17). 되돌리기: itemPhrases를 itemLabels로 돌리면 깨진다.
+  assert.ok(/const labels = itemPhrases\(it\)\.join\(' · '\);/.test(hvUi) && /const labels = itemPhrases\(it\)\.filter/.test(hvUi)
+    && /roster\.teamLeadPhrase\(team\)\}으로 지정했어요/.test(readSrc('src/views/membersView.jsx')), '홈 인계 카드·지정 토스트는 띄어 쓴다');
+  // 읽기 실패 자리(D2 · 사용자 승인 문구)
+  assert.ok(/title="인수인계를 받지 못했어요" reason=\{errorReason\(m\.hv\.error\)\}/.test(hvUi), "인수인계 탭 읽기 실패 '인수인계를 받지 못했어요'");
   // 1월 1일 크론 — 기존 08:00 자리를 쓴다(Vercel 크론 두 자리 그대로). 되돌리기: push.js의 runHandover 부르기를 빼면 깨진다.
   const push = readSrc('api/push.js');
   assert.ok(/const handover = await runHandover\(\);/.test(push) && /db\.rpc\('apply_handovers'\)/.test(push), '08:00 크론 갈래가 인수인계를 적용한다');

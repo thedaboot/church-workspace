@@ -53,6 +53,10 @@ export function blockedSeats(teams = [], ledTeam = null) {
 }
 // 팀장으로 고를 수 없는 팀 — 이미 그 팀의 팀원(소속)인 팀
 export const blockedLeadTeams = (teams = []) => new Set(teams.filter(t => t.endsWith('팀')));
+// **겹침은 그해부터 본다**(사용자 결정 2026-10-17): 소속(people.teams)은 '지금'이라, 다음 해 팀장은 지금 그 팀 팀원이어도 고를 수 있다 —
+// 1월 1일 적용 단계(0109 apply_handovers)가 그 사람을 그 팀 소속에서 빼고 기록한다. 그해 또는 지난해 줄만 막는다.
+export const seatYearApplies = (year, nowYear) => Number(year) <= Number(nowYear);
+export const leadTeamsBlocked = (teams = [], year, nowYear) => (seatYearApplies(year, nowYear) ? blockedLeadTeams(teams) : new Set());
 // 저장해도 되나 — 순장·순원을 같이 들었거나 이끄는 팀을 소속으로도 들었으면 false
 export const seatsValid = (teams = [], ledTeam = null) =>
   !(teams.includes('순장') && teams.includes('순원')) && !(ledTeam && teams.includes(ledTeam));

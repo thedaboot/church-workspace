@@ -17,7 +17,7 @@ import {
 import { Segmented } from './segmented.jsx';
 import { BADGE_STYLE, badgeClass, LEAD_TEAMS } from './roleBadge.js';
 import { usePopover } from '../hooks/usePopover.js';
-import { rolesOffered, TEAM_LEAD, blockedSeats, blockedLeadTeams } from '../services/handover.js';
+import { rolesOffered, TEAM_LEAD, blockedSeats, leadTeamsBlocked, seatYearApplies } from '../services/handover.js';
 // ============================================================================
 // 청년 명단 구역의 부품 — 멤버 화면(views/membersView.jsx)의 '청년 명단' 탭이 쓴다
 // ----------------------------------------------------------------------------
@@ -390,7 +390,8 @@ function EditPanel({ person, linked, link, roleSet, team, year, busy, on }) {
         </ConfirmPopover>
       </div>
 
-      <PersonForm initial={person} submitLabel="저장" busy={busy} withNote ledTeam={team || null}
+      <PersonForm initial={person} submitLabel="저장" busy={busy} withNote
+        ledTeam={seatYearApplies(year, new Date().getFullYear()) ? team || null : null}
         onSubmit={(patch) => on.save(person, patch)} onCancel={() => on.close()} />
 
       <PanelRow label="계정">
@@ -427,7 +428,7 @@ function EditPanel({ person, linked, link, roleSet, team, year, busy, on }) {
                 <Chip key={r} on={!!person.is_pastor} disabled={busy} className={BADGE_STYLE[PASTOR_LABEL]}
                   onClick={() => on.pastor(person, !person.is_pastor)}>{PASTOR_LABEL}</Chip>
               ) : r === TEAM_LEAD ? (
-                <TeamLeadChip key={r} team={team} disabled={busy} blocked={blockedLeadTeams(person.teams || [])} onPick={(t) => on.teamLead(person, t)} />
+                <TeamLeadChip key={r} team={team} disabled={busy} blocked={leadTeamsBlocked(person.teams || [], year, new Date().getFullYear())} onPick={(t) => on.teamLead(person, t)} />
               ) : (
                 <Chip key={r} on={roleSet.has(r)} disabled={busy} className={BADGE_STYLE[ROLE_LABEL[r]]}
                   onClick={() => on.role(person, r, !roleSet.has(r))}>{ROLE_LABEL[r]}</Chip>

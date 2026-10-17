@@ -20,7 +20,9 @@
 -- ⑤ 자리 겹침 막기(사용자 결정 2026-10-16): 순장 ↔ 순원(소속 칩 둘을 같이 들 수 없다) · 팀장 ↔ 같은 팀 소속.
 --    화면이 칩을 비활성으로 두고(services/handover.js blockedSeats·blockedLeadTeams), 저장은 아래 트리거 둘이 막는다(23514).
 --    **새로 생기는 겹침만** 막는다 — 지금 이미 겹친 행(④가 옮긴 2026 팀장이 그 팀 소속이기도 한 경우)은 그대로 두고,
---    그 사람의 다른 칸을 고쳐도 막히지 않는다. 팀장 ↔ 소속은 **올해와 그 뒤** 팀장 줄만 본다(지난해 줄은 기록이다).
+--    그 사람의 다른 칸을 고쳐도 막히지 않는다. 팀장 ↔ 소속은 **올해 팀장 줄만** 본다(사용자 결정 2026-10-17) — 소속(people.teams)은
+--    '지금'이라 다음 해 팀장은 지금 그 팀 팀원이어도 지정된다. 그해가 되는 1월 1일 아침 적용 단계(0109 apply_handovers)가 그 사람을
+--    그 팀 소속에서 빼고 기록한다(handover_seat_log). 그 뒤로는 겹침이 새로 생기지 않게 이 트리거가 막는다. 지난해 줄은 기록이다.
 --    ④의 복사는 트리거를 만들기 **전에** 한다(겹친 사람도 옮겨진다 · 리허설 '겹침' 목록).
 --
 -- 순서: 이 마이그레이션 → 코드. 코드가 먼저 나가도 오류 화면은 없다 — 명단은 birth_year·team을 '없어도 되는 칸'으로 읽고
@@ -104,11 +106,11 @@ select distinct pe.id, 2026, 'worship_lead'
 on conflict (person_id, year, role) do nothing;
 
 -- ── ⑤ 자리 겹침 막기 ────────────────────────────────────────────────────────
--- 팀장 줄이 생기거나 팀이 바뀔 때 — 그 사람이 지금 그 팀 소속이면 막는다(올해와 그 뒤 줄만)
+-- 팀장 줄이 생기거나 팀이 바뀔 때 — 그 사람이 지금 그 팀 소속이면 막는다(올해 줄만 · 다음 해 줄은 1월 1일 적용이 소속을 뺀다)
 create or replace function public.guard_team_lead_seat() returns trigger
 language plpgsql set search_path = public, pg_temp as $$
 begin
-  if new.role = 'team_lead' and new.year >= public.kst_year()
+  if new.role = 'team_lead' and new.year = public.kst_year()
      and (tg_op = 'INSERT' or new.team is distinct from old.team or new.person_id is distinct from old.person_id)
      and exists (select 1 from public.people p where p.id = new.person_id and new.team = any (coalesce(p.teams, '{}'))) then
     raise exception '팀장은 같은 팀의 소속일 수 없어요 (%)', new.team using errcode = '23514';
@@ -120,7 +122,7 @@ drop trigger if exists trg_people_roles_team_lead_seat on public.people_roles;
 create trigger trg_people_roles_team_lead_seat before insert or update on public.people_roles
   for each row execute function public.guard_team_lead_seat();
 
--- 소속이 바뀔 때 — 순장·순원을 새로 같이 들었거나, 이끄는 팀(올해와 그 뒤)을 새로 소속으로 들었으면 막는다
+-- 소속이 바뀔 때 — 순장·순원을 새로 같이 들었거나, 올해 이끄는 팀을 새로 소속으로 들었으면 막는다
 create or replace function public.guard_people_seats() returns trigger
 language plpgsql set search_path = public, pg_temp as $$
 declare
@@ -131,7 +133,7 @@ begin
     raise exception '순장과 순원을 같이 지정할 수 없어요' using errcode = '23514';
   end if;
   if exists (select 1 from public.people_roles r
-              where r.person_id = new.id and r.role = 'team_lead' and r.year >= public.kst_year()
+              where r.person_id = new.id and r.role = 'team_lead' and r.year = public.kst_year()
                 and r.team = any (now_) and not (r.team = any (was))) then
     raise exception '팀장은 같은 팀의 소속일 수 없어요' using errcode = '23514';
   end if;

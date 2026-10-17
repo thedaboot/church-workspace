@@ -4,15 +4,15 @@ import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, GraduationCap, Hands
 import { Avatar } from './Avatar.jsx';
 import { Segmented } from './segmented.jsx';
 import { BTN, BTN_SOFT, BTN_CONFIRM, BTN_CONFIRM_QUIET } from './buttons.js';
-import { CARD, CARD_STYLE, MenuPick, PersonPick, FIELD } from './groupsParts.jsx';
+import { CARD, CARD_STYLE, MenuPick, PersonPick, FIELD, FailLeft } from './groupsParts.jsx';
 import { badgeClass, LEAD_TEAMS } from './roleBadge.js';
 import { showToast } from './Toast.jsx';
 import { useLeave } from '../hooks/useExit.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectTasksList, selectProjectsList, selectCurrentUser } from '../store/selectors.js';
 import { CONFIG } from '../config.js';
-import { objectParticle, failText } from '../services/errorText.js';
-import { ROLE_LABEL, GRAD_LABEL, teamLeadLabel } from '../services/roster.js';
+import { objectParticle, failText, errorReason } from '../services/errorText.js';
+import { ROLE_LABEL, GRAD_LABEL, teamLeadLabel, teamLeadPhrase } from '../services/roster.js';
 import { pairRoles, graduatesOf, buildHandovers, openTasksOf, TEAM_LEAD } from '../services/handover.js';
 import {
   useHandover, applyHandover, resetHandover, viewAs, viewBack, guestRoster, handoverOn, FROM_YEAR, TO_YEAR,
@@ -46,6 +46,12 @@ export const slotLabel = (slot) => {
   return role === TEAM_LEAD ? teamLeadLabel(team) : (ROLE_LABEL[role] || role);
 };
 export const itemLabels = (it) => [...it.slots.map(slotLabel), ...(it.graduate ? [GRAD_LABEL] : [])];
+// 문장 자리(홈 인계 카드) — 팀장은 '찬양팀 팀장'처럼 띄어 쓴다(사용자 결정 2026-10-17 · 칩은 itemLabels 그대로 '찬양팀장')
+const slotPhrase = (slot) => {
+  const [role, team] = slot.split(':');
+  return role === TEAM_LEAD ? teamLeadPhrase(team) : slotLabel(slot);
+};
+export const itemPhrases = (it) => [...it.slots.map(slotPhrase), ...(it.graduate ? [GRAD_LABEL] : [])];
 
 // 화면 둘(탭·홈)이 같이 보는 한 벌 — 명단·직분·업무에서 짝·졸업·인계를 만든다
 export function useHandoverModel() {
@@ -430,12 +436,18 @@ export function HandoverPanel({ onEditRoster, onNavigate }) {
           items={STEPS.map(([n, l]) => [n, <span key={n} className="tabular-nums">{`${n} ${l}`}</span>, { 'data-step': n }])} />
       </div>
 
+      {/* 읽기 실패 자리(D2 · 사용자 승인 문구 2026-10-17) — 클라우드에서 명단·계획·기록을 못 읽었다. 토스트는 띄우지 않는다 */}
+      {!handoverOn() && m.hv.error ? (
+        <FailLeft className="handover-load-failed" title="인수인계를 받지 못했어요" reason={errorReason(m.hv.error)}
+          onRetry={() => loadHandover({ master: true })} />
+      ) : (
       <div key={step} className="dc-screen">
         {step === 1 && <PairStep m={m} onEditRoster={onEditRoster} />}
         {step === 2 && <GradStep m={m} />}
         {step === 3 && <ItemsStep m={m} onWrite={setWriting} onViewAs={seeAs} />}
         {step === 4 && <ApplyStep m={m} onViewAs={seeAs} />}
       </div>
+      )}
 
       {/* 이전 · 다음 — 폰은 한 장씩 넘기는 길(시트처럼) · 데스크톱도 같은 자리(오른쪽 아래) */}
       <div className="mt-5 flex gap-2 md:justify-end">
@@ -481,7 +493,7 @@ export function HandoverHomeCards({ onTaskClick }) {
       )}
       {outgoing.map(it => {
         const to = m.nameOf(it.to);
-        const labels = itemLabels(it).join(' · ');
+        const labels = itemPhrases(it).join(' · ');
         const done = m.hv.notes?.[it.id]?.done;
         return (
           <div key={it.id} data-hv-out={it.id} className={`home-card dc-card ${CARD} p-4 md:p-[18px]`} style={CARD_STYLE}>
@@ -505,7 +517,7 @@ export function HandoverHomeCards({ onTaskClick }) {
       })}
       {incoming.map(it => {
         const from = m.byId.get(it.from);
-        const labels = itemLabels(it).filter(l => l !== GRAD_LABEL);
+        const labels = itemPhrases(it).filter(l => l !== GRAD_LABEL);
         const what = labels.length ? labels.join(' · ') : '업무';
         const note = m.hv.notes?.[it.id];
         const tasks = (note?.taskIds || []).map(id => taskById.get(id)).filter(Boolean);
