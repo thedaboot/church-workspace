@@ -74,10 +74,11 @@ function boot() {
   seeded = true;
   if (isCloudEnabled()) { items = []; return; }
   const saved = read();
-  // 씨앗은 **처음 보는 게스트**(저장된 워크스페이스가 없어 MockFactory가 채운 화면)에게만, 메모리에만 —
-  // 무언가 지우거나 복원하면 그때 같이 저장된다. 검사 스위트는 자기 워크스페이스를 심고 새로 고치므로 씨앗이 없다.
-  let auto = false;
-  try { auto = localStorage.getItem('church_app_v4') == null || localStorage.getItem('trash_seed') === '1'; } catch { /* 그대로 */ }
+  // 씨앗은 **시연 데이터 게스트**(MockFactory가 채운 워크스페이스 — `demo` 표시 · 저장된 뒤에도 남는다)에게만, 메모리에만 —
+  // 무언가 지우거나 복원하면 그때 같이 저장된다. 검사 스위트는 demo 없는 자기 워크스페이스를 심으므로 씨앗이 없다
+  // (처음엔 '저장된 워크스페이스가 없을 때'로 갈랐는데, 시연 데이터가 첫 화면에서 곧바로 저장되면서 새로 고치면 씨앗이 사라졌다).
+  let auto = !!store.getState().demo;
+  try { auto = auto || localStorage.getItem('trash_seed') === '1'; } catch { /* 그대로 */ }
   if (saved == null && auto) { items = seedItems(); return; }
   items = fresh(saved || []);
   if (saved && items.length !== saved.length) save();   // 30일 지난 것은 지운다

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useLayoutEffect } from 'react';
 import { Check, Hash, Archive, Copy, ListTree, FileText } from 'lucide-react';
 import { CONFIG, teamColor } from '../config.js';
 import { useStore } from '../store/workspaceStore.js';
@@ -253,8 +253,14 @@ const yearFromTitle = (title) => {
 
 export function ProjectModal({ onClose, onSave, onArchive, onDuplicate, project = null }) {
   const renaming = !!project;
-  // 'edit'(이름 수정) → 'copy'(복제 — 아래 DuplicateStep). 같은 창 안에서 바뀐다(창을 겹치지 않는다).
+  // 'edit'(이름 수정) ⇄ 'copy'(복제 — 아래 DuplicateStep). **같은 창 안에서** 바뀐다(창을 겹치지 않는다 · 뒤판·창이 다시 뜨지 않는다).
+  // 넘어갈 때 내용은 화면 전환과 같은 한 벌(.dc-nav-fwd/back 7px + 안쪽 .dc-screen 페이드 · index.css)로 들어오고,
+  // 창의 높이·폭은 끊기지 않고 따라간다(useStepSize · .dc-step-size). 처음 뜰 때는 .dc-dialog 하나만 — 내용 등장을 겹치지 않는다.
+  // 복제의 '취소'는 이름 수정으로 돌아온다(뒤로 · back 방향) · 바깥·Esc는 창째 닫는다.
   const [step, setStep] = useState('edit');
+  const [dir, setDir] = useState(null);     // null = 아직 안 넘어감(첫 등장)
+  const goStep = (next) => { setDir(next === 'copy' ? 'fwd' : 'back'); setStep(next); };
+  const [sizeRef, sizeStyle] = useStepSize();
   const [title, setTitle] = useState(project?.title || '');
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(() => project?.year || yearFromTitle(project?.title) || thisYear);
@@ -279,20 +285,18 @@ export function ProjectModal({ onClose, onSave, onArchive, onDuplicate, project 
   const dismiss = useDismissModal(close);
   const out = leaving ? ' dc-out' : '';
 
-  if (step === 'copy' && renaming) {
-    return (
-      <div {...dismiss} className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 dc-scrim${out}`}>
-        <div data-project-copy="" className={`bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-lg max-h-[90dvh] flex flex-col dc-dialog${out}`}>
-          <DuplicateStep project={project} thisYear={thisYear} onCancel={close}
-            onConfirm={(t, y) => { onDuplicate?.(project.id, t, y); close(); }} />
-        </div>
-      </div>
-    );
-  }
-
+  const copying = step === 'copy' && renaming;
   return (
     <div {...dismiss} className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 dc-scrim${out}`}>
-      <div className={`bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm dc-dialog${out}`}>
+      <div data-project-copy={copying ? '' : undefined} style={sizeStyle}
+        className={`bg-surface rounded-lg shadow-elevated border border-line w-full ${copying ? 'max-w-lg' : 'max-w-sm'} overflow-hidden dc-step-size dc-dialog${out}`}>
+      <div ref={sizeRef} className="p-5 md:p-6 max-h-[90dvh] overflow-y-auto overscroll-contain">
+      <div key={step} className={dir ? `dc-nav dc-nav-${dir}` : undefined}>
+      <div className={dir ? 'dc-screen' : undefined}>
+      {copying ? (
+        <DuplicateStep project={project} thisYear={thisYear} onCancel={() => goStep('edit')}
+          onConfirm={(t, y) => { onDuplicate?.(project.id, t, y); close(); }} />
+      ) : (<>
         <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} className="text-accent"/> {renaming ? '프로젝트 이름 수정' : '새 프로젝트 생성'}</h3>
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>
         <input
@@ -341,7 +345,7 @@ export function ProjectModal({ onClose, onSave, onArchive, onDuplicate, project 
             {/* 복제(시안 2026-10-16) — 보관과 같은 '프로젝트 자체를 다루는' 자리라 바로 아래에 같은 모양으로 둔다.
                 폰(상단바 제목)과 데스크톱(머리 제목)이 같은 창으로 들어온다. 구조색은 쓰지 않는다(이 창의 주 행동은 '저장'). */}
             {onDuplicate && (
-              <button data-project-copy-open="" onClick={() => setStep('copy')}
+              <button data-project-copy-open="" onClick={() => goStep('copy')}
                 className="mt-2 w-full flex items-center gap-3 px-3 py-3 rounded-md border border-line bg-surface hover:bg-surface-hover transition-colors text-left active:scale-[0.99]">
                 <span className="w-7 h-7 rounded-md bg-tag-blue text-tag-blue-fg flex items-center justify-center shrink-0">
                   <Copy size={14} />
@@ -358,9 +362,33 @@ export function ProjectModal({ onClose, onSave, onArchive, onDuplicate, project 
           <button onClick={close} className={`flex-1 ${BTN_CONFIRM_QUIET}`}>취소</button>
           <button onClick={submit} disabled={!clean || unchanged} className={`flex-1 ${BTN_CONFIRM}`}>{renaming ? '저장' : '생성하기'}</button>
         </div>
+      </>)}
+      </div>
+      </div>
+      </div>
       </div>
     </div>
   );
+}
+
+// 창 크기가 단계 사이에서 끊기지 않게 — 안쪽 내용의 실제 높이를 재서 겉 창의 height로 준다(.dc-step-size가 그 값을
+// quint로 따라간다 · 폭은 max-width가 같은 전이로). 처음 잰 값은 지금 높이와 같아서 아무것도 움직이지 않고, 그 뒤
+// 내용이 바뀌면(단계 · 폭이 바뀌어 줄이 다시 감김) px → px로 옮겨 간다(auto에서는 전이가 안 된다). 움직임 줄이기는 CSS가 끈다.
+// 겉 창은 border-box라 테두리 두께(위아래 1px씩)를 더한다 — 빼면 안쪽 바닥 2px이 잘린다.
+function useStepSize() {
+  const ref = useRef(null);
+  const [h, setH] = useState(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const box = el.parentElement;
+    const read = () => setH(el.offsetHeight + (box.offsetHeight - box.clientHeight));
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, h == null ? undefined : { height: h }];
 }
 
 // ── 복제 단계(시안 2026-10-16 · 규칙은 services/projectCopy.js) ────────────────────────────────
@@ -382,17 +410,19 @@ function DuplicateStep({ project, thisYear, onCancel, onConfirm }) {
   const gone = 'line-through decoration-1 text-fg-muted opacity-80';
   return (
     <>
-      <h3 className="font-bold text-fg mb-4 flex items-center gap-2 shrink-0"><Copy size={17} className="text-accent" /> 프로젝트 복제</h3>
-      <label className="block text-xs font-semibold text-fg-muted mb-1.5 shrink-0">연도</label>
-      <Segmented className="flex p-[3px] rounded-md mb-4 shrink-0 self-start" items={YEARS.map(y => [y, `${y}년`])} value={year} onPick={pickYear}
-        btnClassName="px-3 py-[5px] rounded-sm text-[12.5px] font-semibold tabular-nums transition-colors" />
-      <label className="block text-xs font-semibold text-fg-muted mb-1.5 shrink-0">프로젝트 이름</label>
+      <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Copy size={17} className="text-accent" /> 프로젝트 복제</h3>
+      <label className="block text-xs font-semibold text-fg-muted mb-1.5">연도</label>
+      <div className="flex mb-4">
+        <Segmented className="flex p-[3px] rounded-md" items={YEARS.map(y => [y, `${y}년`])} value={year} onPick={pickYear}
+          btnClassName="px-3 py-[5px] rounded-sm text-[12.5px] font-semibold tabular-nums transition-colors" />
+      </div>
+      <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>
       <input type="text" value={title} aria-label="프로젝트 이름"
         onChange={e => { setTitle(e.target.value); setTouched(true); }}
         onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && clean) onConfirm(clean, year); }}
-        className="w-full border border-line p-2.5 rounded-xs mb-4 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none shrink-0" />
-      <p className="text-xs font-semibold text-fg-muted mb-1.5 shrink-0">옮겨질 업무 <span className="font-normal tabular-nums">{list.length}건</span></p>
-      <ul data-copy-preview="" className="flex-1 min-h-[96px] overflow-y-auto overscroll-contain border border-line rounded-md divide-y divide-line/70 mb-5">
+        className="w-full border border-line p-2.5 rounded-xs mb-4 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none" />
+      <p className="text-xs font-semibold text-fg-muted mb-1.5">옮겨질 업무 <span className="font-normal tabular-nums">{list.length}건</span></p>
+      <ul data-copy-preview="" className="max-h-[min(340px,42dvh)] overflow-y-auto overscroll-contain border border-line rounded-md divide-y divide-line/70 mb-5">
         {list.map(t => {
           const d = droppedOf(t);
           const subs = (t.subtasks || []).length;
@@ -415,7 +445,7 @@ function DuplicateStep({ project, thisYear, onCancel, onConfirm }) {
         })}
         {!list.length && <li className="px-3 py-6 text-center text-[12px] text-fg-muted">업무 미등록</li>}
       </ul>
-      <div className="flex gap-2 shrink-0">
+      <div className="flex gap-2">
         <button onClick={onCancel} className={`flex-1 ${BTN_CONFIRM_QUIET}`}>취소</button>
         <button onClick={() => clean && onConfirm(clean, year)} disabled={!clean} className={`flex-1 ${BTN_CONFIRM}`}>복제하기</button>
       </div>
