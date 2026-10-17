@@ -1235,3 +1235,18 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/tab-bar-work[^`]*\[--tab-on-w:700\] \[--tab-mark:#fff\]/.test(nav) && /bg-\[color:var\(--tab-mark,transparent\)\]/.test(nav), '업무 바 켜진 탭은 굵기와 점으로 가른다(색 차이가 작다)');
   console.log('PASS  색 대비(다크 accent · 업무 바 꺼진 탭)');
 }
+
+// ── 한 창 안의 단계 전환(프로젝트 이름 수정 ⇄ 복제 · 시안 2026-10-17) ─────────────────────────────
+// 내용은 화면 전환 한 벌(.dc-nav-fwd/back + 안쪽 .dc-screen 페이드)로 들어오고, 창 높이·폭은 --dur-dialog quint로 따라간다.
+// 첫 등장은 .dc-dialog 하나(내용 등장을 겹치지 않는다) · 움직임 줄이기는 전이 없음.
+// **되돌리기**: settings.jsx의 style={sizeStyle}을 빼면(높이를 안 주면) 첫 단언이, index.css 움직임 줄이기 줄을 빼면 셋째가 깨진다.
+{
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const set = src('modals/settings.jsx'); const css = src('index.css');
+  assert.ok(/data-project-copy=\{copying \? '' : undefined\} style=\{sizeStyle\}/.test(set) && /function useStepSize\(\)/.test(set), '창 높이를 재서 준다');
+  assert.ok(/key=\{step\} className=\{dir \? `dc-nav dc-nav-\$\{dir\}` : undefined\}/.test(set), '단계 내용은 dc-nav 방향으로 · 첫 등장은 없음');
+  assert.ok(/\.dc-step-size \{ transition: height var\(--dur-dialog\) var\(--ease-out-quint\), max-width var\(--dur-dialog\) var\(--ease-out-quint\); \}/.test(css)
+    && /\.dc-step-size \{ transition: none !important; \}/.test(css), '높이·폭 전이는 대화창 길이 quint · 움직임 줄이기는 없음');
+  assert.ok(/onCancel=\{\(\) => goStep\('edit'\)\}/.test(set), '복제의 취소는 이름 수정으로 돌아온다');
+  console.log('PASS  한 창 안의 단계 전환(높이·폭 따라감 · dc-nav · 움직임 줄이기)');
+}
