@@ -1,6 +1,9 @@
 import * as cloud from './cloud.js';
 import { statusToDb, statusFromDb } from './cloud.js';
-import { setWriteObserver } from './supabaseClient.js';
+import { setWriteObserver, supabase } from './supabaseClient.js';
+import { primeTabOrder } from './tabOrder.js';
+import { withTeamLead } from './aiPeople.js';
+import { CONFIG } from '../config.js';
 import { reconnectWatcher } from './realtimeStatus.js';
 import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly, visibilityOf, visibleRecipients } from './visibility.js';
 import { withSecret } from './cardLock.js';
@@ -474,6 +477,9 @@ export async function loadCloudState() {
   // '리더만 보기' 토글을 세운다(viewersReady false · leaderOnly.jsx). 알림 받는 사람은 project_audiences가 정한다.
   const viewerInfo = Promise.resolve().then(() => Promise.all([cloud.listProjectViewers(), cloud.projectAudiences()]))
     .catch((e) => { console.warn('[cloud] 보는 사람 목록을 못 읽었어요:', e?.message || e); return null; });
+  // 올해 팀장 줄(0107 · 팀장의 원본) — **없어도 되는 값**. 칸이 없거나(마이그레이션 전) 못 읽으면 role_note 그대로(aiPeople.withTeamLead)
+  const teamLeads = loadTeamLeads()
+    .catch((e) => { console.warn('[cloud] 팀장 줄을 못 읽었어요:', e?.message || e); return null; });
   const [teams, profiles, projects, cards, links, files, initialProfile, sessionRes, profileTeams, activityRows] = await cloud.withClockSkewRetry(() => Promise.all([
     cloud.listTeams(), cloud.listProfiles(), cloud.listProjects(), cloud.listAllCards(),
     cloud.listAllLinks(), cloud.listAllFiles(), cloud.getMyProfile(),
@@ -538,6 +544,9 @@ export async function loadCloudState() {
   // 로그인했나"이고 승인 판정·자가 복구가 그것을 본다.
   // 함정: 이 화면으로 '내 정보'를 고치면 글은 **자기(합쳐진) 행**에 써져 안 보인다(§6-34-g).
   const shownProfile = (myProfile?.merged_into && profiles.find(p => p.id === myProfile.merged_into)) || myProfile;
+  // 내 탭 차례(0108 · 남긴 계정 행) — 칸이 없으면 브라우저 값 그대로
+  primeTabOrder(shownProfile?.tab_order);
+  const leads = await teamLeads;
   // 소속 팀 여럿 (profile_teams). 테이블이 없으면 빈 배열이라 대표 팀만 남는다.
   // team(대표) = 아바타 색·기본 팀 보드, teams(전체) = '내 팀 업무' 집계
   const myTeamNames = (profileTeams || [])
@@ -583,7 +592,8 @@ export async function loadCloudState() {
         joinedAt: isoTime(p.created_at),
         // 직함·역할(0030). AI가 "OOO 청년" 대신 "조해리 총무님"이라고 부르는 근거다.
         // 화면은 쓰지 않는다 — 사람 목록에 직함을 붙이면 누가 위인지가 먼저 보인다(§8).
-        role: p.role_note || '',
+        // 팀장은 그해 people_roles가 원본이다(0107) — 팀장 줄이 있는 해면 role_note의 'OO팀장' 낱말 대신 그 줄(aiPeople.withTeamLead)
+        role: withTeamLead(p.role_note, { team: leads?.byProfile.get(p.id) || null, yearHasLeads: !!leads?.any, leadTeams: LEAD_TEAM_NAMES }),
         team: primary,
         // 대표 팀이 먼저 오게 — 그래야 목록의 첫 팀이 아바타 색 규칙과 어긋나지 않는다
         teams: [...new Set([primary, ...(teamsByProfile.get(p.id) || [])].filter(Boolean))],
@@ -603,6 +613,19 @@ export async function loadCloudState() {
     },
     profile: myProfile,
   };
+}
+
+// 올해(KST) 팀장 줄 → { any, byProfile: Map(계정 id → 팀) } — 합친 계정은 남긴 계정으로 본다(명단은 남긴 계정에 이어진다)
+const LEAD_TEAM_NAMES = Object.keys(CONFIG.TEAMS).filter(t => t.endsWith('팀'));
+async function loadTeamLeads() {
+  if (!supabase) return null;
+  const year = Number(new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 4));
+  const { data, error } = await supabase.from('people_roles').select('team, people!inner(profile_id)')
+    .eq('year', year).eq('role', 'team_lead');
+  if (error) throw error;
+  const byProfile = new Map();
+  for (const r of data || []) if (r.people?.profile_id && r.team) byProfile.set(r.people.profile_id, r.team);
+  return { any: (data || []).length > 0, byProfile };
 }
 
 // 활동 한 건 → 피드 줄. 카드 제목은 여기서 붙이지 않는다 — 스토어의 tasks가 이미 알고,

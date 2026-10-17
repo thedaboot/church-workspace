@@ -25,6 +25,7 @@ import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
 import { mdDot } from '../utils.js';
 import { Cut, cutSet, Showcase } from './showcase.jsx';
 import { FootprintPage, SkelLine } from './footprint.jsx';
+import { ensureHandoverDemo } from '../services/handoverStore.js';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
 
@@ -77,6 +78,11 @@ import logoDark from '../assets/logo-dark.webp';
 // 억지로 픽셀을 세우면 파스텔 그라디언트가 더 상한다.
 // 컷(Cut · cutSet)은 views/showcase.jsx 한 벌이다 — 쇼케이스 블록과 히어로가 같이 쓴다.
 const HERO_CUT = { src: '/chars/sparkle-wave.webp', w: 203, h: 168 };
+
+// 인수인계(components/handover.jsx · 0109) — 게스트 시연이면 처음 여는 브라우저에 시연 명단·업무를 심는다(클라우드는 아무것도 안 한다)
+ensureHandoverDemo();
+// 카드 부품은 늦게 싣는다 — 넘기는 사람·인수자에게만 서는 카드라 첫 번들에 얹지 않는다(첫 페인트 뒤에 줄을 한 번 읽는다)
+const HandoverHomeCards = React.lazy(() => import('../components/handover.jsx').then(m => ({ default: m.HandoverHomeCards })));
 
 // 히어로 컷은 **번들이 읽히는 순간** 받기 시작한다. 홈은 첫 화면이라 이 그림이 가장
 // 먼저 보여야 하는데, 리액트가 트리를 다 그린 뒤에야 <img>가 생겨서 그만큼 늦었다.
@@ -1015,6 +1021,9 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
           2026-09-06 · 430pt에서 카드 406→416px). `grid-cols-1`은 `minmax(0,1fr)`이라
           트랙 최소가 0이 된다. md 위는 `md:grid-cols-2`가 이미 같은 일을 하고 있었고,
           그래서 이 증상이 모바일에서만 났다. */}
+      {/* 인수인계 카드(0109 · 게스트는 시연) — 넘기는 사람의 '인계 내용 작성' · 인수자의 '인계받았어요'(적용 뒤 · 확인 전) */}
+      <React.Suspense fallback={null}><HandoverHomeCards onTaskClick={onTaskClick} /></React.Suspense>
+
       {slots.length ? (
         <div className="home-cards grid grid-cols-1 gap-3 md:gap-3.5 md:grid-cols-2">
           {/* 자리(key)가 바뀌지 않으므로 스켈레톤 → 내용은 **같은 칸에서** 갈린다.

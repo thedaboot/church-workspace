@@ -17,9 +17,10 @@ import { trashedIds, goneCard, purgeTrash } from './_trash.js';
 //         `?job` 하나로 갈린다 — 크론 자리가 **두 개까지**라(Vercel Hobby) 배치가 늘 때마다
 //         라우트를 새로 파지 않고 이 입구를 나눠 쓴다.
 //           (없음)          오늘·내일 마감인데 완료가 아닌 카드의 담당자에게 due_soon
+//                           → 휴지통 30일 정리(0104 · api/_trash.js purgeTrash — 던지지 않는다)
+//                           → 인수인계 적용(0109 · apply_handovers — 1월 1일 아침에 처음 돈다 · 적용 안 된 올해까지의 줄만 · 멱등)
 //                           → 그 **뒤에** 업무·댓글·첨부 임베딩 증분(doc_vec · 0074 · 시간 예산 안에서만)
 //                           → 위키(0088) → 다붓이가 모르는 질문이 있으면 마스터에게 푸시 한 통(notifyMasterUnknown)
-//                           → 그 앞에 휴지통 30일 정리(0104 · api/_trash.js purgeTrash — 마감 알림 바로 뒤 · 던지지 않는다)
 //           job=worship     오늘(KST) 발행된 주보가 있으면 승인 멤버 전원에게 worship_today
 //                           → 이어서 내일(KST) 동아리 모임이 있으면 그 구성원에게 meeting_tomorrow(0078)
 //           job=embed       임베딩 증분만(손으로 부르는 길 · 크론에는 없다 — 자리가 둘뿐이다)
@@ -572,9 +573,10 @@ async function handleDueSoonThenEmbed(req, res, started) {
   // 크론 비밀이 틀리거나 없으면 거기서 끝이다(임베딩도 같은 비밀 뒤에 있다)
   if (held.code === 401 || held.code === 501) { res.status(held.code).json(held.body); return; }
   const trash = await runTrashPurge();
+  const handover = await runHandover();
   const embed = await runEmbedSync(embedBudget(started));
   const wiki = await runWiki(started);
-  res.status(held.code).json({ ...(held.body || {}), trash, embed, wiki });
+  res.status(held.code).json({ ...(held.body || {}), trash, handover, embed, wiki });
 }
 
 // 휴지통 30일 정리(0104) — 임베딩·위키보다 **앞에** 둔다(정리된 업무를 다시 임베딩·위키에 싣지 않게 · 몇 초 안에 끝난다).
@@ -582,6 +584,20 @@ async function handleDueSoonThenEmbed(req, res, started) {
 export async function runTrashPurge() {
   try { return await purgeTrash(admin()); } catch (e) {
     console.error('[push] 휴지통 정리 실패:', e);
+    return { error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+// 인수인계 적용(0109 · v5 1묶음 C) — 08:00 KST 크론 갈래의 한 단계(크론 자리가 두 개뿐이라 새 자리를 만들지 않았다).
+// 1월 1일 아침에 그해 줄(넘기는 사람 → 인수자)의 업무 담당자를 바꾸고 기록한다. 그날 실패해도 다음 아침에 다시 돈다(적용한 줄은 건너뛴다).
+// 남은 줄이 없는 364일은 rpc 한 번(빈 결과)이다. **던지지 않는다** — 알림·임베딩 응답은 그대로 간다.
+export async function runHandover(db = admin()) {
+  try {
+    const { data, error } = await db.rpc('apply_handovers');
+    if (error) throw error;
+    return data || { applied: 0, moved: 0 };
+  } catch (e) {
+    console.error('[push] 인수인계 적용 실패:', e);
     return { error: String(e?.message || e).slice(0, 200) };
   }
 }

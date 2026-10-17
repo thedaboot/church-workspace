@@ -763,60 +763,50 @@ import { loadSource, readSplit } from './_load.mjs';
   console.log('PASS  15초 재조회 생략·날짜 열쇠 정리 17가지');
 }
 
-// ── 프로젝트 탭 줄 앞 칸 · 업무 실시간 재접속 따라잡기 · 폰 '프로젝트' 버튼 (2026-09-25) ──
+// ── 프로젝트 탭 줄 내 차례(시안 2026-10-16 · 0108 — 옛 앞 칸을 대신) · 업무 실시간 재접속 따라잡기 · 폰 '프로젝트' 버튼 ──
 {
   const R = await import(new URL('../src/services/tabRank.js', import.meta.url).href);
   const S = await import(new URL('../src/services/realtimeStatus.js', import.meta.url).href);
   const now = Date.parse('2026-09-25T12:00:00Z');
   const ago = (h) => new Date(now - h * 3600000).toISOString();
-  const rows = [
-    // p1: 셋(가장 많음)
-    { projectId: 'p1', actor: 'a', at: ago(1) }, { projectId: 'p1', actor: 'b', at: ago(30) }, { projectId: 'p1', actor: 'c', at: ago(50) },
-    // p2: 둘 · 마지막 2시간 전 / p3: 둘 · 마지막 1시간 전 → p3이 앞
-    { projectId: 'p2', actor: 'a', at: ago(2) }, { projectId: 'p2', actor: 'b', at: ago(5) },
-    { projectId: 'p3', actor: 'a', at: ago(1) }, { projectId: 'p3', actor: 'c', at: ago(9) },
-    // p4: 한 사람이 여러 번 — 사람 수 1이라 앞 칸에 못 든다
-    { projectId: 'p4', actor: 'a', at: ago(1) }, { projectId: 'p4', actor: 'a', at: ago(2) }, { projectId: 'p4', actor: 'a', at: ago(3) },
-    // p5: 둘인데 하나가 8일 전 — 창 밖이라 1명
-    { projectId: 'p5', actor: 'a', at: ago(3) }, { projectId: 'p5', actor: 'b', at: ago(24 * 8) },
-    // 주인·프로젝트 없는 줄은 버린다
-    { projectId: null, actor: 'a', at: ago(1) }, { projectId: 'p1', actor: null, at: ago(1) },
-  ];
-  const st = R.activityStats(rows, now);
-  assert.deepStrictEqual(st.p1, { people: 3, lastAt: now - 3600000 });
-  assert.strictEqual(st.p4.people, 1, '같은 사람은 한 번');
-  assert.strictEqual(st.p5.people, 1, '7일 밖은 세지 않는다');
-  assert.strictEqual(R.FRONT_DAYS, 7); assert.strictEqual(R.FRONT_MAX, 5); assert.strictEqual(R.FRONT_MIN_PEOPLE, 2);
-  const P = (id) => ({ id, title: id });
-  const list = ['p5', 'p4', 'p2', 'p9', 'p3', 'p1'].map(P);   // position 순
-  const sp = R.splitFrontTabs(list, st);
-  assert.deepStrictEqual(sp.front.map(p => p.id), ['p1', 'p3', 'p2'], '사람 수 많은 순 · 같으면 최근 활동이 앞 · 2명 이상만');
-  assert.deepStrictEqual(sp.rest.map(p => p.id), ['p5', 'p4', 'p9'], '나머지는 position 순 그대로 · 앞 칸 것은 빠진다');
-  assert.deepStrictEqual(R.splitFrontTabs(list, null).front, [], '숫자가 없으면(게스트 첫 화면 · 못 읽음) 앞 칸 없음');
-  assert.deepStrictEqual(R.splitFrontTabs(list, {}).rest.map(p => p.id), list.map(p => p.id), '앞 칸 0개 = 지금 순서 그대로');
-  // 다섯까지
-  const many = {}; const mlist = [];
-  for (let i = 0; i < 7; i++) { many['q' + i] = { people: 2 + i, lastAt: i }; mlist.push(P('q' + i)); }
-  const ms = R.splitFrontTabs(mlist, many);
-  assert.deepStrictEqual(ms.front.map(p => p.id), ['q6', 'q5', 'q4', 'q3', 'q2'], '다섯까지');
-  assert.deepStrictEqual(ms.rest.map(p => p.id), ['q0', 'q1']);
-  // 후보는 목록(고른 해·보관 제외) 안에서만 — 목록에 없는 바쁜 프로젝트가 칸을 먹지 않는다
-  assert.deepStrictEqual(R.splitFrontTabs([P('p2'), P('p9')], st).front.map(p => p.id), ['p2']);
-  // 게스트 — 스토어 업무의 activityLog로 같은 줄
+  const P = (id, extra = {}) => ({ id, title: id, ...extra });
+  const ids = (l) => l.map(p => p.id);
+  const list = ['p5', 'p4', 'p2', 'p9', 'p3', 'p1'].map(id => P(id));   // position 순(모두의 순서)
+  // 끈 적이 없으면 모두의 순서 그대로
+  assert.deepStrictEqual(ids(R.applyTabOrder(list, [])), ids(list), '내 차례가 없으면 position 순');
+  assert.deepStrictEqual(ids(R.applyTabOrder(list, null)), ids(list), '차례가 없어도 던지지 않는다');
+  // 내 차례 그대로 · 내 차례에 없는 것(그 뒤에 새로 생긴 것)은 맨 뒤에 position 순
+  // **되돌리기**: applyTabOrder가 자리 없는 것을 앞에 붙이면(...src.filter 먼저) 둘째 줄이 깨진다.
+  assert.deepStrictEqual(ids(R.applyTabOrder(list, ['p1', 'p3', 'p9', 'p2', 'p4', 'p5'])), ['p1', 'p3', 'p9', 'p2', 'p4', 'p5'], '내 차례 그대로');
+  assert.deepStrictEqual(ids(R.applyTabOrder(list, ['p1', 'p3'])), ['p1', 'p3', 'p5', 'p4', 'p2', 'p9'], '아직 자리 없는 것은 맨 뒤에 position 순');
+  // 후보는 지금 줄 안에서만 — 다른 해·보관·안 보이는(리더만)·지운 프로젝트의 id는 끼지 않는다 · 같은 id는 한 번
+  assert.deepStrictEqual(ids(R.applyTabOrder([P('p2'), P('p9')], ['hidden', 'p9', 'p9', 'p2'])), ['p9', 'p2'], '지금 줄 안에서만 · 같은 id는 한 번');
+  // 끌기 — 내 차례 전체(다른 해 것까지)를 세운 뒤 옮긴다 · 뒤로 끌면 놓은 것 뒤(12-a)
+  const all = [P('a'), P('b'), P('c'), P('x')];          // x는 다른 해
+  assert.deepStrictEqual(R.moveInTabOrder(all, [], 'a', 'c'), ['b', 'c', 'a', 'x'], '처음 끌면 모두의 순서에서 시작 · 뒤로 끌면 놓은 것 뒤');
+  assert.deepStrictEqual(R.moveInTabOrder(all, ['x', 'c', 'b', 'a'], 'a', 'b'), ['x', 'c', 'a', 'b'], '앞으로 끌면 놓은 것 앞 · 다른 해 것의 자리는 그대로');
+  assert.deepStrictEqual(R.moveInTabOrder([...all, P('n')], ['c', 'b', 'a', 'x'], 'n', 'c'), ['n', 'c', 'b', 'a', 'x'], '자리 없던 새 프로젝트도 끌면 자리를 얻는다');
+  assert.strictEqual(R.moveInTabOrder(all, [], 'a', 'a'), null, '제자리는 null');
+  assert.strictEqual(R.moveInTabOrder(all, [], 'a', 'gone'), null, '없는 탭은 null');
+  assert.strictEqual(R.FRONT_DAYS, 7, '탭 점이 읽는 활동 창은 7일');
+  assert.strictEqual(R.activityStats, undefined, '옛 앞 칸 셈(activityStats)은 지웠다');
+  assert.strictEqual(R.splitFrontTabs, undefined, '옛 앞 칸 고르기(splitFrontTabs)는 지웠다');
+  // 게스트 — 스토어 업무의 activityLog로 탭 점·작년 이맘때가 보는 줄
   const gt = { allIds: ['t1', 't2', 't3'], byId: {
     t1: { projectId: 'g1', activityLog: [{ author: '가', timestamp: ago(1) }, { author: '나', timestamp: ago(2) }] },
     t2: { projectId: 'g1', activityLog: [{ author: '가', timestamp: ago(3) }] },
     t3: { projectId: null, activityLog: [{ author: '다', timestamp: ago(1) }] } } };
   const gr = R.guestActivityRows(gt);
   assert.strictEqual(gr.length, 3, '프로젝트 없는 업무는 버린다');
-  assert.deepStrictEqual(R.activityStats(gr, now).g1, { people: 2, lastAt: now - 3600000 });
+  assert.deepStrictEqual(gr[0], { projectId: 'g1', actor: '가', at: ago(1) });
   // 폰 '프로젝트' 버튼이 열 곳
   const yr = (p) => p.year;
   const act = [{ id: 'old1', year: '2026' }, { id: 'n1', year: '2027' }, { id: 'n2', year: '2027' }];
-  const all = [...act, { id: 'arch', year: '2027', archived: true }];
-  const pick = (o) => R.pickProjectToOpen({ active: act, all, yearOf: yr, stats: null, lastId: null, ...o });
+  const allP = [...act, { id: 'arch', year: '2027', archived: true }];
+  const pick = (o) => R.pickProjectToOpen({ active: act, all: allP, yearOf: yr, order: [], lastId: null, ...o });
   assert.strictEqual(pick({ year: '2027' }), 'n1', '고른 해의 첫 것 — position 첫 것(작년)이 아니다');
-  assert.strictEqual(pick({ year: '2027', stats: { n2: { people: 2, lastAt: 1 } } }), 'n2', '앞 칸이 있으면 그것이 첫 것');
+  assert.strictEqual(pick({ year: '2027', order: ['n2', 'n1'] }), 'n2', '내 차례가 있으면 그 첫 것');
+  assert.strictEqual(pick({ year: '2027', order: ['old1'] }), 'n1', '다른 해의 차례는 이 해의 첫 것을 못 먹는다');
   assert.strictEqual(pick({ year: '2027', lastId: 'n2' }), 'n2', '마지막으로 본 것이 고른 해에 있으면 그것');
   assert.strictEqual(pick({ year: '2027', lastId: 'old1' }), 'n1', '마지막으로 본 것이 다른 해면 고른 해의 첫 것');
   assert.strictEqual(pick({ year: '2027', lastId: 'gone' }), 'n1', '지워진 것은 건너뛴다');
@@ -825,9 +815,7 @@ import { loadSource, readSplit } from './_load.mjs';
   // 리더만 보는 프로젝트(0092) — 리더가 아니면 그 프로젝트는 스토어에 없다(RLS). 마지막으로 본 것·활동 숫자에 그 id가
   // 남아 있어도(리더였다가 내려왔다 · 다른 기기 · 숫자를 잰 뒤에 바뀌었다) 그냥 건너뛴다 — 없는 프로젝트와 같은 길.
   assert.strictEqual(pick({ year: '2027', lastId: 'hidden' }), 'n1', '안 보이는 프로젝트를 마지막으로 봤어도 고른 해의 첫 것');
-  assert.strictEqual(pick({ year: '2027', stats: { hidden: { people: 9, lastAt: 9 } } }), 'n1', '안 보이는 프로젝트의 활동 숫자는 앞 칸을 못 먹는다');
-  assert.deepStrictEqual(R.splitFrontTabs([P('p1'), P('p2')], { hidden: { people: 5, lastAt: 5 }, p2: { people: 2, lastAt: 1 } }).front.map(p => p.id), ['p2'],
-    '앞 칸 후보는 지금 탭 줄 안에서만');
+  assert.strictEqual(pick({ year: '2027', order: ['hidden'] }), 'n1', '안 보이는 프로젝트의 차례는 첫 것을 못 먹는다');
   // '공개 → 리더만'은 리더가 아닌 사람에게 postgres_changes로 오지 않는다 → 바꾼 리더가 공개 채널에 id를 알리고, 받은 쪽은
   // projects 변경처럼 전체 재조회(다시 읽으면 RLS가 걷는다). **되돌리기**: notify.js의 broadcast 줄이나 cloudSync의
   // announceProjectVisibility 부르기를 빼면 아래가 깨진다.
@@ -860,12 +848,22 @@ import { loadSource, readSplit } from './_load.mjs';
   // 기기가 다시 연결되면(online) 같은 길로 한 번(2026-10-15 · PITFALLS 55-c) — 되돌리기: online 줄을 지우면 깨진다
   assert.ok(/window\.addEventListener\('online', refetchAll\);/.test(appSrc) && /window\.removeEventListener\('online', refetchAll\)/.test(appSrc), 'online도 재접속과 같은 재조회');
   const calls = appSrc.match(/refreshTabFront\(/g) || [];
-  assert.strictEqual(calls.length, 2, '앞 칸 숫자는 첫 로드 뒤 한 번 + 보일 때 한 번 — 실시간 경로에서 부르지 않는다');
+  assert.strictEqual(calls.length, 2, '탭 점의 활동 줄은 첫 로드 뒤 한 번 + 보일 때 한 번 — 실시간 경로에서 부르지 않는다');
   assert.ok(/if \(!document\.hidden\) refreshTabFront\(cloudMode\)/.test(appSrc), '다시 보일 때만');
-  assert.ok(/draggable=\{!frontIds\.has\(p\.id\)\}/.test(laySrc2), '데스크톱 앞 칸 탭은 끌 수 없다');
-  assert.ok(/const locked = archived \|\| front;/.test(mobSrc), '폰 앞 칸 탭도 끌기·놓기가 막힌다');
-  assert.ok(/reorderIds\(posSource\.map\(p => p\.id\), dragTabId, targetId\)/.test(laySrc2), '번호는 position 순 전체로 매긴다');
-  console.log('PASS  탭 줄 앞 칸(tabRank — 사람 수·최근·2명 이상·다섯·게스트 줄) · 폰 프로젝트 버튼 · 업무 채널 재접속 따라잡기');
+  assert.ok(/draggable=\{!p\.archived\}/.test(laySrc2), '데스크톱은 어느 탭이든 끈다(보관된 것만 빼고)');
+  assert.ok(/const locked = archived;/.test(mobSrc), '폰도 보관된 탭만 막는다');
+  assert.ok(/moveTab\(tabOrder, dragTabId, targetId\)/.test(laySrc2) && /moveTab\(tabOrder, String\(active\.id\), targetId\)/.test(mobSrc),
+    '끌기는 내 차례로 매긴다(데스크톱·폰 한 길)');
+  assert.ok(!/saveTabOrder/.test(laySrc2 + mobSrc), '탭 끌기가 모두의 position을 고치지 않는다');
+  // 클라우드 저장 자리(0108 profiles.tab_order · 본인 행) — 겉(useTabOrder·setTabOrder)은 그대로, 안만 계정 행으로.
+  // 되돌리기: tabOrder.js의 update 줄을 지우거나 cloudSync의 primeTabOrder 부르기를 빼면 깨진다.
+  const toSrc = readFileSync(new URL('../src/services/tabOrder.js', import.meta.url), 'utf8');
+  const csSrc = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  assert.ok(/from\('profiles'\)\.update\(\{ tab_order: next \}\)\.eq\('id', uid\)/.test(toSrc) && /if \(supabase\) saveCloud\(next\);/.test(toSrc), '끌면 내 계정 행에 저장한다(myUid — 합친 계정은 남긴 계정)');
+  assert.ok(/primeTabOrder\(shownProfile\?\.tab_order\);/.test(csSrc) && /if \(!Array\.isArray\(fromProfile\)\) return;/.test(toSrc), '열 때 내 행의 차례를 받는다 · 칸이 없으면(0108 전) 브라우저 값 그대로');
+  const m8 = readFileSync(new URL('../supabase/migrations/0108_tab_order.sql', import.meta.url), 'utf8');
+  assert.ok(/not \(new\.id = any \(array\[auth\.uid\(\), public\.effective_uid\(\)\]\)\)/.test(m8) && /errcode = '42501'/.test(m8), '남의 tab_order는 DB가 거절한다');
+  console.log('PASS  탭 줄 내 차례(tabRank — 끈 적 없으면 position·새 것은 맨 뒤·전체로 끌기·지금 줄 안에서만) · 폰 프로젝트 버튼 · 업무 채널 재접속 따라잡기');
 }
 
 

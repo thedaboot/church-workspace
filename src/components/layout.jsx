@@ -3,7 +3,7 @@ import { ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Pencil, Users }
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectMyTasks, selectMembers } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
-import { reorderIds, viewersOf } from '../utils.js';
+import { viewersOf } from '../utils.js';
 import { usePresenceViews, presenceMe } from '../services/presence.js';
 import { userColor } from '../services/coedit/view.js';
 import { isOpen } from '../services/taskCounts.js';
@@ -14,8 +14,8 @@ import { CONFIG } from '../config.js';
 // 바깥 클릭 / Esc 로 닫히는 팝오버(프로필 메뉴·프로젝트 더보기·연도·알림) 껍데기 한 벌
 import { usePopover } from '../hooks/usePopover.js';
 import {
-  splitProjectTabs, TAB_DIVIDER, tabDividerCls, FreshDot, useFreshProjects, nudgeSeen, finePointer,
-  useFrontNudge, FrontNudge, useTabFit, saveTabOrder, useYearTabs, YearPicker, YearFolders,
+  splitProjectTabs, FreshDot, useFreshProjects,
+  useTabFit, moveTab, useYearTabs, YearPicker, YearFolders,
 } from './navParts.jsx';
 import { SearchBox } from './searchBox.jsx';
 import { TabLock } from './leaderOnly.jsx';
@@ -39,7 +39,7 @@ export { SearchHint } from './searchBox.jsx';
 //
 // 이 파일이 맡는 것: 데스크톱 상단 TopNav · 프로필 메뉴(ProfileMenu — 폰 상단바도 쓴다) · 보고 있는 사람 얼굴
 // (ViewerFaces — 보드 카드도 쓴다) · 교회 축 목록(CHURCH_MENUS). 나머지는 갈라 두었다(19차 묶음 D):
-//   navParts.jsx          탭 줄 공용(고른 해의 탭 · 연도 · 더보기 폴더 · 폭 재기 · 순서 저장 · 앞 칸 넛지 · 점)
+//   navParts.jsx          탭 줄 공용(고른 해의 탭 · 연도 · 더보기 폴더 · 폭 재기 · 내 탭 차례 · 점)
 //   trash.jsx             휴지통(0104 · 입구는 더보기 맨 아래 · 창)
 //   mobileNav.jsx         폰 상단바 · 프로젝트 탭 줄(길게 눌러 끌기) · 하단 바 두 층 · 화면 이름
 //   searchBox.jsx         통합 검색(인라인 · 폰 전체 판) · 돌아가는 안내 문구 · 관련된 업무 내용
@@ -176,13 +176,13 @@ export const TopNav = React.memo(({
   // (활성 프로젝트가 보관돼 있으면 splitProjectTabs가 탭에 끌어올려 준다 — 지금 어디
   //  있는지 알 수 없게 되면 안 되므로 보관된 것을 열어 둔 경우도 탭에 보인다)
   // 연도 고르기 — 고른 해의 프로젝트만 탭에. 지금 보고 있는 것은 해가 달라도, 보관됐어도 남긴다.
-  // 앞 칸 · 끌어올리기 · 그 해 보관함 계산은 폰 상단바와 한 벌이다(navParts.useYearTabs 머리말).
+  // 내 탭 차례 · 끌어올리기 · 그 해 보관함 계산은 폰 상단바와 한 벌이다(navParts.useYearTabs 머리말).
   // 더보기에는 **고른 해의 것만** 들어간다 — 보관된 프로젝트도 그 해 것만
   // (사용자 결정 2026-09-01, 2026-08-24의 "모든 해" 결정을 대체). 다른 해는
   // 연도 버튼으로 바꿔 보고, 검색·알림으로 열면 useTabYear가 그 해로 따라간다.
   const {
     allProjects, project: activeProject, year, setYear, years, yearCounts,
-    posSource, tabSource, front, frontIds, frontStats, archivedForYear: archivedForMore,
+    tabSource, tabOrder, archivedForYear: archivedForMore,
   } = useYearTabs(activeMenu);
   const myTasksCount = useStore(selectMyTasks).filter(isOpen).length;
   // 몇 개까지 탭으로 보일지는 화면 폭이 정한다(useTabFit). 보관함이 있으면 탭이 다
@@ -191,32 +191,11 @@ export const TopNav = React.memo(({
   const measureRef = useRef(null);
   const trashCount = useTrashItems().length;
   const [trashOpen, setTrashOpen] = useState(false);
-  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0 || trashCount > 0, front.length > 0);
+  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0 || trashCount > 0);
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
   // 더보기 맨 아래가 휴지통 입구다(trash.jsx) — 휴지통에 무언가 있으면 탭이 다 들어가도 더보기가 선다
   const showMore = rest.length > 0 || archivedForMore.length > 0 || trashCount > 0;
-  // 세로선은 **마지막 앞 칸 탭 바로 뒤**에 한 번 — 뒤에 무언가(뒤쪽 탭이나 더보기)가 설 때만.
-  // 폭이 좁아 지금 보는 탭이 마지막 칸에 끌어올려지면(splitProjectTabs) 그 탭이 '뒤'라 선이 그 앞에 선다.
-  const lastFrontIdx = shown.reduce((k, p, i) => (frontIds.has(p.id) ? i : k), -1);
-  const dividerAfter = lastFrontIdx >= 0 && (lastFrontIdx < shown.length - 1 || showMore) ? lastFrontIdx : -1;
   const freshIds = useFreshProjects(activeMenu, !!activeProject);
-  // 앞 칸 넛지 — 앞 칸 탭을 누른 채 6px 넘게 움직이면 '끌려는 것'으로 본다(앞 칸 탭은 draggable이 아니라
-  // dragstart가 오지 않는다). 마우스만 — 터치 기기의 데스크톱 폭은 폰 줄(길게 누르기)과 같은 일을 하지 않는다.
-  const [nudge, showNudge] = useFrontNudge();
-  const press = useRef(null);
-  const peopleOf = (pid) => frontStats?.[pid]?.people || 0;
-  const frontProps = (p) => (!frontIds.has(p.id) ? {} : {
-    onMouseEnter: (e) => { if (finePointer() && !nudgeSeen()) showNudge(e.currentTarget, 'front', peopleOf(p.id)); },
-    onPointerDown: (e) => { if (e.pointerType === 'mouse' && e.button === 0) press.current = { x: e.clientX, y: e.clientY }; },
-    onPointerMove: (e) => {
-      const s = press.current;
-      if (!s || Math.hypot(e.clientX - s.x, e.clientY - s.y) < 6) return;
-      press.current = null;
-      showNudge(e.currentTarget, 'front', peopleOf(p.id));
-    },
-    onPointerUp: () => { press.current = null; },
-    onPointerLeave: () => { press.current = null; },
-  });
   // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(홈·예배·말씀·모임)에서는 접힌다
   const showProjectRow = !CHURCH_MENUS.includes(activeMenu) && activeMenu !== 'wiki';
   const more = usePopover(224, 260);
@@ -225,18 +204,13 @@ export const TopNav = React.memo(({
   // 46px로 눌린 찾기 칸이 메뉴 위를 덮던 자리다(PITFALLS 51-a). 1024부터는 지금 그대로.
   const narrow = useIsNarrowDesk();
 
-  // 탭 드래그로 순서 바꾸기(0021) — 네이티브 HTML5 DnD. dnd-kit sortable을 새로
-  // 들이지 않는 이유: 데스크톱 탭 한 줄에는 draggable 속성이면 충분하다.
-  // 모바일은 가로 스크롤과 부딪히지 않게 **길게 눌러** 시작한다(MobileTopBar) —
-  // 끼워 넣는 규칙(utils.reorderIds)과 저장(saveTabOrder)은 양쪽이 같은 것을 쓴다.
+  // 탭 드래그로 **내 탭 차례**를 바꾼다(시안 2026-10-16 · navParts.moveTab) — 네이티브 HTML5 DnD. 어느 탭이든 끈다.
+  // 모두의 position은 바뀌지 않는다(옛 0021 끌기는 그것을 고쳤다). 보관된 탭(끌어올린 지금 프로젝트)은 차례에 끼지 않는다.
+  // 모바일은 가로 스크롤과 부딪히지 않게 **길게 눌러** 시작한다(MobileTopBar) — 끼워 넣기·저장은 같은 moveTab.
   const [dragTabId, setDragTabId] = useState(null);
-  // 앞 칸 탭은 끌 수도, 놓을 자리도 될 수 없다 — 그 자리는 활동이 정하지 position이 아니다.
-  // 번호는 **position 순 전체**(posSource)로 매긴다: 앞 칸 것도 그 안의 제자리를 지켜야, 앞 칸에서
-  // 내려올 때 원래 자리로 돌아간다(앞 칸을 빼고 다시 매기면 엉뚱한 자리에 선다).
   const dropTab = (targetId) => {
-    if (!dragTabId || dragTabId === targetId || frontIds.has(dragTabId) || frontIds.has(targetId)) return;
-    const next = reorderIds(posSource.map(p => p.id), dragTabId, targetId);
-    if (next) saveTabOrder(next, allProjects, cloudMode);
+    if (!dragTabId || dragTabId === targetId) return;
+    moveTab(tabOrder, dragTabId, targetId);
   };
 
   // 교회 생활(홈·예배·말씀·모임) | 업무(대시보드·내 업무·일정) — 두 축을 구분선으로 가른다
@@ -312,23 +286,15 @@ export const TopNav = React.memo(({
               **맨 뒤**에 둔다: 앞에 끼우면 useTabFit의 kids 인덱스가 통째로 밀려
               탭 폭이 엉뚱하게 잡힌다(800px에서 8개가 다 들어간다고 나왔다). */}
           <span className="shrink-0 inline-flex items-center gap-1 pr-1.5 pt-2.5 pb-2 text-[13px] font-semibold tabular-nums">{year} <ChevronDown size={13} /></span>
-          {/* 앞 칸 세로선 — 연도 **뒤**에 둔다(kids 인덱스를 밀지 않게) */}
-          <span className={TAB_DIVIDER} />
         </div>
         <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} />
-        {shown.map((p, i) => (
+        {shown.map((p) => (
           <React.Fragment key={p.id}>
           <button
             onClick={() => setActiveMenu(p.id)}
-            data-front={frontIds.has(p.id) ? '' : undefined}
-            draggable={!frontIds.has(p.id)}
+            draggable={!p.archived}
             onDragStart={() => setDragTabId(p.id)}
-            onDragOver={(e) => {
-              if (!frontIds.has(p.id)) { e.preventDefault(); return; }
-              // 뒤쪽 탭을 앞 칸 위로 가져왔다 — 놓을 자리가 아니라고 말해 준다
-              if (dragTabId && !frontIds.has(dragTabId)) showNudge(e.currentTarget, 'back');
-            }}
-            {...frontProps(p)}
+            onDragOver={(e) => { if (!p.archived && dragTabId) e.preventDefault(); }}
             onDrop={(e) => { e.preventDefault(); dropTab(p.id); }}
             onDragEnd={() => setDragTabId(null)}
             // truncate(overflow-hidden)를 버튼에 직접 주면 **경계에 걸친 얼굴이 잘린다**
@@ -352,10 +318,8 @@ export const TopNav = React.memo(({
                 z-[1]: 뒤 형제 탭이 나중에 그려져 걸친 부분을 덮는 것을 막는다. */}
             <ViewerFaces projectId={p.id} className="absolute top-1 -right-1 z-[1]" />
           </button>
-          {i === dividerAfter && <span aria-hidden data-tab-divider className={tabDividerCls(!!nudge)} />}
           </React.Fragment>
         ))}
-        <FrontNudge nudge={nudge} />
         {showMore && (
           <span ref={more.rootRef} className="inline-flex">
             <span ref={more.btnRef} className="inline-flex">

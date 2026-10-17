@@ -22,15 +22,22 @@ export const byName = (a, b) =>
   String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
 
 // 명단 전체. removed_at이 있는 사람은 기본으로 뺀다(내용은 남기고 목록에서만).
-export async function fetchPeople({ includeRemoved = false } = {}) {
+// withBirthYear — 태어난 연도(0107 · 졸업 표시)까지. 칸이 아직 없으면(마이그레이션 전 · 42703) 그 칸 없이 한 번 더 읽는다(§3-4).
+const PEOPLE_COLS = 'id, name, birthday, teams, gender, is_pastor, sun_exempt, profile_id, note, removed_at';
+export async function fetchPeople({ includeRemoved = false, withBirthYear = false } = {}) {
   if (!supabase) return [];
-  let q = supabase.from('people')
-    // gender는 호칭('형제'·'자매')이 보는 칸이다(0064) — **여기서 빠지면 화면이 조용히
-    // 전부 '청년'으로 남는다**(honorific의 null 갈래로 떨어진다).
-    .select('id, name, birthday, teams, gender, is_pastor, sun_exempt, profile_id, note, removed_at, profiles:profile_id(display_name)')
-    .order('name');
-  if (!includeRemoved) q = q.is('removed_at', null);
-  const data = unwrap(await q);
+  const run = (extra) => {
+    let q = supabase.from('people')
+      // gender는 호칭('형제'·'자매')이 보는 칸이다(0064) — **여기서 빠지면 화면이 조용히
+      // 전부 '청년'으로 남는다**(honorific의 null 갈래로 떨어진다).
+      .select(`${PEOPLE_COLS}${extra}, profiles:profile_id(display_name)`)
+      .order('name');
+    if (!includeRemoved) q = q.is('removed_at', null);
+    return q;
+  };
+  let res = await run(withBirthYear ? ', birth_year' : '');
+  if (withBirthYear && res.error?.code === '42703') res = await run('');
+  const data = unwrap(res);
   return (data ?? []).map(withDisplayName);
 }
 
@@ -50,8 +57,9 @@ export { HONORIFIC, honorific, honorificsOf } from './honorific.js';
 // 올해(또는 지정 연도) 직분 — [{ person_id, year, role }]
 export async function fetchRoles(year) {
   if (!supabase) return [];
+  // '*' — 팀장의 팀(team · 0107)이 따라온다. 마이그레이션 전에도 깨지지 않는다(칸이 없으면 안 올 뿐 · §3-4)
   return unwrap(await supabase.from('people_roles')
-    .select('person_id, year, role').eq('year', year)) ?? [];
+    .select('*').eq('year', year)) ?? [];
 }
 
 // 모임 목록. type: 'sun' | 'club'. 순은 연도를 함께 거른다.

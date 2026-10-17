@@ -25,7 +25,7 @@
 // 여기서 부를 수 없다 — 바꾸면 둘 다 고친다). '회장'은 role_note 쪽 글자(청년부 회장)를 따른다.
 export const ROLE_TITLE = {
   director: '부장', president: '청년부 회장', treasurer: '총무',
-  lead_sunjang: '리더순장', lead_team: '리더팀장',
+  lead_sunjang: '리더순장', lead_team: '리더팀장', worship_lead: '예배팀장',
 };
 export const PASTOR_TITLE = '전도사';
 // 직함이 없는 가입자를 부르는 말 — HANDOFF §8: AI 문구는 '청년' 그대로다(2026-09-14)
@@ -61,6 +61,22 @@ export function splitRoleNote(note) {
     for (const m of seg.matchAll(/\(([^)]*)\)/g)) titles.push(asTitle(m[1]));
   }
   return { titles: uniq(titles), notes };
+}
+
+// ── 팀장의 원본은 people_roles다(0107 · 사용자 결정 2026-10-17) ─────────────────
+// 그해 팀장 줄(team_lead)이 **하나라도 있으면** role_note의 'OO팀장' 낱말(OO팀 = leadTeams — config의 '…팀')은 무시하고
+// 그 사람의 팀장 줄(team)이 '{팀}장'으로 맨 앞에 선다. 팀장 줄이 하나도 없는 해에는 role_note 그대로(옛 방식).
+// 팀장 아닌 직함(예배팀장 · 리더팀장 · 순장 · 총무 …)과 맡은 일은 role_note 그대로 남는다.
+// 사람 줄을 만드는 자리(cloudSync 가입자 · api/_wikiAsk loadRoster)가 role을 이걸로 한 번 고쳐 두면, 그 아래
+// titlesOf·pickTitle·위키 팀 몫(wikiLive.teamPart)·다붓이 사람 줄이 모두 새 칸을 본다.
+export function withTeamLead(note, { team = null, yearHasLeads = false, leadTeams = [] } = {}) {
+  if (!yearHasLeads) return String(note || '');
+  const isLeadWord = (seg) => {
+    const w = seg.replace(/\([^)]*\)/g, '').trim().replace(/님$/, '').replace(/\s+/g, '');
+    return leadTeams.some(t => w === `${t}장`);
+  };
+  const rest = String(note || '').split(/\s*[·,/]\s*/).map(x => x.trim()).filter(x => x && !isLeadWord(x));
+  return [team ? `${team}장` : '', ...rest].filter(Boolean).join(' · ');
 }
 
 // 이 사람의 직함들 — **role_note가 먼저**, 비었을 때만 명단(교역자·연도 직분)이 채운다.

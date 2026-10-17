@@ -621,7 +621,8 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.strictEqual(nameOf('아직'), '아직 청년');
 
   // ④ 배선 — 함수가 맞아도 화면이 안 부르면 그대로다
-  assert.ok(/gender/.test(/\.select\('id, name[^']*'\)/.exec(src('../src/services/people.js'))?.[0] || ''),
+  // 칸 목록은 PEOPLE_COLS 한 줄이다(0107 — 태어난 연도를 덧붙이고 칸이 없으면 빼고 다시 읽는다)
+  assert.ok(/gender/.test(/const PEOPLE_COLS = 'id, name[^']*'/.exec(src('../src/services/people.js'))?.[0] || ''),
     'fetchPeople의 select에 gender가 있다 — 빠지면 화면이 조용히 전부 청년이 된다');
   assert.ok(/label=\{homeWorshipLabel\(church\.service\.service_date, day\)\}/.test(home),
     '홈 예배 카드의 머리 글자는 주보 날짜가 정한다');
@@ -1488,4 +1489,149 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.ok(/if \(navigator\.onLine === false\) \{[\s\S]{0,200}addEventListener\('online', \(\) => location\.reload\(\), \{ once: true \}\);[\s\S]{0,40}return;/.test(pre)
     && pre.indexOf('navigator.onLine === false') < pre.indexOf('sessionStorage'), '오프라인이면 online을 기다렸다 새로 고친다');
   console.log('PASS  예배·말씀·모임·청년 명단은 늦게 싣는다 · 옛 조각은 한 번 새로 고침');
+}
+
+// ── 인수인계(시안 2026-10-16 · 실제 붙이기 v5 1묶음 C · 0107~0110) — 졸업 나이 · 직분 짝 · 리더팀장·예배팀장 숨김 · 업무 넘기기 (services/handover.js) ──
+// 졸업은 1월 1일 한국 나이 31세(해 − 태어난 해 + 1 · 2027 = 1997년생). 직분 짝은 자리(값 · 팀장은 팀까지)로 맞춘다.
+// 되돌리기: koreanAge의 `+ 1`을 지우면 1996년생이 2027 졸업으로 잡혀 깨지고, slotOf에서 팀을 빼면
+// 찬양팀장이 워십팀장과 짝지어져 깨지고, rolesOffered의 연도 조건을 지우면 2027에 리더팀장이 다시 서서 깨진다.
+{
+  const H = await loadSource('src/services/handover.js');
+  assert.strictEqual(H.koreanAge(1997, 2027), 31, '1997년생은 2027년에 한국 나이 31세');
+  assert.ok(H.isGraduateYear(1997, 2027) && !H.isGraduateYear(1996, 2027) && !H.isGraduateYear(1998, 2027), '2027 졸업은 1997년생만');
+  assert.strictEqual(H.koreanAge(null, 2027), null, '태어난 해가 없으면 나이를 모른다');
+  const people = [
+    { id: 'a', name: '문서연', birth_year: 1997 }, { id: 'b', name: '강도윤', birth_year: 1997 },
+    { id: 'c', name: '이서준', birth_year: 1996 }, { id: 'd', name: '환송', birth_year: 1997, removed_at: '2026-01-01' },
+    { id: 'e', name: '모름' },
+  ];
+  assert.deepStrictEqual(H.graduatesOf(people, 2027).map(p => p.id), ['b', 'a'], '졸업 목록 — 환송·태어난 해 없는 사람 제외 · 이름순');
+
+  const old = [
+    { person_id: 'yde', role: 'president' }, { person_id: 'msy', role: 'treasurer' }, { person_id: 'bhw', role: 'lead_team' },
+    { person_id: 'njs', role: 'team_lead', team: '찬양팀' }, { person_id: 'cyn', role: 'team_lead', team: '워십팀' },
+    { person_id: 'hjm', role: 'team_lead', team: '미디어팀' },
+  ];
+  const nu = [
+    { person_id: 'jmk', role: 'president' }, { person_id: 'jhr', role: 'treasurer' },
+    { person_id: 'njs', role: 'team_lead', team: '찬양팀' }, { person_id: 'lhb', role: 'team_lead', team: '워십팀' },
+    { person_id: 'pjh', role: 'team_lead', team: '기획팀' },
+  ];
+  const pairs = H.pairRoles(old, nu);
+  const at = (slot) => pairs.find(p => p.slot === slot);
+  assert.ok(at('treasurer').from === 'msy' && at('treasurer').to === 'jhr' && at('treasurer').kind === 'pass', '총무 → 총무');
+  assert.strictEqual(at('team_lead:찬양팀').kind, 'same', '같은 사람이 이어 맡으면 그대로');
+  assert.ok(at('team_lead:워십팀').to === 'lhb' && at('team_lead:워십팀').kind === 'pass', '팀장은 같은 팀끼리');
+  assert.strictEqual(at('team_lead:미디어팀').kind, 'open', '받는 팀장이 없으면 미정');
+  assert.ok(at('lead_team').kind === 'open', '2027에 리더팀장이 없으면 미정');
+  assert.ok(at('team_lead:기획팀').from === null && at('team_lead:기획팀').kind === 'new', '새 해에만 있는 자리는 새로 맡음');
+  assert.deepStrictEqual(pairs.map(p => p.slot).slice(0, 3), ['president', 'treasurer', 'lead_team'], '자리 순서는 칩 묶음 순서');
+  const fixed = H.pairRoles(old, nu, { 'team_lead:미디어팀<hjm': 'pjh', 'president<yde': null });
+  assert.ok(fixed.find(p => p.slot === 'team_lead:미디어팀').to === 'pjh' && fixed.find(p => p.slot === 'president').kind === 'open', '마스터가 짝을 고친다');
+
+  assert.ok(!H.rolesOffered(2027).flat().includes('lead_team') && H.rolesOffered(2026).flat().includes('lead_team'), '리더팀장은 2026까지만 고른다');
+  assert.ok(H.rolesOffered(2027, new Set(['lead_team'])).flat().includes('lead_team'), '그 해 이미 가진 사람에게는 칩이 남는다');
+  assert.deepStrictEqual(H.rolesOffered(2026).map(g => g.length), [1, 1, 4, 2, 1], '묶음 다섯 — 교역자 | 부장 | 임원 | 팀장·예배팀장 | 비전 메이커');
+  // 예배팀장(0107 · 사용자 결정 2026-10-17) — 리더팀장과 같은 자리(LAST_OFFERED_YEAR 한 표)에서 2027부터 빠진다 · 가진 사람에게는 남는다.
+  // 되돌리기: LAST_OFFERED_YEAR에서 worship_lead 줄을 빼면 첫 단정이 깨진다.
+  assert.ok(!H.rolesOffered(2027).flat().includes('worship_lead') && H.rolesOffered(2026).flat().includes('worship_lead'), '예배팀장은 2026까지만 고른다');
+  assert.ok(H.rolesOffered(2027, new Set(['worship_lead'])).flat().includes('worship_lead'), '예배팀장도 그 해 가진 사람에게는 남는다');
+  // 예배팀장은 특정 팀의 팀장이 아니다 — 찬양팀 소속 + 예배팀장이 겹침이 아니다(화면 판정 · DB 트리거는 team_lead 줄만 본다)
+  assert.ok(H.seatsValid(['찬양팀'], null) && !H.blockedSeats(['찬양팀'], null).has('찬양팀'), '찬양팀 소속 + 예배팀장 허용');
+
+  // 자리 겹침(2026-10-16): 순장은 순원일 수 없고, 팀장은 그 팀의 팀원일 수 없다.
+  // 되돌리기: blockedSeats의 SUN_PAIR 갈래를 지우면 '순장이면 순원 칩이 막힌다'가, ledTeam 줄을 지우면 '이끄는 팀 칩이 막힌다'가 깨진다.
+  assert.ok(H.blockedSeats(['순장']).has('순원') && H.blockedSeats(['순원']).has('순장'), '순장이면 순원 칩이 막힌다(거꾸로도)');
+  assert.ok(H.blockedSeats(['미디어팀'], '찬양팀').has('찬양팀') && !H.blockedSeats(['미디어팀'], '찬양팀').has('미디어팀'), '이끄는 팀 칩이 막힌다(다른 팀은 그대로)');
+  assert.ok(H.blockedLeadTeams(['찬양팀', '순장']).has('찬양팀') && !H.blockedLeadTeams(['찬양팀', '순장']).has('순장'), '팀원인 팀은 팀장으로 못 고른다');
+  assert.ok(!H.seatsValid(['순장', '순원']) && !H.seatsValid(['찬양팀'], '찬양팀') && H.seatsValid(['찬양팀'], '워십팀') && H.seatsValid([]), '저장 길도 같은 판정');
+  const rosterSvc = readSrc('src/services/roster.js');
+  assert.ok(/if \('teams' in patch && !seatsValid\(patch\.teams \|\| \[\], ledTeam\)\) throw/.test(rosterSvc)
+    && /if \(team && !seatsValid\(me\?\.teams \|\| \[\], team\)\) throw/.test(rosterSvc)
+    && /if \(team && teams && !seatsValid\(teams, team\)\) throw/.test(rosterSvc), '저장(소속 · 팀장 — 게스트·클라우드)이 겹침을 막는다');
+  const rosterUi2 = readSrc('src/components/roster.jsx');
+  assert.ok(/disabled=\{!teams\.includes\(t\) && blocked\.has\(t\)\}/.test(rosterUi2) && /blocked=\{blockedLeadTeams\(person\.teams \|\| \[\]\)\}/.test(rosterUi2), '화면은 겹치는 칩을 비활성으로');
+
+  const items = H.buildHandovers(pairs, ['msy', 'kdy']);
+  const msy = items.find(i => i.from === 'msy');
+  assert.ok(msy.to === 'jhr' && msy.graduate && msy.slots.join() === 'treasurer', '총무를 넘기며 졸업하면 한 건으로 합친다');
+  assert.ok(items.find(i => i.from === 'kdy').to === null, '직분 없는 졸업자는 인수자 미정');
+  assert.ok(!items.some(i => i.from === 'njs'), '그대로 이어 맡는 사람은 인계가 아니다');
+  assert.strictEqual(H.buildHandovers(pairs, ['kdy'], { kdy: 'swh' }).find(i => i.from === 'kdy').to, 'swh', '졸업자의 인수자를 고른다');
+
+  const tasks = [{ id: 1, status: '진행 중', assignees: ['문서연'] }, { id: 2, status: '완료', assignees: ['문서연'] }, { id: 3, status: '상시', assignees: ['문서연', '조해리'] }];
+  assert.deepStrictEqual(H.openTasksOf(tasks, '문서연').map(t => t.id), [1, 3], '인계할 업무 — 완료 빼고');
+  assert.deepStrictEqual(H.passAssignees(['문서연', '조해리'], '문서연', '조해리'), ['조해리'], '인수자가 이미 있으면 빼기만');
+  assert.deepStrictEqual(H.passAssignees(['김', '문서연'], '문서연', '조해리'), ['김', '조해리'], '자리 그대로 바꾼다');
+
+  // 배선 — 명단 칩이 이 묶음을 쓰고, 멤버 화면이 졸업 표시를 이 규칙으로 붙인다
+  assert.ok(/rolesOffered\(year, roleSet\)/.test(readSrc('src/components/roster.jsx')), '명단 직분 줄은 rolesOffered로 선다');
+  assert.ok(/graduatesOf\(people, year\)/.test(readSrc('src/views/membersView.jsx')), '명단 졸업 표시는 graduatesOf');
+  // 문구(사용자 검토 3차 2026-10-17) — 새 말이 서고 옛 말이 남지 않는다 · '화면 보기'는 게스트 시연에서만.
+  // 되돌리기: 옛 문구 하나를 되살리거나 handoverOn() 갈래를 지우면 깨진다.
+  const hvUi = readSrc('src/components/handover.jsx');
+  for (const w of ['>유지<', '>인수자<', 'placeholder="인수자 선택"', '인계할 업무<', '인계받은 업무 ', '워크스페이스는 그대로 사용할 수 있어요',
+    '${FROM_YEAR}년에 리더만 볼 수 있었던 프로젝트는 ${FROM_YEAR}년 리더진들도 계속 볼 수 있어요',
+    // 4차(사용자 2026-10-17): 넘기다 → 인계 · 작성 여부 · 전달 사항 · 시연 버튼
+    '님에게 인계해요', '님에게서 ${what}${objectParticle(what)} 인계받았어요', '자리가 ${TO_YEAR}년에 변경돼요', "'인계 내용 수정' : '인계 내용 작성'",
+    "'작성 완료' : '미작성'", '>전달 사항<', '예: 회비의 정산은 매달 첫 주에 진행돼요', '>전달 사항 미입력<', '<span>화면 확인</span>',
+    '>1월 1일에 보일 화면 적용해 보기<', "'기존 상태로 되돌렸어요'"]) assert.ok(hvUi.includes(w), `새 문구: ${w}`);
+  for (const w of ['>그대로<', '받는 사람', '넘길 업무', '넘겨받은 업무', '앱은 지금처럼', '리더도 계속 보고 고쳐요',
+    '님에게 넘겨요', '넘겨주었어요', '넘어가요', '인계 내용 쓰기', '인계 내용 고치기', "'작성함'", "'작성 전'", '남길 말', '남긴 말', '화면 보기<', '1월 1일로 적용해 보기', "'처음으로 되돌렸어요'"]) assert.ok(!hvUi.includes(w), `옛 문구가 남지 않는다: ${w}`);
+  assert.strictEqual((hvUi.match(/\{handoverOn\(\) && <button type="button"[^\n]*onViewAs/g) || []).length, 2, "'화면 확인' 두 자리는 게스트 시연에서만");
+  // 시연 전용 버튼('1월 1일에 보일 화면 적용해 보기' · '처음으로')도 게스트에서만 — 실제 앱은 1월 1일 아침 크론이 적용한다.
+  // 되돌리기: 적용 버튼의 handoverOn() 갈래를 지우면 깨진다.
+  assert.ok(/\{handoverOn\(\) && <button type="button" data-hv-apply/.test(hvUi), '적용해 보기는 게스트 시연에서만');
+  assert.ok(/\{handoverOn\(\) && \(\s*<button[^\n]*resetHandover\(\)/.test(hvUi), '처음으로는 게스트 시연에서만');
+  const store = readSrc('src/services/handoverStore.js');
+  assert.ok(/if \(snap\.seeded \|\| navigator\.webdriver\) return;/.test(store) && /if \(!handoverOn\(\) \|\| typeof window === 'undefined'\) return;/.test(store), '씨앗·?demo=handover는 게스트에서만');
+
+  // 클라우드 줄(0109 handovers) → 화면 모양. 되돌리기: handoverRowsView의 active 거르기를 지우면 fixedItems 단정이,
+  // applied의 다음 해 거르기(next)를 지우면 지난해 줄이 다음 해를 '적용됨'으로 만들어 applied 단정이 깨진다.
+  const rows = [
+    { id: 'r1', year: 2027, from_person: 'msy', to_person: 'jhr', slots: ['treasurer'], graduate: true, active: true, note: '정산', task_ids: ['t1'], written_at: '2026-12-01', applied_at: null },
+    { id: 'r2', year: 2027, from_person: 'kdy', to_person: null, slots: [], graduate: true, active: true, note: '', task_ids: [], written_at: null, applied_at: null },
+    { id: 'r3', year: 2027, from_person: 'old', to_person: 'x', slots: ['president'], active: false, note: '옛 짝', task_ids: [], written_at: '2026-11-01' },
+    { id: 'r4', year: 2026, from_person: 'p', to_person: 'q', slots: ['director'], active: true, applied_at: '2026-01-01T00:00:00Z', seen_at: '2026-01-02' },
+  ];
+  const v = H.handoverRowsView(rows, 2027);
+  assert.deepStrictEqual(v.notes['msy>jhr'], { note: '정산', taskIds: ['t1'], done: true, rowId: 'r1' }, '쓴 줄 → 전달 사항·업무·작성 완료');
+  assert.ok(v.notes['kdy>'] && v.notes['kdy>'].done === false, '인수자 미정 줄의 열쇠는 넘기는 사람 뒤 > 하나');
+  assert.deepStrictEqual(v.fixedItems.map(i => i.id), ['msy>jhr', 'kdy>', 'p>q'], '목록에서 빠진(active=false) 줄은 서지 않는다');
+  assert.strictEqual(v.applied, null, '지난해 줄이 적용됐어도 다음 해는 아직 적용 전');
+  assert.ok(v.seen['p>q'] && !v.seen['msy>jhr'], '본 때');
+  assert.ok(H.handoverRowsView([{ ...rows[0], applied_at: '2027-01-01T00:00:00Z' }], 2027).applied?.items.length === 1, '다음 해 줄이 적용되면 applied');
+
+  // 팀장의 원본은 people_roles(0107 · 사용자 결정 2026-10-17) — 그해 팀장 줄이 있으면 role_note의 'OO팀장'(config 팀)은 무시하고 새 칸.
+  // 되돌리기: withTeamLead의 yearHasLeads 갈래를 지우면 둘째(옛 해 그대로)가, isLeadWord 거르기를 지우면 첫째가 깨진다.
+  const AP = await loadSource('src/services/aiPeople.js');
+  const LT = ['찬양팀', '워십팀', '웰컴팀', '미디어팀', '엔지니어팀'];
+  assert.strictEqual(AP.withTeamLead('순장 · 찬양팀장', { team: null, yearHasLeads: true, leadTeams: LT }), '순장', '팀장 줄이 없는 사람은 role_note의 팀장 낱말이 빠진다');
+  assert.strictEqual(AP.withTeamLead('순장 · 찬양팀장', { yearHasLeads: false, leadTeams: LT }), '순장 · 찬양팀장', '팀장 줄이 없는 해는 role_note 그대로');
+  assert.strictEqual(AP.withTeamLead('미디어팀장 · 찬양팀 베이스', { team: '워십팀', yearHasLeads: true, leadTeams: LT }), '워십팀장 · 찬양팀 베이스', '새 칸이 맨 앞 · 맡은 일은 그대로');
+  assert.strictEqual(AP.withTeamLead('예배팀장 · 리더팀장 · 찬양팀 싱어', { yearHasLeads: true, leadTeams: LT }), '예배팀장 · 리더팀장 · 찬양팀 싱어', '예배팀장·리더팀장은 팀장 낱말이 아니다');
+  const tt = AP.titlesOf({ role: AP.withTeamLead('순장', { team: '찬양팀', yearHasLeads: true, leadTeams: LT }) });
+  assert.strictEqual(AP.pickTitle(tt.titles, AP.taskScope({ teams: ['찬양팀'], title: '리허설' })), '찬양팀장', 'pickTitle이 새 칸의 팀장을 고른다');
+  const WL = await import(new URL('../src/services/wikiLive.js', import.meta.url).href);
+  assert.ok(WL.inTeam({ teams: [], role: '찬양팀장' }, '찬양팀') && !WL.inTeam({ teams: [], role: '예배팀장' }, '찬양팀'), '팀장은 그 팀 소속이 아니어도 그 팀 사람(위키 팀 장 · 다붓이 사람 줄)');
+  assert.ok(/role: withTeamLead\(p\.role_note/.test(readSrc('src/services/cloudSync.js')) && /withTeamLead\(p\.role_note/.test(readSrc('api/_wikiAsk.js')), '사람 줄을 만드는 두 자리가 새 칸을 본다');
+
+  // DB(0107~0110) — 리더 판정 · 겹침 트리거 · 크론 함수 권한 · 지난해 리더. 되돌리기: 0107의 is_leader 몸을 옛 식으로 되돌리거나
+  // guard_team_lead_seat의 role 조건을 지우거나(예배팀장도 막힌다), 0110 정책에서 my_leader_years 갈래를 빼면 깨진다.
+  const m7 = readSrc('supabase/migrations/0107_team_lead_and_seats.sql');
+  assert.ok(/create or replace function public\.is_leader\(\) returns boolean[\s\S]{0,120}select public\.is_leader_for\(public\.kst_year\(\)\);/.test(m7), 'is_leader()는 이름 그대로 · 몸은 is_leader_for(올해)');
+  assert.ok(/pr\.role <> 'vision_maker'/.test(m7.slice(m7.indexOf('function public.is_leader_for'), m7.indexOf('function public.is_leader()'))), '그해 팀장·예배팀장도 리더(비전 메이커만 아니다)');
+  assert.ok(/if new\.role = 'team_lead' and new\.year >= public\.kst_year\(\)/.test(m7) && /r\.role = 'team_lead' and r\.year >= public\.kst_year\(\)/.test(m7), '겹침 트리거는 팀장 줄만(예배팀장은 소속과 겹쳐도 된다)');
+  assert.ok(/revoke execute on function public\.guard_team_lead_seat\(\) from public, anon, authenticated;/.test(m7) && /revoke execute on function public\.guard_people_seats\(\) from public, anon, authenticated;/.test(m7), '트리거 함수 EXECUTE 회수');
+  const m9 = readSrc('supabase/migrations/0109_handover.sql');
+  assert.ok(/revoke all on function public\.apply_handovers\(\) from public, anon, authenticated;/.test(m9) && /grant execute on function public\.apply_handovers\(\) to service_role;/.test(m9), '적용 함수는 서버 키만');
+  assert.ok((m9.match(/create policy [^\n]* to authenticated/g) || []).length === 5 && /\(to_person = \(select public\.my_person_id\(\)\) and applied_at is not null\)/.test(m9), '새 정책은 authenticated · 인수자는 적용 뒤부터');
+  const m10 = readSrc('supabase/migrations/0110_past_year_leaders.sql');
+  assert.strictEqual((m10.slice(m10.indexOf('alter policy projects_select')).match(/OR \(year = ANY \(\(SELECT my_leader_years\(\)\)\)\)/g) || []).length, 4, 'projects 정책 셋(update는 using·check 둘)에 연도 갈래');
+  assert.ok(/x\.year = any \(public\.my_leader_years\(\)\)/.test(m10) && /select unnest\(public\.leader_hidden_project_ids\(\)\) as id/.test(m10), 'can_see_project · hidden_ids도 연도 갈래');
+  // 1월 1일 크론 — 기존 08:00 자리를 쓴다(Vercel 크론 두 자리 그대로). 되돌리기: push.js의 runHandover 부르기를 빼면 깨진다.
+  const push = readSrc('api/push.js');
+  assert.ok(/const handover = await runHandover\(\);/.test(push) && /db\.rpc\('apply_handovers'\)/.test(push), '08:00 크론 갈래가 인수인계를 적용한다');
+  assert.strictEqual(JSON.parse(readSrc('vercel.json')).crons.length, 2, '크론 자리는 둘 그대로');
+  console.log('PASS  인수인계(졸업 한국 나이 31 · 직분 짝 · 리더팀장·예배팀장 2026까지 · 졸업+넘김 한 건 · 업무 넘기기 · 문구 · 시연 버튼은 게스트 · 줄 → 화면 · 팀장 원본 · DB · 크론)');
 }

@@ -114,9 +114,12 @@ export function teamPart(role, team, memberTeams = []) {
   }
   return [...new Set(out)].join(' · ');
 }
+// 그 팀 사람인가 — 소속이거나 그 팀의 팀장(맡은 일 맨 앞 '{팀}장' · 팀장은 그 팀 소속이 아니다 — 0107 자리 겹침 막기)
+export const inTeam = (m, team) => (m?.teams || []).includes(team)
+  || String(m?.role || '').split(/\s*[·,/]\s*/).some(x => x.trim() === `${team}장`);
 // → [{ id, name, role }] · 직함(…장) 먼저 · 맡은 일 있는 사람 · 기록 전 · 이름 순
 export function teamMembers(team, members = []) {
-  const rows = (members || []).filter(m => (m.teams || []).includes(team)).map(m => ({ id: m.id || m.name, name: m.name, role: teamPart(m.role, team, m.teams) }));
+  const rows = (members || []).filter(m => inTeam(m, team)).map(m => ({ id: m.id || m.name, name: m.name, role: teamPart(m.role, team, m.teams) }));
   const rank = (r) => (r.role.split(' · ').includes('팀장') ? 0 : r.role ? 1 : 2);
   // 임원진은 직함 차례(회장 → 부회장 → 총무 …)
   const office = (r) => { const k = Math.min(...r.role.split(' · ').map(x => OFFICER_ORDER.indexOf(x)).filter(i => i >= 0)); return Number.isFinite(k) ? k : 99; };

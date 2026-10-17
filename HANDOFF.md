@@ -57,6 +57,15 @@
 - **실기기·클라우드 확인 대기**: 두 계정(고른 사람 · 고르지 않은 회원)으로 직접 선택 → 탭·검색·활동·알림·다붓이에서 사라지는지 · 고른 사람만 멘션 후보 · 마스터 푸시 `lock_reset` 문구·딥링크 · 설정 후 요청한 사람이 새 비밀번호로 열기 · 폰 시트 키보드.
 - **남은 것**: `dabooti_facts`에 고른 사람만 보는 칸이 없어 직접 선택 근거로 알려 준 말은 리더 관련으로 둔다(리더에게는 보인다) · 위키 원본 행·doc_vec 위키 조각은 다음 빌드까지 그 문장을 쥔다(리더만 보기와 같은 한계) · 프로젝트 복제(A)가 custom을 베끼면 고른 사람은 베낀 사람 하나다.
 
+### v5 1묶음 C — 한 일 · 결정 (2026-10-17 · 탭 차례 · 팀장·예배팀장 · 겸직 막기 · 졸업 · 인수인계 · 지난해 리더 · 0107~0110 파일만 — 적용 대기)
+
+- **방식**: 시안(`mock/b1` · 사용자 승인 2026-10-17)을 실제 DB·서버에 붙였다 — A(휴지통·복제·링크)·B(보는 사람·비밀번호 요청)와 파일을 나눠 worktree 셋. 시연 전용('화면 확인' · '1월 1일에 보일 화면 적용해 보기' · '처음으로' · `?demo=handover` · 씨앗)은 게스트에서만 남겼다(`handoverStore.handoverOn`).
+- **사용자 결정(뒤집으려면 묻는다)**: **팀장의 원본은 `people_roles`(team_lead + team)** — role_note의 'OO팀장'은 그해 팀장 줄이 하나도 없을 때만 본다(`aiPeople.withTeamLead` · §7 '팀장 칸(DB)' 줄을 뒤집음) · 2026 팀장은 0107이 role_note에서 한 번 복사(노준석 찬양 · 문진혁 엔지니어 · 박지호 웰컴 · 시온 미디어 — 사용자 확인 · 'OO'가 config 팀과 정확히 맞을 때만 · 리더팀장은 기존 lead_team 그대로) · **예배팀장은 직분 하나**(`worship_lead` · 팀 칸 없음 · 리더진 · 찬양팀 소속과 겹쳐도 된다 · 2026 조준환 복사) · **팀장·예배팀장은 리더진**(`is_leader()` 몸 = `is_leader_for(올해)` · 이름 그대로) · **리더팀장·예배팀장은 2027부터 고르는 목록에서 안 선다**(`handover.LAST_OFFERED_YEAR` 한 표 · 그해 줄이 있으면 칩이 남고 옛 연도 기록은 그대로) · 겸직 막기(순장↔순원 · 팀장↔같은 팀 소속 — 화면 + 트리거 · 새로 생기는 겹침만) · 졸업 = 한국 나이 31세가 되는 해 1월 1일(표시만 · 권한 그대로) · 탭 차례는 사람마다(`profiles.tab_order` · 옛 '앞 칸'은 걷었다 — §8) · **지난해 리더는 지난해 리더 프로젝트를 계속 보고 고친다**(0110 · 프로젝트 연도 기준 · 올해 리더는 지금처럼 전부 본다) · 1월 1일 적용은 08:00 크론의 첫 단계(새 크론 자리 없음 — Hobby 둘).
+- **순서(§3-4)**: 0107 → 0108 → 0109는 코드보다 먼저(코드가 먼저 나가도 오류 화면은 없다 — 읽기는 '없어도 되는 값'이고 팀장 칩·태어난 연도·인계 저장만 '저장하지 못했어요') · **0110은 0104(A)·0105(B) 뒤**(그 둘의 hidden_ids·can_see_project·projects 정책 몸통을 합쳤다 — 둘이 바뀌면 0110도 맞춘다 · PITFALLS 63-c). 리허설 SQL(BEGIN … ROLLBACK)은 레포 밖(이 회차 보고의 경로) — 적용 전에 [적용 전 확인] 목록(옮길 팀장 · 옮기지 않는 낱말 · 겹침)을 사용자가 본다.
+- **남은 것**: 지난해 리더는 그 프로젝트의 알림·멘션 후보(`leader_profile_ids` · B의 `project_audiences`)와 서버 키 경로(`api/_leaders.js` — 다붓이 근거·위키·공유 카드)에서 아직 '리더 아님'이다 · 마스터가 명단 탭에서 다음 해 직분을 고친 뒤에는 인수인계 탭을 한 번 열어야 넘기는 사람 홈에 카드가 선다(PITFALLS 63-d) · 화면은 지금 그 팀 소속인 사람을 다음 해 팀장으로 못 고른다(소속을 먼저 뺀다 — 1월 1일에 자동으로 뺄지는 사용자 결정 대기) · 인수인계 탭·홈 카드의 읽기 실패 자리 문구가 없다(문구 후보 — 보고) · 게스트 시연의 '화면 확인'은 홈으로 옮겨 가지 않는다(App.jsx의 `onNavigate` 한 줄은 A 묶음 파일이라 넣지 않았다) · 기획팀은 config에 없다(사용자가 알려 줄 때).
+- **2027-01-01 인수인계가 실제로 돈 것을 확인한 뒤** `profiles.role_note`에서 'OO팀장' 낱말만 지운다(칸 전체가 아니라 그 낱말만 · 나머지 글자는 남긴다) — 지우기 전에 바뀌는 줄 목록을 사용자에게 보여 주고 확인받는다.
+- **클라우드 확인 대기(사용자가 본다)**: 마이그레이션 적용 뒤 명단에서 팀장·예배팀장 칩 지정/해제 · 태어난 연도 저장 · 2027 졸업 표시 · 겹치는 칩 비활성 · 탭 끌기 뒤 다른 기기에서 같은 차례 · 마스터 인수인계 탭(짝 고치기 · 졸업 확정 · 인수자) → 넘기는 사람 홈 '인계 내용 작성' → 저장 · 2027-01-01 08:00 뒤 인수자 홈 '인계받았어요'와 업무 담당자 · 2026 임원·팀장이 2027년에 2026 리더 프로젝트를 보는지.
+
 ### UX 다듬기 — 한 일 · 결정 (2026-10-15 · 0103 라이브 · 마이그레이션 다음 번호 0104)
 
 - **방식**: 사용자가 항목을 주지 않고 "코드를 보고 제안해 달라"고 했다 → 네 갈래(로딩·첨부·업무 흐름·캐릭터/읽기) 조사로 후보 44개 → 사용자 결정 "보류(B7)만 빼고 전부". 화면 변화 없는 것은 바로(1차 α·β·γ), 바뀌는 것은 시안 먼저(2차 · 캔버스 https://claude.ai/artifact/M4ywnxA19zpT4TMGf8rJ4b — 실데이터 화면에 앱 마크업을 주입해 찍음 · 사용자 피드백 일곱 건 반영 후 승인). 함정은 PITFALLS 54(α)·55(β)·56(γ)·57(모션)·58(P3)·59(P1)·60(P2).
@@ -297,7 +306,7 @@ src/hooks/useNoteDraft.js     노트 초안 브라우저 저장 한 벌(늦은 �
 src/hooks/useProjectYear.js   고른 연도 모듈 스토어 — 지도·프로젝트 진행·탭 줄이 같은 값을 본다(§4.9)
 src/hooks/useSheetShare.jsx   종이를 미리 구워 두는 훅 + 마지막 갈래 overlay(§6-32-g·32-s·32-m)
 src/components/layout.jsx     TopNav · ProfileMenu · ViewerFaces · CHURCH_MENUS(재수출: YearPicker·SearchHint)
-src/components/navParts.jsx   탭 줄 공용 — useYearTabs · YearPicker · YearFolders · useTabFit · saveTabOrder · 앞 칸 넛지 · FreshDot(§6-12-g·12-h)
+src/components/navParts.jsx   탭 줄 공용 — useYearTabs(내 탭 차례) · YearPicker · YearFolders · useTabFit · moveTab(내 차례만) · FreshDot(§6-12-g)
 src/components/mobileNav.jsx  MobileTopBar · 폰 프로젝트 탭 줄(길게 눌러 끌기) · MobileTabBar 두 층 · menuTitle(§6-9-cb) · 켜진 탭 다시 누르면 맨 위로(scrollMainTop · PITFALLS 55-d)
 src/components/searchBox.jsx  통합 검색 · useRotatingHint/SearchHint · 관련된 업무 내용(z-80 · §6-9-cb·17-d)
 src/components/notificationBell.jsx 알림 종 · 알림 받기 줄 · 설치 줄
@@ -324,7 +333,7 @@ src/components/OfficeView.jsx 워드·PPT 미리보기 **폴백**(구글 사본�
 src/components/paper.jsx      **종이** — PaperMast·PaperNoteHead·PaperSheet·NotePaper·NoteSheet·ServiceSheetOne/Two(§6-32-p) · NOTE_CUT
 src/components/PdfView.jsx    pdf.js 미리보기 — cmaps 없이는 한글이 빈다 · 폭이 바뀌면 다시 그린다(§6-29-z-9) · 화면 가까운 쪽만 그리고 '3 / 7' 알약(쪽 상한 없음 · 60-e)
 src/components/RichText.jsx   본문 렌더 — InlineLink가 앱 안에서 연다(§6의 본문 링크 항목) · 유튜브 링크 카드(`ytCards` — 댓글·업무 보기만 · 59-d)
-src/components/roster.jsx     (v2) 청년 명단 — 연도 세그먼트·직분 6종·계정 연결(0043) · `RowSkeleton`·`rowDelay`(멤버 화면도 쓴다) · NameSearch·PanelClose 한 벌
+src/components/roster.jsx     (v2) 청년 명단 — 연도 세그먼트·직분 묶음 다섯(팀장 칩 · 예배팀장 · 0107)·태어난 연도·겹치는 칩 비활성·계정 연결(0043) · `RowSkeleton`·`rowDelay`(멤버 화면도 쓴다) · NameSearch·PanelClose 한 벌
 src/components/ShareButton.jsx  프로젝트·카드 공유 링크 — 그 주소(`/s/t/`·`/s/p/`)를 본문에 붙이면 앱 안에서 연다(services/appLink.js · RichText 멘션·카드)
 src/components/trash.jsx      휴지통 입구(데스크톱 더보기 맨 아래 · 폰 연도 목록 맨 아래 · 비면 없음)·창·복원 버튼(0104 · PITFALLS 61)
 src/services/trash.js         휴지통 줄 — 클라우드는 DB(trash_list·restore_*) · 게스트는 브라우저 `trash_v1` · 복원 뒤 App 재조회(setTrashReload)
@@ -361,7 +370,9 @@ src/views/dashboardParts.jsx  여러 화면이 쓰는 작은 부품 — 마감 �
 src/components/networkMap.jsx 대시보드 연결 지도(§4.9 · FM desk/mob)
 src/components/activityFeed.jsx 대시보드 최근 활동
 src/components/peopleStrip.jsx 대시보드 사람 칸 · 가입한 사람 창(§4.8)
-src/views/membersView.jsx     전역 '멤버'(관리자) — [가입자 | 청년 명단] · 접속 표시는 스토어를 겹쳐 쓴다(§4.8)
+src/views/membersView.jsx     전역 '멤버'(관리자) — [가입자 | 청년 명단 | 인수인계(마스터)] · 졸업 표시 · 접속 표시는 스토어를 겹쳐 쓴다(§4.8)
+src/components/handover.jsx   인수인계 — 멤버 화면 탭(직분 짝 · 졸업 · 인계 내용 · 적용) + 홈 카드 둘 · 시연 버튼은 게스트만(PITFALLS 63-d)
+src/components/roleBadge.js   직분 배지 색 한 벌 · 팀장이 고르는 팀(LEAD_TEAMS — config의 '…팀')
 src/views/homeView.jsx        (v2) 홈 — 인사말 + 카드 넷. 자기 저장 자리가 없다(§6-9-x·9-r·9-s) · 주일 모드 뼈대는 지난 7일 캐시의 오늘 주보로 미리 가른다
 src/views/footprint.jsx       한 해 발자취 화면(홈의 일부) · SkelLine(홈 카드 뼈대도 쓴다)
 src/views/showcase.jsx        캐릭터 컷 Cut/cutSet(히어로·쇼케이스가 같이) · 첫 화면 쇼케이스
@@ -402,11 +413,14 @@ src/services/presence.js      지금 접속한 사람 — 워크스페이스 스
 src/services/liveV2.js        v2 실시간 — 채널 하나 · 표 → 캐시 접두 · useLiveRefresh(§6-24-a) · 홈 접두 넷은 homeView와 맞춘다(logcheck)
 src/services/realtimeBatch.js 카드 실시간을 200ms 모아 id마다 한 번 — 순수 모듈(App.onCard)
 src/services/realtimeStatus.js 업무 채널 재접속 판정(끊겼다 다시 붙을 때만) — 순수(§6-21-b)
-src/services/tabRank.js       탭 줄 앞 칸 규칙·폰 '프로젝트' 버튼이 열 곳 — 순수 · tabFront.js가 열 때·보일 때 잰다(§6-12-f)
+src/services/tabRank.js       내 탭 차례 세우기·끌기(applyTabOrder·moveInTabOrder)·폰 '프로젝트' 버튼이 열 곳 — 순수 · tabFront.js는 탭 점의 활동 줄만
+src/services/tabOrder.js      내 탭 차례 저장 — 클라우드 profiles.tab_order(0108 · 본인 행) · 게스트 브라우저 한 칸(PITFALLS 63-f)
+src/services/handover.js      인수인계·졸업·직분 묶음 순수 규칙(짝 · 졸업 · 겹침 · 고르는 해 · 줄 → 화면) — logcheck-v2
+src/services/handoverStore.js 인수인계 저장 — 클라우드(0109 · 마스터가 목록을 내린다) · 게스트 시연 씨앗·적용 흉내
 src/services/cache.js         화면 데이터 캐시(메모리+localStorage, 사용자별) · useCached(§6-24-d·24-e·24-f)
 src/services/entryQuery.js    진입 주소의 나머지 값을 모듈 첫 실행 때 붙잡는다(§6-24-c)
 src/services/ai.js            Gemini 프롬프트·컨텍스트·요약 캐시 · 명단 한 벌 10분 쥐기 — 배경 지식 원본은 `docs/AI.md`(§4.4·§6-43~46)
-src/services/aiPeople.js      AI 사람 줄 순수 모듈 — role_note 직함 가르기·직함 고르기(pickTitle)·글에 나온 가입자(mentionedMembers)
+src/services/aiPeople.js      AI 사람 줄 순수 모듈 — role_note 직함 가르기·팀장은 people_roles가 원본(withTeamLead · 63-a)·직함 고르기(pickTitle)·글에 나온 가입자(mentionedMembers)
 src/services/cueDigest.js     큐시트 → 가이드 요지(주제·전례색 + 설교·결단 칸 · 인용문 버림) — 순수 모듈, 앱과 백필이 같이 쓴다
 src/services/bibleSearch.js   AI 본문 검색 순수 모듈 — 참조만 받는다(§6-9-ar) · 한 번에 30줄(AI_HIT_LIMIT) · `aiBibleSearchOutcome`의 failed = AI를 못 물음(§6-46-e)
 src/services/vecSearch.js     뜻 검색 결과 → 화면 줄 순수 모듈 — 와/과 · 조각 발췌 · 업무 묶기(relatedTasks) · 성경 대체 줄 — logcheck가 검사
@@ -486,12 +500,12 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 
 ## 5. 데이터 · 스키마 · 비밀
 
-- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0106`이고 **0103까지 라이브 DB에 적용**되어 있다(0104~0106은 v5 1묶음 · 적용 전). 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
+- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0110`이고 **0103까지 라이브 DB에 적용**되어 있다(0104~0110은 v5 1묶음 · 적용 전). 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
   **0064** `people.gender` · **0065** `bible_state.recent_searches` · **0066** 개인 표 기본값도 `effective_uid()` · **0067~0070** 명단(`people`)의 생일·소속·교역자·대표 팀을 트리거가 계정으로 옮긴다(§8) ·
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0092** 리더만 보는 프로젝트(`projects.visibility` · `is_leader`·`can_see_*`·`hidden_ids` · 정책 `alter`만 · 보호 트리거 둘) · **0093** 동아리 모임 활동 보고서(`files.meeting_id` · 세 갈래 CHECK · `can_edit_meeting` · 모임 갈래 정책 + restrictive 셋) · **0094** 직분 `vision_maker`(비전 메이커 · 임원 아님) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12) · **0096** `doc_vec`에 위키 장·발행 주보(다붓이 검색 모드) · **0097** 가입 트리거가 늦게 온 메타 사진·이름도 받아 적음(10분 안 빈 칸만) · **0098** 다붓이 학습 고리(`dabooti_facts` · `resolved_at` · learned 장 마스터만) · **0099** 업무 잠금(`cards.locked` · `card_secrets` · `card_unlocks` · 함수 다섯 · 정책 alter · 보호·거울 트리거 · `projects.visibility_by/at`) · **0100** 잠금의 남은 틈(`card_secrets.subtasks` · 잠그는 순간 위키 블록·조각·알림 미리보기를 걷는 `scrub_locked_card` · 새 알림 미리보기 비움 트리거) · **0101** 점검 보완(트리거 함수 EXECUTE 회수 · search_path 셋 · 정책 116개 판정 호출을 `(select …)`로) · **0102** 정책 대상 역할 `authenticated` · 판정 함수 14개 익명 회수 · **0103** 알림 종류 `assignee_comment`(담당한 업무에 달린 댓글 · CHECK + INSERT 정책 alter · 2026-10-15 라이브) · **0104** 휴지통(`deleted_at`·`deleted_by` · `hidden_ids` 휴지통 갈래 · 함수 다섯 · PITFALLS 61) · **0105** 보는 사람 직접 선택(project_viewers · custom · hidden_ids 갈래 · projects restrictive 하나 · project_audiences·set_project_viewers) · **0106** 비밀번호 재설정 요청(card_lock_requests · lock_reset은 CHECK만 · request_lock_reset·reset_card_lock) — 0104~0106은 **아직 라이브 아님**(2026-10-17). 다음 번호는 0107.
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0092** 리더만 보는 프로젝트(`projects.visibility` · `is_leader`·`can_see_*`·`hidden_ids` · 정책 `alter`만 · 보호 트리거 둘) · **0093** 동아리 모임 활동 보고서(`files.meeting_id` · 세 갈래 CHECK · `can_edit_meeting` · 모임 갈래 정책 + restrictive 셋) · **0094** 직분 `vision_maker`(비전 메이커 · 임원 아님) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12) · **0096** `doc_vec`에 위키 장·발행 주보(다붓이 검색 모드) · **0097** 가입 트리거가 늦게 온 메타 사진·이름도 받아 적음(10분 안 빈 칸만) · **0098** 다붓이 학습 고리(`dabooti_facts` · `resolved_at` · learned 장 마스터만) · **0099** 업무 잠금(`cards.locked` · `card_secrets` · `card_unlocks` · 함수 다섯 · 정책 alter · 보호·거울 트리거 · `projects.visibility_by/at`) · **0100** 잠금의 남은 틈(`card_secrets.subtasks` · 잠그는 순간 위키 블록·조각·알림 미리보기를 걷는 `scrub_locked_card` · 새 알림 미리보기 비움 트리거) · **0101** 점검 보완(트리거 함수 EXECUTE 회수 · search_path 셋 · 정책 116개 판정 호출을 `(select …)`로) · **0102** 정책 대상 역할 `authenticated` · 판정 함수 14개 익명 회수 · **0103** 알림 종류 `assignee_comment`(담당한 업무에 달린 댓글 · CHECK + INSERT 정책 alter · 2026-10-15 라이브) · **0104** 휴지통(`deleted_at`·`deleted_by` · `hidden_ids` 휴지통 갈래 · 함수 다섯 · PITFALLS 61) · **0105** 보는 사람 직접 선택(project_viewers · custom · hidden_ids 갈래 · projects restrictive 하나 · project_audiences·set_project_viewers) · **0106** 비밀번호 재설정 요청(card_lock_requests · lock_reset은 CHECK만 · request_lock_reset·reset_card_lock) · **0107** 팀장·예배팀장 직분 · `is_leader_for` · `birth_year` · 2026 팀장 복사 · 자리 겹침 트리거 · **0108** `profiles.tab_order` · **0109** 인수인계(`handover_plans` · `handovers` · 함수 넷) · **0110** 지난해 리더(0104·0105·0107 뒤) — 0104~0110은 **아직 라이브 아님**(2026-10-17 · 번호 차례로 적용). 다음 번호는 0111.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.
@@ -562,7 +576,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 | Gemini 모델 교체 | `3.1-flash-lite` 유지 — **다붓이 답만 예외**(2026-10-05 사용자 결정 · 회귀 묶음 비교 · `gemini-3.8-flash`, 느리면 flash-lite · `docs/AI.md` §5). 2026-08-29 A/B 6회(3.5는 호칭 '님'을 빼먹었다)에 이어 **2026-09-25 A/B**(3.1-lite 대 3.5-flash-lite 각 30회): 3.5-lite는 '님'을 30번 중 5번 빼먹고 · 가이드 JSON이 깨지고 · 기한을 지어냈다. 새 A/B 근거 없이 제안 금지. **다음 A/B는 두 lite 모델로만, 부르기 전에 비용을 먼저 말한다**(그날 3.5-flash·3.8-flash까지 불러 지적받았다) |
 | 카카오 SDK 공유 | 하지 않는다(2026-09-25). PDF는 기본 공유창으로 카카오톡에 파일째 가고 업무·프로젝트 링크는 `/s/` 공유 주소가 카드로 뜬다 — 기본 공유창이 없는 곳은 카카오 인앱뿐이다. JS 키는 받아 두었다(쓰지 않으므로 값은 적지 않는다) |
 | 벡터 성경 검색을 AI 검색 대신으로 | 2026-09-25 질의 30개 비교(지운 스크립트 — git 이력의 `scripts/compare-bible-search.mjs`)에서 못 이겼다 — AI 줄 평균 11.7 중 벡터 top-30과 겹친 것 5.9, 벡터는 낱말이 닮은 절을 가져왔다(욥 27:20 같은). AI 검색이 앞이고 벡터는 실패 시 대체·후보 추리기 후보(§2) |
-| 팀장 칸(DB) | AI가 업무 팀의 팀장을 고르는 데는 `role_note`의 `OO팀장`을 읽는 것으로 같다(스토어에 있어 네트워크 0) — 칸을 따로 두면 role_note와 두 곳이 어긋난다(회계 절차를 베꼈다 어긋난 것과 같은 구조) |
+| ~~팀장 칸(DB)~~ | **2026-10-17 뒤집힘 — V5 결정 · 원본은 people_roles**(team_lead + team · 0107). role_note의 'OO팀장'은 그해 팀장 줄이 하나도 없을 때만 본다(`aiPeople.withTeamLead`). 옛 이유(두 곳이 어긋난다)는 role_note 쪽 낱말을 2027-01-01 뒤에 지우는 것으로 푼다(§2 v5 1묶음 C) |
 | 서식 바를 모바일에서 키보드 위 고정으로 | 2026-09-11에 하루 안에 `bottom`→`top`→`body` 포털까지 갔는데 실기기 아이폰에서 끝내 키보드 위에 안 섰다 — **되돌렸다**. 모든 폭에서 sticky-top 하나다(§6-9-aa-4) |
 | 노트 도막을 세 줄(4rem)로 벌리기 | 2026-09-18 하루 안에 넣고 뺐다 — 글을 쓰면 줄 간격이 벌어져 "노트가 완전 난리". 도막은 한 줄, 빈 자리는 종이 아래 한 덩어리(2026-09-03) |
 | 폰에서 PPT를 우리 렌더러(`services/pptx.js`)로 | 2026-09-18 — "구글 화면으로 해달라니까", 폰트가 깨진다. 폰은 `/preview`, 데스크톱은 `/embed` |
@@ -621,9 +635,9 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 - **읽기 = 편집**(사용자 결정 A1 · 2026-09-25): 노트 읽기 종이와 업무 보기는 편집 화면과 같은 줄에 선다 — 빈 줄은 한 줄, 들여쓰기 유지, 줄 간격은 `.note-paper .tiptap`의 값(주보 종이는 그대로 · PITFALLS 9-aa-11).
   하위 업무 추가 칸은 `px-3`(B2 — 상세 내용 편집기 글과 같은 x).
 - **빈 자리 문구**(사용자가 목업에서 25곳을 골랐다 · 2026-09-25): `미지정` · `미입력` · `미등록` · `방문 전` · `이름 미상`처럼 상태를 짧게 — "없어요"로 끝내지 않는다(아래 문구 톤).
-- **프로젝트 탭 줄 앞 칸**(사용자 결정 2026-09-25 · 목업 권장안 A · `services/tabRank.js`): 최근 7일 동안 그 프로젝트에서 무언가 한 사람(`activity.actor_id` 고유 · 합친 계정은 하나) 수가
-  많은 순, 같으면 최근 활동이 앞 · **두 명 이상**만 · 다섯까지. 그 뒤는 position 순(앞 칸에 오른 것은 빠진다) · 사이에 얇은 세로선 하나(문구·점 없음) · 앞 칸 탭은 끌 수 없다.
-  숫자는 **앱을 열 때와 다시 보일 때만** 잰다(`tabFront.js` — 보는 동안 탭이 튀지 않게). 폰 하단 '프로젝트'는 마지막으로 본 것(고른 해) → 고른 해의 탭 순서 첫 것.
+- **프로젝트 탭 줄은 사람마다 자기 차례**(v5 시안 승인 2026-10-17 · `services/tabRank.js`·`tabOrder.js` · 0108 — 2026-09-25 '앞 칸'(최근 7일 여럿이 움직인 것 다섯 · 세로선 · 넛지)을 걷었다):
+  끈 적 없으면 모두의 position 순 · 탭을 끌면 **내 차례만** 바뀐다(모두의 position은 그대로) · 내 차례에 없는 새 프로젝트는 맨 뒤에 position 순 · 보관된 탭만 끌 수 없다.
+  탭 점(지난 방문 뒤 남이 움직인 곳)은 그대로 열 때·다시 보일 때만 잰다(`tabFront.js`). 폰 하단 '프로젝트'는 마지막으로 본 것(고른 해) → 고른 해의 내 차례 첫 것.
 - **상시**(0075 · 2026-09-25 목업 C안): 마감 없이 계속 쓰는 업무(순번표·현황표·양식·메뉴얼) — 보드 네 칸 **위 한 줄**의 칩(보라 `상시 N` · 0건이면 줄 없음), 상태 고르기의 맨 아래.
   상시로 바꾸면 시작일·마감일을 지운다. 달력·지연·마감 구간·2주 방치·남은 업무·진척 분모에 들어가지 않고, 목록에서는 '상시' 구간에 따로 선다.
 - **셈 기준**(2026-09-25 감사 · `services/taskCounts.js`): 한 주는 **주일~토요일**('이번 주' = 내일~토요일, 오늘은 '오늘 마감') · 날짜는 로컬 · **지연은 시작 전·진행 중만**(보류 중은 회색 날짜 · 제 구간) ·
@@ -634,7 +648,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 - **구글 편집 화면(iframe)은 데스크톱에만 싣는다.** 폰은 보기 주소(`/preview` · `authuser` 없이)이고 **슬라이드는 폰에서 iframe을 만들지 않는다**(홈 화면 앱 웹뷰가 죽는다 — 첫 장 그림 + '새 탭에서 열기'). 첨부·본문 링크·큐시트가 같고, 머리줄 뒷절 문구는 사용자가 정했다(§6-34-h-3).
 - **홈 예배 카드는 발행본 중 `service_date`가 가장 최근인 것**(미래 포함 · 시한 없음)이고 머리 글자는 날짜가 정한다(주를 보지 않는다). 누르면 그 주보 상세로 곧장 간다 — 알림 딥링크와 같은 길이고, 들어오는 동안 목록 없이 상세 스켈레톤이 선다.
 - **호칭은 `OOO 형제/자매`**(0064) · 성별이 비면 `청년`. `services/ai.js`의 배경 지식은 `청년` 그대로다(2026-09-14 — 모델이 호칭을 틀릴 자리를 늘리지 않는다).
-- **AI의 직함은 코드가 고른다**(2026-09-25 · `aiPeople.pickTitle`): `role_note`가 원본이고 연도 직분(`people_roles`)은 role_note에 직함이 없을 때만 · 순장은 순 업무에서만 · 팀 업무는 그 팀 팀장 ·
+- **AI의 직함은 코드가 고른다**(2026-09-25 · `aiPeople.pickTitle`): `role_note`가 원본이고 연도 직분(`people_roles`)은 role_note에 직함이 없을 때만 — **단 팀장은 그해 people_roles가 원본**(2026-10-17 · 팀장 줄이 있는 해면 role_note의 'OO팀장' 대신 그 줄 · `withTeamLead`) · 순장은 순 업무에서만 · 팀 업무는 그 팀 팀장 ·
   예배팀장은 찬양·엔지니어·워십팀에 걸친 예배 전반(찬양팀장과 다른 자리) · '교역자'는 직함이 아니다(전도사님) · 청년부는 약 55명. 자세한 것은 `docs/AI.md` §2.1.
 - **노트 임시 저장은 브라우저다**(서버 자동 저장은 순원에게 미완성 글을 보인다) — 되살아나면 칩이 `작성 중인 노트`. **노트 종이는 폰(<640)에서 한 열, 주보 종이는 두 열 그대로**(`index.css` `.paper-row` · 접히는 것은 `.paper-note`뿐).
 - **옛 `### 본문` 도막은 어디에도 세우지 않는다** — 걷는 자리는 `noteTemplate.dropLegacySections` 한 곳이고 `LEGACY_SECTIONS`에서 `'본문'`을 빼면 안 된다(빈 노트 판정용).

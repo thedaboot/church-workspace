@@ -661,7 +661,7 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
 //   · searchBox.jsx SearchHint를 matchMedia 한 줄로 되돌리면 ①이 깨진다
 //   · usePopover.js POP_MOTION에서 transition-none을 빼거나, 네 자리 중 하나를 손 껍데기(useDismiss)로 되돌리면 ②가 깨진다
 //   · MarkdownEditor 멘션 목록의 transition-none을 빼면 ③(17-b 훑기)이 깨진다
-//   · MobileTopBar를 자기 계산(splitFrontTabs)으로 되돌리면 ④가 깨진다
+//   · MobileTopBar를 자기 계산(applyTabOrder)으로 되돌리면 ④가 깨진다
 {
   const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
   const NAV = ['components/layout.jsx', 'components/navParts.jsx', 'components/mobileNav.jsx', 'components/searchBox.jsx', 'components/notificationBell.jsx'];
@@ -705,15 +705,16 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
       assert.ok(cls.includes('transition-none'), `${k}: 자리를 state로 잡는 떠 있는 판에 transition-none이 없다(PITFALLS 17-b) — ${cls.slice(0, 60)}`);
     }
   }
-  assert.ok(seen >= 4, `훑은 판이 너무 적다(${seen}) — 범위가 비었나`);
+  // 3: 앞 칸 넛지 말풍선(navParts)이 내 탭 차례로 바뀌며 빠졌다(시안 2026-10-16)
+  assert.ok(seen >= 3, `훑은 판이 너무 적다(${seen}) — 범위가 비었나`);
 
   // ④ 고른 해의 탭 계산 한 벌(navParts.useYearTabs) — 데스크톱·폰이 같은 것을 본다
   assert.ok(/export function useYearTabs\(activeMenu, \{ liftArchived = true \} = \{\}\)/.test(nav.navParts), 'useYearTabs가 있다');
   assert.ok(/\} = useYearTabs\(activeMenu\);/.test(nav.layout), '데스크톱 TopNav가 쓴다');
   assert.ok(/\} = useYearTabs\(activeMenu, \{ liftArchived: false \}\);/.test(nav.mobileNav), '폰 MobileTopBar가 쓴다(보관된 지금 프로젝트는 끌어올리지 않는다)');
-  assert.strictEqual((nav.navParts.match(/splitFrontTabs\(/g) || []).length, 1, '앞 칸 가르기는 한 자리');
+  assert.strictEqual((nav.navParts.match(/applyTabOrder\(/g) || []).length, 2, '내 차례 세우기는 useYearTabs 한 자리(끌어올림 갈래 둘)');
   for (const k of ['layout', 'mobileNav']) {
-    assert.ok(!/splitFrontTabs\(|useTabYear\(/.test(nav[k]), `${k}에 탭 계산이 다시 적혀 있지 않다`);
+    assert.ok(!/applyTabOrder\(|useTabYear\(/.test(nav[k]), `${k}에 탭 계산이 다시 적혀 있지 않다`);
   }
   // 옮긴 부품을 들이던 다른 화면의 import 줄은 그대로다(layout.jsx 재수출)
   assert.ok(/export \{ YearPicker \} from '\.\/navParts\.jsx';/.test(nav.layout) && /export \{ SearchHint \} from '\.\/searchBox\.jsx';/.test(nav.layout), '재수출');

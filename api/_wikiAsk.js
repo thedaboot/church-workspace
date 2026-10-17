@@ -6,10 +6,10 @@ import {
   cacheEligible, cacheFresh, looksFollowUp, followUpRule, knownStatement, looksCompound, splitGuard, mergeParts, termWeights,
   rephrased,
 } from '../src/services/wikiCore.js';
-import { teamPart } from '../src/services/wikiLive.js';
+import { teamPart, inTeam } from '../src/services/wikiLive.js';
 import BOOKS from '../public/bible/index.json' with { type: 'json' };
 import { gen, SCHEMA, nameMatcher, projectTitle, WIKI_MODEL, TEAM_ORDER, commentLine, peopleIndex, rosterOf, recordDate } from './_wikiBuild.js';
-import { splitRoleNote, callName, PASTOR_TITLE, ROLE_TITLE } from '../src/services/aiPeople.js';
+import { splitRoleNote, callName, PASTOR_TITLE, ROLE_TITLE, withTeamLead } from '../src/services/aiPeople.js';
 import { STATUS, liveProfile, readAll, geminiFetch } from './_lib.js';
 import { EMBED_MODEL, EMBED_DIM, embedQueryPayload, unitVec } from './ai.js';
 import { plain, serviceLine, serviceText, wikiEvidence } from './_wiki/evidence.js';
@@ -137,22 +137,27 @@ export async function loadRoster(db, year = Number(kstDate(new Date().toISOStrin
     db.from('teams').select('id, name').then(must),
     db.from('people').select('name, profile_id, is_pastor, removed_at').eq('is_pastor', true).then(must),
     db.from('people').select('id, profile_id, gender').not('profile_id', 'is', null).then(must),
-    db.from('people_roles').select('person_id, role').eq('year', year).then(must),
+    db.from('people_roles').select('*').eq('year', year).then(must),
     db.from('people').select('id, name, removed_at, profiles:profile_id(display_name)').then(must),
     db.from('groups').select('name, leader_person_id, position').eq('type', 'sun').eq('year', year).is('removed_at', null).then(must),
-    db.from('people_roles').select('person_id, role').eq('year', year + 1).then(must),
+    db.from('people_roles').select('*').eq('year', year + 1).then(must),
   ]);
+  // 팀장의 원본은 그해 people_roles다(0107) — 팀장 줄이 있는 해면 role_note의 'OO팀장' 대신 그 줄(aiPeople.withTeamLead)
+  const leadOf = new Map();
+  const yearHasLeads = yearRoles.some(r => r.role === 'team_lead');
   const tn = new Map(teams.map(t => [t.id, t.name]));
   const live = profiles.filter(liveProfile);
   const gender = new Map(genders.map(g => [g.profile_id, g.gender]));
   const profileOf = new Map(genders.map(g => [g.id, g.profile_id]));
   const rolesOf = Map.groupBy(yearRoles.filter(r => profileOf.has(r.person_id)), r => profileOf.get(r.person_id));
+  for (const r of yearRoles) if (r.role === 'team_lead' && r.team && profileOf.has(r.person_id)) leadOf.set(profileOf.get(r.person_id), r.team);
+  const roleOf = (p) => withTeamLead(p.role_note, { team: leadOf.get(p.id) || null, yearHasLeads, leadTeams: TEAM_ORDER.filter(t => t.endsWith('팀')) });
   const liveIds = new Map(live.map(p => [p.id, String(p.display_name).trim()]));
   const pastorNames = pastors.filter(p => !p.removed_at).map(p => liveIds.get(p.profile_id) || String(p.name || '').trim()).filter(Boolean);
   for (const p of live) if (/전도사|목사/.test(p.role_note || '') && !pastorNames.includes(liveIds.get(p.id))) pastorNames.push(liveIds.get(p.id));
   const members = live.map(p => ({
     name: String(p.display_name).trim(),
-    role: p.role_note || '',
+    role: roleOf(p),
     gender: gender.get(p.id) || '',
     office: pastorNames.includes(liveIds.get(p.id))
       ? (splitRoleNote(p.role_note).titles.find(t => /전도사|목사/.test(t)) || PASTOR_TITLE)
@@ -166,7 +171,9 @@ export async function loadRoster(db, year = Number(kstDate(new Date().toISOStrin
   for (const m of members) if (splitRoleNote(m.role).titles.includes('순장') && !sunList.some(s => s.name === m.name)) sunList.push({ name: m.name, sun: '' });
   const staff = yearRoles.filter(r => STAFF_ROLES[r.role] && person.has(r.person_id))
     .map(r => ({ name: person.get(r.person_id), label: STAFF_ROLES[r.role].label, call: callName(person.get(r.person_id), STAFF_ROLES[r.role].call) }));
-  const next = nextRoles.filter(r => NEXT_LABEL[r.role] && person.has(r.person_id)).map(r => ({ name: person.get(r.person_id), label: NEXT_LABEL[r.role] }));
+  // 팀장은 '{팀} 팀장'(사용자 요청 2026-10-17 — 한 줄로 서는 자리의 순서 '{연도}년 {이름} {팀} 팀장')
+  const next = nextRoles.filter(r => (NEXT_LABEL[r.role] || (r.role === 'team_lead' && r.team)) && person.has(r.person_id))
+    .map(r => ({ name: person.get(r.person_id), label: r.role === 'team_lead' ? `${r.team} 팀장` : NEXT_LABEL[r.role] }));
   return { members, pastors: [...new Set(pastorNames)], year, suns: sunList, staff, next };
 }
 
@@ -177,8 +184,9 @@ export async function loadRoster(db, year = Number(kstDate(new Date().toISOStrin
 // 비전 메이커(0094 · 청년부 간사 — 청년도 교역자도 임원진도 아니다)는 '이름 집사님'으로 부른다(사용자 결정 2026-10-12 · 김우한 집사님).
 // 화면 칩 글자는 services/roster.js ROLE_LABEL과 같다(그 파일은 supabase를 물어 서버가 못 부른다 — 바꾸면 둘 다).
 export const STAFF_ROLES = { vision_maker: { label: '비전 메이커', call: '집사' } };
-const NEXT_LABEL = { director: '부장', president: '회장', treasurer: '총무', lead_sunjang: '리더순장', lead_team: '리더팀장', vision_maker: '비전 메이커' };
-const OFFICES = new Set([...Object.values(ROLE_TITLE), '회장'].map(t => t.replace(/\s+/g, '')));
+const NEXT_LABEL = { director: '부장', president: '회장', treasurer: '총무', lead_sunjang: '리더순장', lead_team: '리더팀장', worship_lead: '예배팀장', vision_maker: '비전 메이커' };
+// 예배팀장(0107)은 직분 줄이지만 '이름 직함님'을 먼저 세우는 직분(부장·회장·총무·리더순장·리더팀장)에는 넣지 않는다 — 부르는 차례가 그대로다
+const OFFICES = new Set([...Object.entries(ROLE_TITLE).filter(([k]) => k !== 'worship_lead').map(([, t]) => t), '회장'].map(t => t.replace(/\s+/g, '')));
 export function officeOf(roleNote, roles = []) {
   return splitRoleNote(roleNote).titles.find(t => OFFICES.has(t.replace(/\s+/g, ''))) || roles.map(r => ROLE_TITLE[r] || STAFF_ROLES[r]?.call).find(Boolean) || '';
 }
@@ -223,7 +231,7 @@ export function peopleLines(roster, q) {
   }
   for (const team of teams) {
     // 그 팀에서 맡은 일만(wikiLive.teamPart — 위키 팀 장과 같다 · '순장'·'총무' 같은 일반 직함은 팀 줄에 안 선다 · 그 팀의 장은 '팀장'이 먼저)
-    const list = members.filter(m => m.teams.includes(team)).map(m => ({ m, part: teamPart(m.role, team, m.teams) }))
+    const list = members.filter(m => inTeam(m, team)).map(m => ({ m, part: teamPart(m.role, team, m.teams) }))
       .map((x, i) => ({ ...x, i, head: x.part.split(' · ').includes('팀장') ? 0 : 1 })).sort((a, b) => a.head - b.head || a.i - b.i)
       .map(({ m, part }) => (part ? `${m.name}(${part})` : m.name));
     out.push(list.length

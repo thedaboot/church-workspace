@@ -24,6 +24,9 @@ import * as roster from '../services/roster.js';
 import { guestStore } from '../services/people.js';
 
 import { Segmented } from '../components/segmented.jsx';
+import { HandoverPanel } from '../components/handover.jsx';
+import { useHandover, ensureHandoverDemo, TO_YEAR } from '../services/handoverStore.js';
+import { graduatesOf } from '../services/handover.js';
 // 게스트 모드의 계정 목록(roster.guestProfiles와 같은 칸) — 수락을 게스트 스위트가 눌러 볼 수 있게
 // 그 칸에 승인 값을 적는다(클라우드에는 없는 길 · 아래 approve).
 const guestAccounts = guestStore('church_roster_v1');
@@ -67,6 +70,9 @@ const guestAccounts = guestStore('church_roster_v1');
 // ============================================================================
 
 const TABS = [['account', '가입자'], ['roster', '청년 명단']];
+// 인수인계(0109 · components/handover.jsx) — 마스터만(handover_plans·handovers의 RLS도 마스터 · 게스트 시연은 게스트 마스터)
+const HANDOVER_TAB = ['handover', '인수인계'];
+ensureHandoverDemo();
 const THIS_YEAR = new Date().getFullYear();
 // 직분(people_roles)과 순 편성(groups)은 연도별이다. 고를 수 있는 해는 **올해와 다음 두
 // 해**다(사용자 지시 2026-09-05 — 2026·2027·2028). 명단이 시작된 2026보다 앞선 해는
@@ -194,8 +200,9 @@ function MemberMenu({ name, canMerge, busy = false, onMerge, farewellMessage, on
   );
 }
 
-export function MembersView({ isAdmin, isMaster }) {
+export function MembersView({ isAdmin, isMaster, onNavigate }) {
   const [tab, setTab] = useState('account');
+  const hv = useHandover();
   const [rows, setRows] = useState(null);       // null = 아직 받는 중(또는 못 받음 — rowsError)
   // 가입자 목록을 못 받았다(D2) — 이 목록은 캐시가 없어서 실패하면 언제나 첫 읽기다. 빈 목록을
   // 앉히지 않고 그 자리에 실패 두 줄 + '다시 시도'가 선다(토스트는 띄우지 않는다 — 한 번만 말한다).
@@ -469,7 +476,9 @@ export function MembersView({ isAdmin, isMaster }) {
       showToast(`${made.name}${objectParticle(made.name)} 청년 명단에 올렸어요`);
     }, '청년 명단에 올리지 못했어요'),
 
-    save: (p, patch) => write(p.id, () => roster.updatePerson(p.id, patch), () => {
+    save: (p, patch) => write(p.id, () => roster.updatePerson(p.id, patch, {
+      ledTeam: (shownBook?.roles || []).find(r => r.person_id === p.id && r.role === roster.TEAM_LEAD)?.team || null,
+    }), () => {
       patchPerson(p.id, patch);
       showToast(`${patch.name || p.name} 정보를 저장했어요`);
     }, '저장하지 못했어요'),
@@ -511,6 +520,16 @@ export function MembersView({ isAdmin, isMaster }) {
       const tail = (label.charCodeAt(label.length - 1) - 0xac00) % 28;
       showToast(next ? `${year}년 ${label}${tail > 0 && tail !== 8 ? '으로' : '로'} 지정했어요` : `${year}년 ${label} 지정을 해제했어요`);
     }, next ? '직분을 지정하지 못했어요' : '직분 지정을 해제하지 못했어요'),
+
+    // 팀장(0107) — 한 사람이 그 해 한 팀. team이 null이면 푼다 · 같은 팀 소속이면 막힌다(화면·저장·DB)
+    teamLead: (p, team) => write(p.id, () => roster.setTeamLead(p.id, year, team, p.teams || []), () => {
+      editBook(prev => ({
+        ...prev,
+        roles: [...prev.roles.filter(r => !(r.person_id === p.id && r.year === year && r.role === roster.TEAM_LEAD)),
+          ...(team ? [{ person_id: p.id, year, role: roster.TEAM_LEAD, team }] : [])],
+      }));
+      showToast(team ? `${year}년 ${roster.teamLeadLabel(team)}으로 지정했어요` : `${year}년 팀장 지정을 해제했어요`);
+    }, team ? '팀장으로 지정하지 못했어요' : '팀장 지정을 해제하지 못했어요'),
   };
 
   // 가입자 → 명단 사람 잇기. 명단 탭의 '계정 연결'(rosterOn.link)과 같은 쓰기·같은 토스트다.
@@ -520,6 +539,10 @@ export function MembersView({ isAdmin, isMaster }) {
     closeLink();
   }, '계정을 연결하지 못했어요');
   const people = shownBook?.people || null;
+  // 그 해 졸업 표시 — 한국 나이 31세 자동 목록(people.birth_year) · 다음 해는 인수인계에서 확정한 사람(계획을 읽었을 때)
+  const graduates = people
+    ? new Set(year === TO_YEAR && hv.grads ? hv.grads : graduatesOf(people, year).map(p => p.id)) : null;
+  const tabs = isMaster ? [...TABS, HANDOVER_TAB] : TABS;
   const linkedIds = new Set((people || []).map(p => p.profile_id).filter(Boolean));
   const linkPanel = (row) => (
     <ProfileLinkPanel account={row} people={people || []} ready={!!people}
@@ -559,14 +582,16 @@ export function MembersView({ isAdmin, isMaster }) {
 
       {/* 사람의 축이 둘이다 — 가입한 '계정'과 청년부 전체 '명단'(파일 머리말) */}
       <div className="flex items-center gap-2 pb-4">
-        <Segmented className="flex p-[3px] rounded-md shrink-0" items={TABS} value={tab} onPick={setTab}
+        <Segmented className="flex p-[3px] rounded-md shrink-0" items={tabs} value={tab} onPick={setTab}
           btnClassName="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors" />
       </div>
 
       {/* 탭을 바꾸면 그 내용이 살짝 들어온다(.dc-screen · §4.2 260ms). '청년 명단' 쪽은
           RosterPanel의 뿌리가 이미 .dc-screen이라 여기서 한 겹 더 씌우지 않는다. */}
-      {tab === 'roster' ? (
-        <RosterPanel {...(shownBook || {})} profiles={rows || []} profilesReady={rows !== null}
+      {tab === 'handover' ? (
+        <HandoverPanel onNavigate={onNavigate} onEditRoster={(y) => { setYear(y); setTab('roster'); }} />
+      ) : tab === 'roster' ? (
+        <RosterPanel {...(shownBook || {})} graduates={graduates} profiles={rows || []} profilesReady={rows !== null}
           year={year} years={YEARS} busy={busy} loading={!shownBook && !bookError} on={rosterOn}
           failed={bookError ? {
             title: '명단을 받지 못했어요', reason: errorReason(bookError),

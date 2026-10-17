@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, guestStore, HONORIFIC } from './people.js';
 import { generateId } from '../utils.js';
+import { seatsValid } from './handover.js';
 
 // ============================================================================
 // v2 명단(people) 쓰기 계층 — 멤버 화면의 '명단' 구역이 쓴다 (docs/V2.md §1 결정 1·13)
@@ -36,15 +37,23 @@ const COLS = 'id, name, birthday, teams, gender, is_pastor, profile_id, note, re
 // 배지를 나눠 써서 누가 무엇인지 화면에서 알 수 없었다. 0043이 값을 갈랐고 `officer`는
 // 사라졌다. **권한은 그대로다**: DB의 is_officer()는 그 해 줄이 있는지만 보고 값을 보지
 // 않는다(0035) — 새 값들도 임원과 같은 자리를 맡는다.
-// 팀장 같은 나머지 직함은 지금처럼 role_note 자유 텍스트다.
+// 팀장(team_lead · 0107)도 연도 줄이고 팀 하나를 함께 적는다. 그 밖의 직함(예배팀장 같은 것)은 지금처럼 role_note 자유 텍스트다.
 // 비전 메이커(vision_maker · 0094 · 2026-10-12 사용자 결정)는 청년부 간사 — 청년도 교역자도 임원진도 아니다. 같은 연도 줄에
 // 두지만 아무 권한도 주지 않는다(has_role은 값을 보고, 줄만 보던 is_officer는 0094가 뺐다). 다붓이는 '이름 집사님'으로 부른다.
 export const ROLE_LABEL = {
   director: '부장', president: '회장', treasurer: '총무',
-  lead_sunjang: '리더순장', lead_team: '리더팀장', vision_maker: '비전 메이커',
+  lead_sunjang: '리더순장', lead_team: '리더팀장', worship_lead: '예배팀장', vision_maker: '비전 메이커',
 };
-export const YEAR_ROLES = ['director', 'president', 'treasurer', 'lead_sunjang', 'lead_team', 'vision_maker'];
+// 예배팀장(worship_lead · 0107 · 사용자 결정 2026-10-17) — 팀 칸 없는 직분 · 리더진 · 2027부터 고르는 줄에 안 선다(handover.LAST_OFFERED_YEAR)
+export const YEAR_ROLES = ['director', 'president', 'treasurer', 'lead_sunjang', 'lead_team', 'worship_lead', 'vision_maker'];
 export const PASTOR_LABEL = '교역자';
+// ── 팀장(팀 하나)과 졸업 표시 (v5 1묶음 C · 0107) ──────────────────────────────
+// 팀장은 people_roles의 team_lead + team 칸이다(0107 — 팀장일 때만 팀이 있다). setYearRole(켜고 끄기)과 길이 달라서
+// YEAR_ROLES에 넣지 않고 setTeamLead가 따로 쓴다. 칩 묶음·리더팀장 숨김·졸업·자리 겹침 규칙은 services/handover.js(순수).
+export const TEAM_LEAD = 'team_lead';
+export const TEAM_LEAD_LABEL = '팀장';
+export const GRAD_LABEL = '졸업';
+export const teamLeadLabel = (team) => (team ? `${team}장` : TEAM_LEAD_LABEL);
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — tests/roster.mjs 앞부분) ───────────
 
@@ -117,10 +126,22 @@ export function rolesByPerson(roles) {
   return out;
 }
 
-// 화면에 붙는 직분 배지. 교역자가 먼저고 그다음이 그 해의 직분이다.
-export function personBadges(person, roleSet) {
+// person_id → 팀 이름(그 해 팀장 줄 · 한 사람 한 팀)
+export function teamLeadOf(roles) {
+  const out = new Map();
+  for (const r of roles || []) if (r.role === TEAM_LEAD) out.set(r.person_id, r.team || '');
+  return out;
+}
+
+// 화면에 붙는 직분 배지. 교역자가 먼저고 그다음이 그 해의 직분이다(칩 묶음 순서 —
+// 부장 · 회장·총무·리더순장·리더팀장 · OO팀장·예배팀장 · 비전 메이커) · 그 해 졸업이면 맨 끝에 '졸업'.
+export function personBadges(person, roleSet, { team, graduate = false } = {}) {
   const out = person?.is_pastor ? [PASTOR_LABEL] : [];
-  for (const r of YEAR_ROLES) if (roleSet?.has(r)) out.push(ROLE_LABEL[r]);
+  for (const r of YEAR_ROLES) {
+    if (r === 'worship_lead' && team != null) out.push(teamLeadLabel(team));
+    if (roleSet?.has(r)) out.push(ROLE_LABEL[r]);
+  }
+  if (graduate) out.push(GRAD_LABEL);
   return out;
 }
 
@@ -152,7 +173,7 @@ export async function loadRoster(year) {
     };
   }
   const [people, roles, suns] = await Promise.all([
-    fetchPeople({ includeRemoved: true }),
+    fetchPeople({ includeRemoved: true, withBirthYear: true }),
     fetchRoles(year),
     fetchGroups('sun', year),
   ]);
@@ -163,23 +184,28 @@ export async function loadRoster(year) {
 // ── 쓰기 ────────────────────────────────────────────────────────────────────
 const one = async (q) => { const { data, error } = await q; if (error) throw error; return data; };
 
-export async function addPerson({ name, birthday = null, teams = [] }) {
-  const row = { name: String(name || '').trim(), birthday: birthday || null, teams: teams || [] };
+export async function addPerson({ name, birthday = null, teams = [], birth_year = null }) {
+  const row = { name: String(name || '').trim(), birthday: birthday || null, teams: teams || [], ...(birth_year ? { birth_year } : {}) };
+  if (!seatsValid(row.teams)) throw new Error('겹치는 자리');
   if (!cloudOn()) {
     const made = {
       id: generateId(), gender: null, is_pastor: false, profile_id: null, note: null,
-      removed_at: null, created_at: new Date().toISOString(), ...row,
+      removed_at: null, created_at: new Date().toISOString(), birth_year: null, ...row,
     };
     guestSet('people', [...guestRows('people'), made]);
     return made;
   }
-  return one(supabase.from('people').insert(row).select(COLS).single());
+  // 돌려받는 칸(COLS)에 birth_year를 넣지 않는다 — 0107 전 DB에서도 select가 깨지지 않게. 넣은 값은 여기서 얹는다
+  const made = await one(supabase.from('people').insert(row).select(COLS).single());
+  return { ...made, birth_year: row.birth_year ?? null };
 }
 
 // 이름·생일·팀·note만 고친다. 계정 연결·직분은 각자의 길이 따로 있다.
-export async function updatePerson(id, patch) {
+// birth_year(태어난 연도 · 0107)는 졸업 표시에 쓴다. ledTeam = 그 해 이 사람이 이끄는 팀(겹침 막기 · DB 트리거도 같은 판정).
+export async function updatePerson(id, patch, { ledTeam = null } = {}) {
+  if ('teams' in patch && !seatsValid(patch.teams || [], ledTeam)) throw new Error('겹치는 자리');
   const next = {};
-  for (const k of ['name', 'birthday', 'teams', 'note']) if (k in patch) next[k] = patch[k];
+  for (const k of ['name', 'birthday', 'teams', 'note', 'birth_year']) if (k in patch) next[k] = patch[k];
   if (!Object.keys(next).length) return null;
   if (!cloudOn()) return guestPatch(id, next);
   return one(supabase.from('people').update(next).eq('id', id).select(COLS).single());
@@ -235,4 +261,26 @@ export async function setYearRole(personId, year, role, on) {
   const { error } = await supabase.from('people_roles').delete().match(row);
   if (error) throw error;
   return null;
+}
+
+// 팀장 — 한 사람이 그 해 한 팀(기본 키 person_id·year·role). team이 비면 푼다. 같은 팀 소속이면 화면이 먼저 막고
+// DB 트리거(0107 guard_team_lead_seat)도 막는다.
+export async function setTeamLead(personId, year, team, teams = null) {
+  if (!cloudOn()) {
+    const me = guestRows('people').find(p => p.id === personId);
+    if (team && !seatsValid(me?.teams || [], team)) throw new Error('겹치는 자리');
+    const rows = guestRows('people_roles').filter(r =>
+      !(r.person_id === personId && r.year === year && r.role === TEAM_LEAD));
+    const row = team ? { person_id: personId, year, role: TEAM_LEAD, team } : null;
+    guestSet('people_roles', row ? [...rows, row] : rows);
+    return row;
+  }
+  if (team && teams && !seatsValid(teams, team)) throw new Error('겹치는 자리');
+  const key = { person_id: personId, year, role: TEAM_LEAD };
+  if (!team) {
+    const { error } = await supabase.from('people_roles').delete().match(key);
+    if (error) throw error;
+    return null;
+  }
+  return one(supabase.from('people_roles').upsert({ ...key, team }).select('person_id, year, role, team').single());
 }

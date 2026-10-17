@@ -92,7 +92,7 @@ check('1줄: 전역 메뉴 2개(대시보드·내 업무)', nav.hasDash && nav.h
 check('사용 가이드는 내비에서 사라졌다', nav.hasGuide === false, JSON.stringify(nav));
 check('넓은 화면(1440px)에서는 8개가 다 탭으로', nav.projTabs === 8 && !nav.hasMore, `탭 ${nav.projTabs}개, 더보기 ${nav.hasMore}`);
 check('2줄: + 프로젝트', nav.hasAddProject);
-check('활동이 없으면 앞 칸도 세로선도 없다(지금 순서 그대로)', (await ev(`document.querySelectorAll('[data-tab-divider]').length`)) === 0);
+check('탭 줄에 세로선이 없다(옛 앞 칸 선)', (await ev(`document.querySelectorAll('[data-tab-divider]').length`)) === 0);
 
 // 좁히면(리로드 없이 — §6-41) 들어가는 만큼만 남고 나머지는 더보기로
 await send('Emulation.setDeviceMetricsOverride', { width: 800, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -580,57 +580,73 @@ check('reduced-motion에서 화면 전환 모션이 꺼진다',
 await send('Emulation.setEmulatedMedia', { features: [] });
 await send('Emulation.clearDeviceMetricsOverride');
 
-// 탭 줄 앞 칸(2026-09-25 · services/tabRank.js) — 게스트는 스토어 업무의 activityLog로 센다.
-// 최근 7일에 두 사람이 움직인 프로젝트가 맨 앞에 서고, 그 뒤에 세로선 하나, 그 뒤가 position 순이다.
-// 앞 칸 탭은 끌 수 없다. 폰 하단 '프로젝트'는 고른 해의 탭 순서 첫 것을 연다(작년 것이 position 앞이어도).
+// 탭 줄 내 차례(시안 2026-10-16 · services/tabRank.js · tabOrder.js — 옛 '앞 칸'을 대신한다).
+// 끈 적이 없으면 모두의 position 순 · 누구든 탭을 끌면 **그 사람의 차례(tab_order_v1)만** 바뀌고 모두의 position은 그대로다 ·
+// 내 차례에 아직 없는 프로젝트(새로 생긴 것)는 맨 뒤 · 폰 하단 '프로젝트'는 고른 해의 탭 순서 첫 것을 연다.
+// **되돌리기**: tabRank.applyTabOrder가 자리 없는 것을 앞에 붙이면 '새 프로젝트는 맨 뒤'가, moveTab이 setTabOrder 대신
+// 옛 saveTabOrder(position 쓰기)로 가면 '남의 순서는 그대로'가 깨진다.
 {
-  const hAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
   const s2 = JSON.parse(JSON.stringify(st));
   // p1은 작년 것(position 맨 앞) — 폰 '프로젝트' 버튼이 이걸 열면 안 된다
   s2.projects.byId.p1.year = THIS_YEAR - 1;
-  const mk = (id, pid, logs) => { s2.tasks.byId[id] = { ...s2.tasks.byId.t0, id, projectId: pid, title: id, activityLog: logs }; s2.tasks.allIds.push(id); };
-  mk('f1', 'p3', [{ id: 'l1', action: 'x', author: '노준석', timestamp: hAgo(5) }, { id: 'l2', action: 'x', author: '조해리', timestamp: hAgo(4) }]);
-  mk('f2', 'p6', [{ id: 'l3', action: 'x', author: '노준석', timestamp: hAgo(2) }, { id: 'l4', action: 'x', author: '임재훈', timestamp: hAgo(1) }]);
-  mk('f3', 'p4', [{ id: 'l5', action: 'x', author: '노준석', timestamp: hAgo(1) }, { id: 'l6', action: 'x', author: '노준석', timestamp: hAgo(2) }]);   // 한 사람 — 앞 칸 아님
-  mk('f4', 'p5', [{ id: 'l7', action: 'x', author: '노준석', timestamp: hAgo(1) }, { id: 'l8', action: 'x', author: '조해리', timestamp: hAgo(24 * 9) }]);   // 9일 전은 창 밖
+  pids.forEach((pid, i) => { s2.projects.byId[pid].position = i + 1; });
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await send('Emulation.setTouchEmulationEnabled', { enabled: false });
-  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(s2))}); localStorage.removeItem('tab_year')`);
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(s2))}); localStorage.removeItem('tab_year');
+    localStorage.removeItem('tab_order_v1')`);
   await send('Page.navigate', { url: URL_BASE + '/?p=p2' });
   await wait('Page.loadEventFired'); await sleep(1500);
-  const deskTabs = await ev(`(() => {
+  const readDesk = `(() => {
     const desk = [...document.querySelectorAll('div')].find(d => /hidden md:block/.test(d.className) && d.querySelector('button[title="설정"]'));
     const row = desk && desk.querySelector('[class*="items-end"][class*="border-t"]');
     if (!row) return null;
-    const seq = [...row.children].filter(el => el.matches('button, [data-tab-divider]'))
-      .map(el => el.hasAttribute('data-tab-divider') ? '|' : el.textContent.trim().replace(/^프로젝트 /, 'p'))
-      .filter(t => /^p[0-9]$|^\\|$/.test(t));
+    const seq = [...row.children].filter(el => el.matches('button'))
+      .map(el => el.textContent.trim().replace(/^프로젝트 /, 'p'))
+      .filter(t => /^p[0-9]+$/.test(t));
     const btn = (n) => [...row.querySelectorAll('button')].find(b => b.textContent.trim() === '프로젝트 ' + n);
-    return { seq: seq.join(' '), drag6: btn(6)?.draggable, drag3: btn(3)?.draggable, drag2: btn(2)?.draggable,
-      divs: row.querySelectorAll('[data-tab-divider]').length };
-  })()`);
-  check('데스크톱 앞 칸: 두 사람 이상 · 최근 순 → 세로선 → position 순(작년 p1은 탭에 없다)',
-    deskTabs?.seq === 'p6 p3 | p2 p4 p5 p7 p8', JSON.stringify(deskTabs));
-  check('앞 칸 탭은 끌 수 없고 뒤쪽 탭은 끈다', deskTabs?.drag6 === false && deskTabs?.drag3 === false && deskTabs?.drag2 === true, JSON.stringify(deskTabs));
-  check('세로선은 하나', deskTabs?.divs === 1, JSON.stringify(deskTabs));
-  // 뒤쪽 탭을 앞 칸 탭 위에 놓아도 순서가 안 바뀐다(앞 칸은 놓을 자리가 아니다)
-  const dropRes = await ev(`(async () => {
+    return { seq: seq.join(' '), drag2: btn(2)?.draggable, drag7: btn(7)?.draggable };
+  })()`;
+  const shared = await ev(readDesk);
+  check('끈 적이 없으면 모두의 position 순(작년 p1은 없다) · 어느 탭이든 끈다',
+    shared?.seq === 'p2 p3 p4 p5 p6 p7 p8' && shared.drag2 === true && shared.drag7 === true, JSON.stringify(shared));
+  // 내 차례 — 그대로 서고, 자리 없는 것은 뒤에 position 순
+  await ev(`localStorage.setItem('tab_order_v1', JSON.stringify(['p6', 'p3', 'p2']))`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p2' });
+  await wait('Page.loadEventFired'); await sleep(1500);
+  const mineTabs = await ev(readDesk);
+  check('내 차례가 앞 · 자리 없는 것은 뒤에 position 순', mineTabs?.seq === 'p6 p3 p2 p4 p5 p7 p8', JSON.stringify(mineTabs));
+  // 끌면 내 차례만 바뀐다(모두의 position은 그대로)
+  const dragRes = await ev(`(async () => {
     const desk = [...document.querySelectorAll('div')].find(d => /hidden md:block/.test(d.className) && d.querySelector('button[title="설정"]'));
     const btn = (n) => [...desk.querySelectorAll('button')].find(b => b.textContent.trim() === '프로젝트 ' + n);
-    const before = JSON.stringify(Object.values(JSON.parse(localStorage.getItem('church_app_v4')).projects.byId).map(p => p.position ?? 0));
+    const pos = () => JSON.stringify(Object.values(JSON.parse(localStorage.getItem('church_app_v4')).projects.byId).map(p => [p.id, p.position ?? 0]));
+    const before = pos();
     const dt = new DataTransfer();
     btn(7).dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
     await new Promise(r => setTimeout(r, 50));
     btn(6).dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
     btn(6).dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
     btn(7).dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
-    await new Promise(r => setTimeout(r, 400));
-    const after = JSON.stringify(Object.values(JSON.parse(localStorage.getItem('church_app_v4')).projects.byId).map(p => p.position ?? 0));
-    return { same: before === after, before, after };
+    await new Promise(r => setTimeout(r, 500));
+    return { order: localStorage.getItem('tab_order_v1'), same: before === pos() };
   })()`, true);
-  check('앞 칸 탭에 놓으면 position이 안 바뀐다', dropRes?.same === true, JSON.stringify(dropRes));
+  check('끌면 내 차례가 바뀐다(앞으로 끌면 놓은 탭 앞 · 다른 해 p1도 자리를 얻는다)',
+    dragRes?.order === JSON.stringify(['p7', 'p6', 'p3', 'p2', 'p1', 'p4', 'p5', 'p8']) && (await ev(readDesk))?.seq === 'p7 p6 p3 p2 p4 p5 p8', JSON.stringify(dragRes));
+  check('내가 끌어도 모두의 position은 그대로', dragRes?.same === true, JSON.stringify(dragRes));
+  // 새 프로젝트(내 차례에 자리 없음)는 맨 뒤 — position이 맨 앞(0)이어도
+  await ev(`window.__store.dispatch({ type: 'ADD_PROJECT', payload: { id: 'p9', title: '프로젝트 9', pinnedLinks: [], position: 0, createdAt: new Date().toISOString(), year: ${THIS_YEAR} } })`);
+  await sleep(500);
+  check('아직 자리 없는 새 프로젝트는 내 줄 맨 뒤', (await ev(readDesk))?.seq === 'p7 p6 p3 p2 p4 p5 p8 p9', JSON.stringify(await ev(readDesk)));
+  // 다른 사람(내 차례가 없는 브라우저)은 모두의 순서를 본다 — 내 끌기가 남의 줄을 바꾸지 않았다
+  await sleep(400);
+  await ev(`localStorage.setItem('tab_order_mine_backup', localStorage.getItem('tab_order_v1')); localStorage.removeItem('tab_order_v1')`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p2' });
+  await wait('Page.loadEventFired'); await sleep(1500);
+  check('남(차례 없음)의 줄은 모두의 순서 그대로 — 내 끌기가 바꾸지 않았다', (await ev(readDesk))?.seq === 'p9 p2 p3 p4 p5 p6 p7 p8', JSON.stringify(await ev(readDesk)));
+  await ev(`window.__store.dispatch({ type: 'DELETE_PROJECT', payload: 'p9' }); localStorage.setItem('tab_order_v1', localStorage.getItem('tab_order_mine_backup'))`);
+  await sleep(500);
 
-  // 폰 — 같은 순서 · 세로선 하나 · 하단 '프로젝트'가 고른 해의 첫 것을 연다
+  // 폰 — 같은 내 차례 · 하단 '프로젝트'가 고른 해의 첫 것을 연다
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   await send('Page.navigate', { url: URL_BASE + '/?p=p2' });
@@ -639,18 +655,18 @@ await send('Emulation.clearDeviceMetricsOverride');
     const top = [...document.querySelectorAll('div')].find(d => /(^| )md:hidden( |$)/.test(d.className) && d.querySelector('.scrollbar-hide'));
     const row = top && top.querySelector('.scrollbar-hide');
     if (!row) return null;
-    const seq = [...row.children].filter(el => el.matches('button, [data-tab-divider]'))
-      .map(el => el.hasAttribute('data-tab-divider') ? '|' : el.textContent.trim().replace(/^프로젝트 /, 'p'))
-      .filter(t => /^p[0-9]$|^\\|$/.test(t));
-    return { seq: seq.join(' '), front: [...row.querySelectorAll('[data-front]')].map(b => b.textContent.trim()) };
+    const seq = [...row.children].filter(el => el.matches('button'))
+      .map(el => el.textContent.trim().replace(/^프로젝트 /, 'p'))
+      .filter(t => /^p[0-9]+$/.test(t));
+    return { seq: seq.join(' '), divs: row.querySelectorAll('[data-tab-divider]').length };
   })()`);
-  check('폰 앞 칸: 같은 순서 · 세로선 하나', mob?.seq === 'p6 p3 | p2 p4 p5 p7 p8', JSON.stringify(mob));
+  check('폰도 같은 내 차례 · 세로선 없음', mob?.seq === 'p7 p6 p3 p2 p4 p5 p8' && mob.divs === 0, JSON.stringify(mob));
   await send('Page.navigate', { url: URL_BASE + '/' });
   await wait('Page.loadEventFired'); await sleep(1400);
   await tapIn('/^업무/'); await sleep(500);
   await tapIn('/^프로젝트/'); await sleep(700);
   const opened = await ev(`(() => { const b = document.querySelector('button[title="프로젝트 이름 수정"]'); return b ? b.textContent.trim() : null; })()`);
-  check("폰 하단 '프로젝트'는 고른 해의 탭 순서 첫 것(앞 칸)을 연다", opened === '프로젝트 6', String(opened));
+  check("폰 하단 '프로젝트'는 고른 해의 탭 순서 첫 것(내 차례)을 연다", opened === '프로젝트 7', String(opened));
   // 마지막으로 본 것이 고른 해에 있으면 그것
   await ev(`(() => { const b = [...document.querySelectorAll('.scrollbar-hide button')].find(x => x.textContent.trim() === '프로젝트 4'); b && b.click(); })()`);
   await sleep(500);

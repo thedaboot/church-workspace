@@ -1407,3 +1407,25 @@ t가 붙은 주소가 방금 돌아온 자리를 덮는다). 열기 전 화면�
 **62-e.** **낡은 요청은 트리거가 걷는다** — 비밀번호가 바뀌면(`card_secrets.lock_hash` · 마스터 설정 · 만든 사람의 다시 설정은 upsert라 update 트리거가 돈다) 그 업무 전부 · 잠금이 풀리면(cards.locked true → false) 전부 · 맞혀서 열리면(card_unlocks insert) 그 사람 것. plpgsql 트리거 함수에서 표마다 칸이 다르면 `coalesce(new.card_id, new.id)`처럼 쓰지 말 것 — 없는 칸은 실행 때 'record has no field'로 터진다(함수를 나눴다). 마스터 설정은 맞혀 둔 계정(card_unlocks)을 **걷지 않는다**(시안 결정 — 잊은 사람만 새 비밀번호를 받는다 · lock_card의 다시 설정과 다르다).
 **62-f.** **코드가 마이그레이션보다 먼저 나가도 오류 화면이 없게** — `project_viewers`·`project_audiences`·`card_lock_requests`는 전부 '없어도 되는 값'으로 읽는다(`loadCloudState`의 viewerInfo · 업무 창의 `loadLockAsk`). 못 읽으면 자물쇠 판은 예전 토글(`viewersReady` false), 잠금 판에는 `비밀번호를 까먹었어요`가 안 선다. custom 프로젝트가 있는데 audience를 못 읽으면 그 알림은 아무에게도 안 간다(`customProjects`로 닫는다).
 **62-g.** **브라우저 스위트 도중 dev 서버가 의존성을 새로 묶으면 페이지를 다시 불러 `Inspected target navigated or closed`로 CRASH다**(새 worktree의 첫 실행 · pdf.js 워커) — 혼자 다시 돌리면 지나간다. 레포 파일(문서 포함)을 고쳐도 같다(tests/README 머리).
+
+### v5 1묶음 C — 직분 · 인수인계 · 탭 차례 (2026-10-17 · 0107~0110)
+**63-a.** **팀장의 원본은 `people_roles`(team_lead + team)이고 role_note는 그해 팀장 줄이 하나도 없을 때만 본다**(`aiPeople.withTeamLead`). 사람 줄을 만드는 두 자리
+(`cloudSync` 가입자 `role` · `api/_wikiAsk.loadRoster`)가 role을 한 번 고쳐 두므로 그 아래(pickTitle · 위키 팀 몫 `teamPart` · 다붓이 사람 줄)는 손대지 않았다.
+새로 사람 줄을 만드는 자리가 생기면 거기도 `withTeamLead`를 거친다 — 안 거치면 role_note의 옛 팀장이 다시 선다. 팀장은 그 팀 소속이 아니므로(63-b) 팀 사람을
+고르는 식은 `wikiLive.inTeam`(소속 또는 '{팀}장')이다 — `teams.includes(team)`만 보면 위키 팀 장에서 팀장이 빠진다.
+**63-b.** **자리 겹침은 '새로 생기는 겹침'만 막는다**(0107 트리거 둘 · 23514). 2026 팀장을 role_note에서 옮길 때 그 팀 소속이기도 한 사람이 있다 — 그 줄은 트리거를
+만들기 전에 넣어 남겨 두고, 그 사람의 다른 칸을 고쳐도 막지 않는다(소속을 **새로** 넣을 때만). 팀장 ↔ 소속은 올해와 그 뒤 줄만 본다(지난해 줄은 기록).
+**예배팀장(worship_lead)은 팀 칸이 없어 이 판정에 안 걸린다**(찬양팀 소속 + 예배팀장 허용 · 사용자 결정). 화면(`handover.blockedSeats`·`blockedLeadTeams`)은 연도와
+상관없이 막는다 — 지금 그 팀 소속인 사람을 다음 해 팀장으로 고르려면 소속을 먼저 뺀다(사용자 결정 대기 · HANDOFF 남은 일).
+**63-c.** **`is_leader()`의 이름·인자를 바꾸지 않는다**(B 묶음 정책·`api/_leaders.js`가 부른다). 해마다 가르는 몸은 `is_leader_for(y)` 하나 — 지난해 리더(0110)는
+`my_leader_years()`로 프로젝트 연도와 견준다. **0110은 0104(휴지통)·0105(보는 사람)의 hidden_ids·can_see_project·projects 정책 몸통을 합친 것이다** — 그 둘이
+바뀌면 0110도 다시 맞춘다(뒤에 적용한 쪽이 이긴다 · 리허설 `rehearsal_0110.sql`로 행 수를 본다).
+**63-d.** **인계 목록은 마스터 화면이 내려 둔다**(`handoverStore.cloudSync` → `sync_handovers`). 넘기는 사람은 계획(handover_plans)을 못 읽으니 줄이 있어야 홈 카드가
+선다 — 마스터가 명단 탭에서 다음 해 직분을 고친 뒤에는 **인수인계 탭을 한 번 열어야** 줄이 따라온다(탭을 열 때마다 내린다). 쓴 줄(written_at)은 짝이 바뀌어도
+지우지 않고 active=false로 둔다 — 짝을 되돌리면 같은 열쇠(해·넘기는·받는)라 그대로 살아난다. 한 해 줄이 하나라도 적용되면 sync는 아무것도 안 한다.
+**63-e.** **1월 1일 적용은 08:00 크론의 첫 단계다**(`api/push.js runHandover` · Vercel 크론 두 자리 그대로). `apply_handovers()`는 서버 키만(authenticated EXECUTE 회수) ·
+`year <= kst_year()`인 적용 안 된 줄만 · 계정이 이어진 두 사람 사이에서만 담당자를 바꾼다(card_assignees · 넘기는 사람이 담당자가 아니면 그 업무는 건너뜀).
+그날 실패해도 다음 아침에 다시 돈다. 리허설은 올해 줄로 만들어야 적용된다(다음 해 줄은 1월 1일 전에는 안 돈다).
+**63-f.** **탭 차례(0108)는 '*'로 읽는 프로필 행에 따라온다** — `getMyProfile`·`listProfiles`가 `select('*')`라 칸이 없어도 깨지지 않는다(§3-4). 쓰기는 본인 행 update
+한 번(`myUid` — 합친 계정은 남긴 계정 행)이고, 관리자 정책이 남의 행을 열어 두므로 **칸 가드 트리거**가 막는다(42501). 회원이 남의 행을 고치면 RLS가 0행으로 끝낸다
+(오류 없음 — 리허설에서 둘을 따로 본다).
