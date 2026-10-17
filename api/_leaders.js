@@ -1,4 +1,4 @@
-import { LEADERS, CUSTOM, isLeaderOnly, isRestricted, leaderCardIdsOf } from '../src/services/visibility.js';
+import { LEADERS, CUSTOM, isLeaderOnly, isRestricted, leaderCardIdsOf, leaderAudience } from '../src/services/visibility.js';
 
 // ============================================================================
 // 리더만 보는 프로젝트(0092) · 보는 사람 직접 선택(0105) — 서버 키 경로의 판정 한 벌(RLS를 안 타는 자리라 코드로 거른다)
@@ -11,7 +11,7 @@ import { LEADERS, CUSTOM, isLeaderOnly, isRestricted, leaderCardIdsOf } from '..
 // 직접 선택(0105) — customCardIds(서버 키 · 그 업무 전부) · hiddenFor(묻는 사람 세션의 hidden_ids) ·
 // audienceFor·audienceMap(그 업무·프로젝트를 볼 수 있는 계정 — 푸시 · 마감 임박 · 달력).
 // 리더 판정은 DB 함수 leader_profile_ids() 한 벌이다 — 서비스 키는 auth.uid()가 없어 그대로 받는다(0092).
-// 볼 수 있는 계정은 DB 함수 project_audiences() 한 벌이다(리더만이면 leader_profile_ids()와 같다 · 직접 선택이면 고른 사람 ∪ 마스터).
+// 볼 수 있는 계정은 DB 함수 project_audiences() 한 벌이다(리더만이면 올해 리더 ∪ 그해 리더 — 0110 지난해 리더 · 직접 선택이면 고른 사람 ∪ 마스터).
 // `_`로 시작해 라우트가 아니다.
 // ============================================================================
 
@@ -52,11 +52,15 @@ export async function audienceMap(db, ids = null) {
 }
 
 // 이 업무(또는 프로젝트)를 볼 수 있는 계정 Set — 공개면 null(거를 것이 없다). 좁혀졌는데 목록에 없으면 빈 Set(닫힌 쪽).
-// 리더만은 예전 그대로 leader_profile_ids(), 직접 선택은 project_audiences(). 못 읽으면 던진다.
+// 리더만은 leader_profile_ids() ∪ 그 프로젝트의 project_audiences 줄(0110부터 그해 리더 — 지난해 리더 프로젝트의 지난해 리더 ·
+// 그 줄을 못 읽으면 올해 리더만 · 0110 전과 같다), 직접 선택은 project_audiences(). 리더 목록·직접 선택 몫을 못 읽으면 던진다.
 export async function audienceFor(db, where = {}) {
   const p = await projectOf(db, where);
   if (!isRestricted(p)) return null;
-  if (isLeaderOnly(p)) return leaderIdSet(db);
+  if (isLeaderOnly(p)) {
+    const [ids, extra] = await Promise.all([leaderIdSet(db), audienceMap(db, [p.projectId]).then(m => m.get(p.projectId), () => null)]);
+    return leaderAudience(ids, extra);
+  }
   return (await audienceMap(db, [p.projectId])).get(p.projectId) || new Set();
 }
 

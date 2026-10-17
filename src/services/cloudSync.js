@@ -5,7 +5,7 @@ import { primeTabOrder } from './tabOrder.js';
 import { withTeamLead } from './aiPeople.js';
 import { CONFIG } from '../config.js';
 import { reconnectWatcher } from './realtimeStatus.js';
-import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly, visibilityOf, visibleRecipients } from './visibility.js';
+import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly, visibilityOf, visibleRecipients, leaderAudience } from './visibility.js';
 import { withSecret } from './cardLock.js';
 import { itemsFromRows } from './trashItems.js';
 import {
@@ -43,12 +43,16 @@ let leaderNames = [];
 //   customAud    'custom'인 프로젝트 id → 볼 수 있는 계정 id Set. 목록에 없으면(못 읽었다) **아무에게도** 안 간다(닫힌 쪽)
 //   viewerIdsOf  'custom'인 프로젝트 id → 고른 사람 id 배열(project_viewers · 화면의 체크 · 팀 칩과 같이 앱 프로젝트에 이름으로 싣는다)
 let customAud = new Map();
+// 리더만 프로젝트의 몫(project_audiences · 0110부터 그해 리더 — 지난해 리더 프로젝트의 지난해 리더). 올해 리더(leaderIds)에 더한다
+// (visibility.leaderAudience). 못 읽었으면 빈 Map — 올해 리더만(0110 전과 같다).
+let leaderAud = new Map();
 let customProjects = new Set();   // 'custom'인 프로젝트 id — customAud를 못 읽었어도 이 목록으로 닫는다
 let viewerIdsOf = new Map();
 const audienceNames = (ids) => [...new Set([...ids].map(id => profileRows.get(id)).filter(p => p && !p.removed_at && !p.merged_into)
   .map(p => p.display_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
 // 로드마다 다시 만든다(직접 선택 · 0105). viewers = [project_viewers 행, project_audiences 행] | null(못 읽었다 — 그러면 custom
-// 프로젝트는 customProjects에만 들어 알림이 아무에게도 안 간다). project_audiences는 리더 프로젝트 줄도 주지만 그 갈래는 leaderIds가 맡는다.
+// 프로젝트는 customProjects에만 들어 알림이 아무에게도 안 간다). project_audiences의 리더 프로젝트 줄은 leaderAud로 — 올해 리더(leaderIds)에
+// 더해 그해 리더(0110 지난해 리더)까지 받는 사람·멘션 후보가 된다.
 function primeViewers(projects, viewers) {
   customProjects = new Set((projects || []).filter(isCustomOnly).map(p => p.id));
   const [rows, auds] = viewers || [[], []];
@@ -58,6 +62,8 @@ function primeViewers(projects, viewers) {
     if (list) list.push(r.profile_id); else viewerIdsOf.set(r.project_id, [r.profile_id]);
   }
   customAud = new Map((auds || []).filter(r => customProjects.has(r.project_id)).map(r => [r.project_id, new Set(r.profile_ids || [])]));
+  const leaderIdsOfRows = new Set((projects || []).filter(isLeaderOnly).map(p => p.id));
+  leaderAud = new Map((auds || []).filter(r => leaderIdsOfRows.has(r.project_id)).map(r => [r.project_id, new Set(r.profile_ids || [])]));
 }
 // 고른 사람 이름 → 계정 id(합친 계정은 남긴 계정으로 · 동명이인은 둘 다 — 멘션 받는 사람과 같은 규칙)
 const viewerIdsOfNames = (names) => {
@@ -117,14 +123,18 @@ const primeMaps = (teams, profiles) => {
 // 볼 수 없는 사람을 부르거나 맡기지 않는다.
 export function getMemberNames(projectId) {
   if (isCustomProject(projectId)) return audienceNames(customAud.get(projectId) || []);
-  return (projectId && leaderProjects.has(projectId) ? leaderNames : memberNames).slice();
+  if (projectId && leaderProjects.has(projectId)) {
+    const extra = leaderAud.get(projectId);
+    return extra?.size ? audienceNames(leaderAudience(leaderIds, extra)) : leaderNames.slice();
+  }
+  return memberNames.slice();
 }
 export const isLeaderProject = (projectId) => !!projectId && leaderProjects.has(projectId);
 const isCustomProject = (projectId) => !!projectId && (customAud.has(projectId) || customProjects.has(projectId));
 // 알림 받는 사람 — 리더 프로젝트의 업무면 리더만 · 직접 선택이면 볼 수 있는 사람만(멘션·배정·답글·반응·담당 업무 댓글이 이 한 줄을 지난다)
 const seeing = (ids, projectId) => (isCustomProject(projectId)
   ? visibleRecipients(ids, { leaderOnly: true, leaderIds: customAud.get(projectId) || new Set() })
-  : visibleRecipients(ids, { leaderOnly: isLeaderProject(projectId), leaderIds }));
+  : visibleRecipients(ids, { leaderOnly: isLeaderProject(projectId), leaderIds: leaderAudience(leaderIds, leaderAud.get(projectId)) }));
 
 // 표시명 → 프로필 사진 주소. 없으면 빈 문자열 → 화면은 이름 첫 글자 원으로 떨어진다.
 // 게스트 모드에서는 표가 비어 있어 언제나 글자 원이다.
@@ -796,14 +806,28 @@ export async function commentDeleteCloud(commentId) { return write(() => cloud.d
 
 // 리더만 보는 원본을 복제하면(controllers.handleDuplicateProject) 처음부터 리더만으로 만든다 — 업무가 들어가기 전에(0092 ·
 // 리더가 아니면 DB 트리거가 'all'로 되돌린다). 그 밖의 새 프로젝트는 지금처럼 visibility를 보내지 않는다(DB 기본값 'all').
+// 직접 선택(0105) 원본의 복제도 같다(합치기 2026-10-17): 'custom'으로 만들고 업무를 넣기 전에 같은 고른 사람·팀 칩을 싣는다
+// (set_project_viewers). 리더가 아니면 트리거가 'all'로 되돌리므로 그 빈 프로젝트를 지우고 실패로 돌려준다(42501) — 고른 사람만
+// 보던 업무 본문이 공개 프로젝트로 나가지 않게(닫힌 쪽). 고른 사람을 못 실으면 같은 길로 지운다.
 export async function projectCreateCloud(project) {
   const leaders = isLeaderOnly(project);
+  const custom = isCustomOnly(project);
   const saved = await write(() => cloud.createProject({
     id: project.id, name: project.title, position: project.position ?? 0,
     year: project.year ?? new Date().getFullYear(),
-    ...(leaders ? { visibility: LEADERS } : {}),
+    ...(leaders ? { visibility: LEADERS } : custom ? { visibility: CUSTOM } : {}),
   }));
   if (leaders && isLeaderOnly(saved)) leaderProjects.add(project.id);
+  if (!custom) return saved;
+  try {
+    if (!isCustomOnly(saved)) throw Object.assign(new Error('직접 선택 프로젝트는 리더만 만든다'), { code: '42501' });
+    customProjects.add(project.id);
+    await projectVisibilityCloud(project.id, { visibility: CUSTOM, viewers: project.viewers || [], viewerTeams: project.viewerTeams || [] });
+  } catch (e) {
+    customProjects.delete(project.id);
+    await write(() => cloud.deleteProject(project.id)).catch(err => console.warn('[cloud] 복제한 빈 프로젝트 지우기 실패:', err?.message || err));
+    throw e;
+  }
   return saved;
 }
 // DB 컬럼명은 name (앱에서는 title로 부른다)
@@ -888,7 +912,7 @@ export async function projectVisibilityCloud(id, next) {
     ? await write(() => cloud.setProjectViewers(id, viewerIdsOfNames(next.viewers), next.viewerTeams || []))
     : await write(() => cloud.updateProject(id, { visibility: want }));
   const v = visibilityOf(saved);
-  if (v === LEADERS) leaderProjects.add(id); else leaderProjects.delete(id);
+  if (v === LEADERS) leaderProjects.add(id); else { leaderProjects.delete(id); leaderAud.delete(id); }
   if (v === CUSTOM) customProjects.add(id); else { customProjects.delete(id); customAud.delete(id); }
   if (v === CUSTOM) {
     const [rows, auds] = await Promise.all([cloud.listProjectViewers(), cloud.projectAudiences([id])]);

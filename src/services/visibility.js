@@ -5,7 +5,7 @@
 //   앱   — 알림 받는 사람·멘션 후보 거르기(cloudSync) · 자물쇠·칩을 세울지(projectView·mobileNav·업무 창)
 //   서버 — 서비스 키 경로(api/_wiki/gather.js 위키 장 · api/share.js 공유 카드 · api/push.js 알림 · api/ics.js 달력 ·
 //          api/_wikiAsk.js 다붓이 답 캐시·짝 — leaderCited)
-// 리더 = 마스터·관리자·교역자·그 해 임원진(leader_profile_ids()와 같은 판정 · 순장은 아니다).
+// 리더 = 마스터·관리자·교역자·그 해 임원진·그 해 팀장·예배팀장(leader_profile_ids()와 같은 판정 · 순장은 아니다 · 0107). 지난해 리더 프로젝트는 그해 리더도(0110 · leaderAudience).
 // 직접 선택(custom) = 고른 사람(project_viewers) + 마스터(project_audiences()가 그 id 배열을 준다).
 // 서버 키에는 '좁혀진 프로젝트'(리더만 · 직접 선택)가 다 '안 보이는 프로젝트'다 — 누구 몫인지 모르는 자리(위키 장 · 공유 카드 ·
 // 다붓이 캐시를 남기기)는 둘을 같이 걷고, 받는 사람이 정해진 자리(푸시 · 달력)는 그 사람이 audience에 드는지 본다.
@@ -38,6 +38,18 @@ export function toggleViewerTeam({ viewers = [], viewerTeams = [] }, team, peopl
   const drop = new Set(people.filter(p => inTeam(p, team) && !rest.some(t => inTeam(p, t))).map(p => p.name));
   drop.delete(keep);
   return { viewers: viewers.filter(n => !drop.has(n)), viewerTeams: rest };
+}
+
+// 이 프로젝트가 나에게 보이나(앱 화면 — 업무 링크 카드·멘션 칩 · RichText) — 스토어에 있나 하나다. 클라우드는 RLS(hidden_ids ·
+// 리더만 0092 · 직접 선택 0105 · 휴지통 0104 · 지난해 리더 0110)가 안 보이는 행을 애초에 안 주고, 게스트에는 보는 사람 판정이 없다.
+// 판정을 바꿀 일이 생기면 여기 한 곳을 고친다(합치기 2026-10-17 — A 묶음의 지역 seeable을 옮겼다).
+export const canSeeProject = (project) => !!project;
+
+// 리더만 보는 프로젝트를 볼 수 있는 계정 — 올해 리더(leader_profile_ids) ∪ 그 프로젝트 몫(project_audiences 줄 · 0110부터 그해 리더가
+// 들어 있다 — 지난해 리더 프로젝트의 지난해 리더). 몫을 못 읽었으면 올해 리더만(0110 전과 같다).
+export function leaderAudience(leaderIds = new Set(), projectAud = null) {
+  if (!projectAud || !projectAud.size) return leaderIds;
+  return new Set([...leaderIds, ...projectAud]);
 }
 
 // 자물쇠를 세울까 — 클라우드는 리더에게만, 게스트는 언제나(로컬 값)

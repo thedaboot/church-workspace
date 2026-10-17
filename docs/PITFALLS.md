@@ -1390,13 +1390,15 @@ t가 붙은 주소가 방금 돌아온 자리를 덮는다). 열기 전 화면�
 기다리지 않는다. 새 업무 폼 갈래(55-a)는 그대로다. `modals.jsx` 머리의 '폰 뒤로가기는 App이 곧바로 내린다' 주석은 그 파일을 만지는 회차에 고친다(같은 날 다른 묶음이 만지는 중이었다).
 검사에서 파일을 고친 직후 같은 서버로 브라우저 스위트를 돌리면 HMR 때문에 `import('/src/…')`로 바꿔 끼운 것(다듬기 가짜 등)이 엉뚱하게 깨진다(54-e) — 되돌려 보기가 끝나면 서버를 새로 띄워 다시 돈다.
 
+### 휴지통 · 복제 · 업무 링크 (v5 A · 2026-10-17 · 0104)
+
 **61.** **휴지통(0104)은 지운 표시다 — 행을 지우지 않는다.** 함정 넷.
 **61-a.** **지운 표시를 클라이언트 update로 적지 않는다.** `cards_select`·`projects_select`에 `deleted_at is null`을 넣으면 PostgreSQL은 update로 생긴 새 행도 select 정책으로 본다 — 그래서 `update … set deleted_at = now()`는 42501(new row violates)로 떨어진다(소프트 삭제의 흔한 함정). 지우기·되살리기는 security definer 함수(`trash_card`·`trash_project`·`restore_card`·`restore_project`)만이고, update의 with check에도 `deleted_at is null`을 넣어 길을 하나로 묶었다.
 **61-b.** **지운 업무 자신은 칸으로, 그 아래는 `hidden_ids()`로 가린다.** 업무 정책은 0092부터 `project_id`만 hidden_ids와 견준다 — 지운 업무 id를 hidden_ids에 넣어도 그 업무 행은 안 가려진다. 반대로 댓글·첨부·활동·담당·참고 링크·반응·같이 쓰기·doc_vec·채널은 hidden_ids를 그대로 부르므로 함수 한 곳에 휴지통 갈래를 더하면 고치지 않고 따라온다. **hidden_ids를 다시 쓰는 마이그레이션(보는 사람 직접 고르기 등)은 0104의 본문을 바탕으로** — 0092 본문으로 덮으면 휴지통의 댓글·첨부가 도로 보인다.
 **61-c.** **지운 것은 남에게 실시간으로 안 간다.** 받는 사람의 SELECT 정책이 새 행을 가려서 UPDATE 이벤트가 없다(0092 '공개 → 리더만'과 같은 성질). 지운 화면이 `workspace-all`에 `trashed` broadcast(id만)를 보내고 받은 쪽이 업무는 다시 읽어(없으면 지운다)·프로젝트는 전체 재조회 + 휴지통 줄 다시 읽기(`cloud.announceTrashed` · `cloudSync.subscribeWorkspace`의 `TRASHED`). 복원은 행이 다시 보이므로 평소 UPDATE로 온다.
 **61-d.** **서버 키 경로는 RLS를 안 탄다 — 휴지통을 읽은 자리에서 걷는다**(`api/_trash.js trashedIds` + `trashItems.dropTrashed`): 위키 빌드(`_wiki/gather.js`) · 다붓이 아침 고리(`_wikiAsk.collectAll`의 `db === admin`일 때만 — 묻는 사람 세션은 RLS가 이미 가려 왕복을 늘리지 않는다) · 임베딩 원본(`_docsync.loadSources` — 지운 업무의 조각은 '원본 없음'으로 지워지고 복원하면 다시 임베딩) · 마감 알림 · 달력 구독(`ics.js`) · 공유 카드(`share.js`). 새로 서버 키로 cards·projects를 읽는 자리를 만들면 같이 걷는다. 칸이 없으면(0104 전 · 42703) 빈 Set이라 코드가 먼저 나가도 돈다.
 **61-e.** **정리 크론은 앱의 예전 삭제와 같은 차례다**(`purgeTrash` — 준비물 읽기 → 행 삭제 → 첨부 행 → 드라이브 폴더째 → 업무 폴더째 → 파일 단위 · Storage 실체). 드라이브는 서버가 Apps Script `trash`를 직접 부른다(`api/drive.js`와 같은 `DRIVE_WEBAPP_URL`·토큰). 지운 프로젝트 안의 업무는 자기 표시가 없어도 폴더·첨부를 모아야 해서 `project_id in (…)`로 한 번 더 읽는다. 던지지 않는다 — 실패한 것은 행이 남아 다음 아침에 다시 잡힌다(행을 지운 뒤 드라이브가 실패하면 그 폴더는 드라이브에 남는다 — 예전 삭제와 같다).
-**61-f.** **복제는 잠긴 업무(0099)의 본문·하위 업무를 옮기지 않는다**(`projectCopy.keptOf`) — 여는 사람의 스토어에는 card_secrets 본문이 들어 있어 그대로 복사하면 잠금 밖의 새 공개 업무로 나간다. 리더만 보는 원본은 새 프로젝트도 리더만으로 **업무를 넣기 전에** 만든다(`projectCreateCloud`의 visibility). 클라우드의 댓글·첨부 수는 업무 창을 열기 전에는 `commentCount`·`fileCount`(0016)에만 있어 미리보기는 둘 중 큰 쪽을 센다.
+**61-f.** **복제는 잠긴 업무(0099)의 본문·하위 업무를 옮기지 않는다**(`projectCopy.keptOf`) — 여는 사람의 스토어에는 card_secrets 본문이 들어 있어 그대로 복사하면 잠금 밖의 새 공개 업무로 나간다. 리더만 보는 원본은 새 프로젝트도 리더만으로 **업무를 넣기 전에** 만든다(`projectCreateCloud`의 visibility). 직접 선택(0105) 원본은 custom으로 만들고 업무를 넣기 전에 같은 고른 사람을 싣는다 — 리더가 아니면 트리거가 'all'로 되돌리므로 그 빈 프로젝트를 지우고 실패로 돌려준다(합치기 2026-10-17 · `tests/push` '복제: 직접 선택 원본'). 클라우드의 댓글·첨부 수는 업무 창을 열기 전에는 `commentCount`·`fileCount`(0016)에만 있어 미리보기는 둘 중 큰 쪽을 센다.
 
 ### 보는 사람 직접 선택 · 비밀번호 재설정 요청 (v5 B · 2026-10-17 · 0105·0106)
 
@@ -1421,13 +1423,24 @@ t가 붙은 주소가 방금 돌아온 자리를 덮는다). 열기 전 화면�
 견주는 해가 같다(`handover.seatYearApplies` — 고른 해가 올해 이하일 때만 막는다 · 저장 `roster.setTeamLead`도 같다).
 **63-c.** **`is_leader()`의 이름·인자를 바꾸지 않는다**(B 묶음 정책·`api/_leaders.js`가 부른다). 해마다 가르는 몸은 `is_leader_for(y)` 하나 — 지난해 리더(0110)는
 `my_leader_years()`로 프로젝트 연도와 견준다. **0110은 0104(휴지통)·0105(보는 사람)의 hidden_ids·can_see_project·projects 정책 몸통을 합친 것이다** — 그 둘이
-바뀌면 0110도 다시 맞춘다(뒤에 적용한 쪽이 이긴다 · 리허설 `rehearsal_0110.sql`로 행 수를 본다).
+바뀌면 0110도 다시 맞춘다(뒤에 적용한 쪽이 이긴다 · 63-h).
 **63-d.** **인계 목록은 마스터 화면이 내려 둔다**(`handoverStore.cloudSync` → `sync_handovers`). 넘기는 사람은 계획(handover_plans)을 못 읽으니 줄이 있어야 홈 카드가
 선다 — 마스터가 명단 탭에서 다음 해 직분을 고친 뒤에는 **인수인계 탭을 한 번 열어야** 줄이 따라온다(탭을 열 때마다 내린다). 쓴 줄(written_at)은 짝이 바뀌어도
 지우지 않고 active=false로 둔다 — 짝을 되돌리면 같은 열쇠(해·넘기는·받는)라 그대로 살아난다. 한 해 줄이 하나라도 적용되면 sync는 아무것도 안 한다.
-**63-e.** **1월 1일 적용은 08:00 크론의 첫 단계다**(`api/push.js runHandover` · Vercel 크론 두 자리 그대로). `apply_handovers()`는 서버 키만(authenticated EXECUTE 회수) ·
+**63-e.** **1월 1일 적용은 08:00 크론의 한 단계다**(`api/push.js runHandover` · 마감 알림 → 휴지통 정리 → 인수인계 → 임베딩 → 위키 · Vercel 크론 두 자리 그대로). `apply_handovers()`는 서버 키만(authenticated EXECUTE 회수) ·
 `year <= kst_year()`인 적용 안 된 줄만 · 계정이 이어진 두 사람 사이에서만 담당자를 바꾼다(card_assignees · 넘기는 사람이 담당자가 아니면 그 업무는 건너뜀).
 그날 실패해도 다음 아침에 다시 돈다. 리허설은 올해 줄로 만들어야 적용된다(다음 해 줄은 1월 1일 전에는 안 돈다).
 **63-f.** **탭 차례(0108)는 '*'로 읽는 프로필 행에 따라온다** — `getMyProfile`·`listProfiles`가 `select('*')`라 칸이 없어도 깨지지 않는다(§3-4). 쓰기는 본인 행 update
 한 번(`myUid` — 합친 계정은 남긴 계정 행)이고, 관리자 정책이 남의 행을 열어 두므로 **칸 가드 트리거**가 막는다(42501). 회원이 남의 행을 고치면 RLS가 0행으로 끝낸다
 (오류 없음 — 리허설에서 둘을 따로 본다).
+
+### v5 1묶음 합치기 (2026-10-17 · A·B·C → main)
+**63-g.** **정책 식에서 배열 함수는 `= ANY ((SELECT f())::type[])`로 쓴다** — `year = ANY ((SELECT my_leader_years()))`는 `ANY(서브쿼리)`로 읽혀 서브쿼리의 한 줄(정수 배열)과 정수를
+견주므로 `operator does not exist: integer = integer[]`(42883)로 마이그레이션이 멈춘다. 0101의 `( SELECT hidden_ids() AS hidden_ids)::uuid[]`처럼 캐스트를 붙이면 식이 된다(InitPlan 한 번은 그대로).
+0110이 이 꼴이었고 합치기 리허설(PGlite)에서 처음 잡혔다 — 정책 식을 새로 쓰면 리허설로 한 번은 돌린다(`logcheck-v2`가 캐스트를 단정).
+**63-h.** **같은 함수·정책을 여러 마이그레이션이 다시 쓰면 '번호 차례로 마지막 정의'가 모든 갈래를 가져야 한다** — `hidden_ids`(0104 휴지통 · 0105 custom · 0110 연도) ·
+`can_see_project`(0105 · 0110) · `project_audiences`(0105 · 0110) · 휴지통 함수 넷(0104 → 0105가 `can_see_project`로) · projects 정책(0104 · 0105 restrictive · 0110).
+`logcheck-sec` '합치기' 블록이 파일을 번호 차례로 훑어 마지막 정의를 단정한다 — 새 마이그레이션이 이 함수들을 다시 쓰면 그 블록의 기대 파일 이름을 같이 고친다.
+판정은 될 수 있으면 `can_see_project` 한 함수를 부르게 둔다(휴지통 함수처럼) — 그러면 뒤 파일이 그 함수만 고쳐도 따라온다.
+**63-i.** **`cloudSync.js`의 import 줄을 바꾸면 `tests/push`·`tests/assignees`의 가짜 패치도 같이 본다** — 두 스위트는 소스 글자를 정규식으로 바꿔 끼워 노드에서 돌린다
+(`supabaseClient` · `tabOrder` · `aiPeople` · `config`). 패치가 못 맞으면 모듈을 못 찾아 CRASH다(C 묶음의 import가 합칠 때 둘을 깨뜨렸다).

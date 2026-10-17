@@ -3,8 +3,8 @@ import { adminClient, readJson, requireApprovedUser, safeEqual, isAdminEmail, UU
 import { readNoticeDate, buildIcs, noticeEvent } from '../src/services/noticeDate.js';
 import { isApprovedProfile } from '../src/services/approval.js';
 import { STATUS_KO, feedKeepRow, feedEvent, buildFeedIcs, feedCalName, feedUrls, taskLink } from '../src/services/calendarFeed.js';
-import { isLeaderOnly, isRestricted } from '../src/services/visibility.js';
-import { leaderIdSet, audienceMap } from './_leaders.js';
+import { isRestricted } from '../src/services/visibility.js';
+import { audienceFor } from './_leaders.js';
 import { trashedIds, goneCard } from './_trash.js';
 
 // ============================================================================
@@ -81,7 +81,8 @@ async function seeProject(supabase, projectId, owner) {
   }
   if (!isRestricted(proj)) return proj;
   try {
-    const allowed = isLeaderOnly(proj) ? await leaderIdSet(supabase) : ((await audienceMap(supabase, [proj.id])).get(proj.id) || new Set());
+    // 리더만은 올해 리더 ∪ 그해 리더(0110 지난해 리더) · 직접 선택은 고른 사람 ∪ 마스터(_leaders.audienceFor 한 벌)
+    const allowed = (await audienceFor(supabase, { projectId: proj.id })) || new Set();
     return allowed.has(owner) ? proj : null;
   } catch (e) {
     console.error('[ics] 보는 사람 목록 조회 실패:', e?.message || e); return null;

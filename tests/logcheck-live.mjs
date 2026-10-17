@@ -1015,7 +1015,10 @@ import { loadSource, readSplit } from './_load.mjs';
   const ctl = readFileSync(new URL('../src/hooks/controllers.js', import.meta.url), 'utf8');
   const sync = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
   assert.ok(/\.\.\.\(isLeaderOnly\(src\) \? \{ visibility: LEADERS \} : \{\}\)/.test(ctl)
-    && /\.\.\.\(leaders \? \{ visibility: LEADERS \} : \{\}\)/.test(sync), '리더만 보는 원본은 리더만으로 만든다(업무가 들어가기 전에)');
+    && /\.\.\.\(leaders \? \{ visibility: LEADERS \} : custom \? \{ visibility: CUSTOM \} : \{\}\)/.test(sync), '리더만 보는 원본은 리더만으로 만든다(업무가 들어가기 전에)');
+  // 직접 선택(0105) 원본도 같은 고른 사람으로(합치기 2026-10-17 · 동작은 tests/push.mjs '복제: 직접 선택 원본')
+  assert.ok(/\.\.\.\(isCustomOnly\(src\) \? \{ visibility: CUSTOM, viewers: \[\.\.\.\(src\.viewers \|\| \[\]\)\], viewerTeams: \[\.\.\.\(src\.viewerTeams \|\| \[\]\)\] \} : \{\}\)/.test(ctl),
+    '직접 선택 원본은 새 프로젝트에 고른 사람·팀 칩을 싣는다');
   assert.ok(/cloudSync\.projectCreateCloud\(newProject\)\n\s+\.then\(\(\) => Promise\.allSettled\(made\.map\(t => cloudSync\.cardUpsertCloud\(t, true\)/.test(ctl),
     '프로젝트가 먼저 서고 업무는 새 업무로 넣는다(하나가 실패해도 나머지는 들어간다)');
   console.log('PASS  프로젝트 복제(짜임새만 · 잠긴 업무 · 클라우드 댓글 수 · 리더만 원본 · 클라우드 순서)');

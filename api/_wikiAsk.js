@@ -436,6 +436,7 @@ async function dataStamp(admin) {
 // 잠긴 업무 id를 못 읽거나 그 사람 몫을 못 받으면 주지 않는다. 판정 질의는 그런 답이 있을 때만 부른다.
 // 직접 선택(0105) 프로젝트 기록에 기댄 답은 묻는 사람이 그 프로젝트를 볼 때만(그 사람 세션의 hidden_ids에 안 들 때 — 고른 사람·마스터) —
 // 그 업무 id를 못 읽거나 그 사람 몫을 못 받으면 주지 않는다(리더라도 고르지 않았으면 못 본다 — is_leader로 가르지 않는다).
+// 지난해 리더(0110 · 합치기 2026-10-17): 올해 리더가 아니어도 그 사람 세션의 hidden_ids에 안 든 리더 업무에 기댄 답은 준다.
 export async function cachedAnswer(admin, question, today, db = null) {
   const since = new Date(`${today}T00:00:00+09:00`).toISOString();
   const [{ data }, stamp, leaders, custom, locked] = await Promise.all([
@@ -450,12 +451,16 @@ export async function cachedAnswer(admin, question, today, db = null) {
   const fresh = data.filter(r => cacheFresh(r, stamp, today));
   if (!fresh.length || !leaders || !custom || !locked) return null;
   const needs = (set) => !!db && fresh.some(r => leaderCited(r.answer, set));
-  const [amLeader, shut, unseenMine] = await Promise.all([
+  const [amLeader, shut, mine] = await Promise.all([
     needs(leaders) ? db.rpc('is_leader').then(r => r.data === true, () => false) : false,
     needs(locked) ? lockedHiddenFor(db).catch(() => locked) : locked,
-    needs(custom) ? hiddenFor(db).catch(() => custom) : custom,
+    needs(custom) || needs(leaders) ? hiddenFor(db).catch(() => null) : null,
   ]);
-  const row = fresh.find(r => (amLeader || !leaderCited(r.answer, leaders)) && !leaderCited(r.answer, shut) && !leaderCited(r.answer, unseenMine));
+  const unseenMine = mine || custom;
+  // 지난해 리더(0110): 올해 리더가 아니어도 그 사람 세션의 hidden_ids에 안 든 리더 업무(그해 리더였던 해의 리더 프로젝트)는 본다.
+  // hidden_ids를 못 받으면 리더 업무 전부를 닫는다(예전 그대로).
+  const leaderShut = amLeader ? new Set() : (mine ? new Set([...leaders].filter(id => mine.has(id))) : leaders);
+  const row = fresh.find(r => !leaderCited(r.answer, leaderShut) && !leaderCited(r.answer, shut) && !leaderCited(r.answer, unseenMine));
   if (!row) return null;
   return { status: 'answered', sentences: row.answer.sentences, files: row.answer.files || [], dropped: [], model: WIKI_MODEL, cached: true, cacheable: true };
 }

@@ -11,10 +11,9 @@ import { CONFIG, teamPaint } from '../config.js';
 import { Avatar } from './Avatar.jsx';
 import { CardLockMark, LockGlyph } from './cardLock.jsx';
 import { isCardClosed } from '../services/cardLock.js';
+// 이 업무·프로젝트가 나에게 보이나 — 판정은 visibility.canSeeProject 한 곳(리더만 · 직접 선택 · 휴지통 · 지난해 리더는 RLS가 행을 안 준다)
+import { canSeeProject } from '../services/visibility.js';
 
-// 이 업무·프로젝트가 나에게 보이나 — 지금은 '스토어에 있나' 하나다(리더만 보기(0092)·휴지통(0104)은 RLS가 행을 안 줘서 애초에
-// 스토어에 없다). 보는 사람을 직접 고르는 프로젝트(v5 B 묶음 · visibility.canSeeProject)가 붙으면 그 판정을 여기 한 곳에 넣는다.
-const seeable = (project) => !!project;
 
 // ============================================================================
 // 9. RichText Parser & Renderer
@@ -122,7 +121,7 @@ function AppMention({ href, deep }) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     if (openTaskDeepLink?.(deep)) e.preventDefault();
   };
-  if (!title || !seeable(project)) {
+  if (!title || !canSeeProject(project)) {
     // 업무·프로젝트 링크인데 나에게 보이는 것이 없다(지움 · 볼 수 없음 · 없는 id) — 긴 주소 대신 **같은 모양의 중립 칩**(시안 3차).
     // 제목도 '있다/없다'도 드러내지 않는다 — 없는 것과 못 보는 것이 같은 글자·같은 아이콘이다. 누름은 그대로(못 열면 주소로).
     // `?p=<화면>` 같은 화면 링크(업무가 아니다)는 예전처럼 주소 그대로다.
@@ -218,7 +217,7 @@ const firstLine = (md) => {
 function TaskLinkCard({ id }) {
   const task = useStore(s => s.tasks.byId[id]);
   const project = useStore(s => (task ? s.projects.byId[task.projectId] : null));
-  if (!task || !seeable(project)) return null;
+  if (!task || !canSeeProject(project)) return null;
   const closed = isCardClosed(task);
   const href = `${window.location.origin}/s/t/${id}`;
   const lead = closed ? '' : firstLine(task.content);

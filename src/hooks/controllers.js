@@ -11,7 +11,7 @@ import { rollbackPatch, createDeleteHold, failedComments } from '../services/opt
 import { openTaskId } from '../modals/taskFocus.js';
 import { trashTask } from '../services/trash.js';
 import { copyTasks } from '../services/projectCopy.js';
-import { LEADERS, isLeaderOnly } from '../services/visibility.js';
+import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly } from '../services/visibility.js';
 
 // 개발 빌드의 게스트 검사만(tests/modalclose) — `window.__devFail = { task: true, comment: true }`면 그 쓰기를 실패로 본다.
 // 게스트는 서버가 없어 실패하는 길이 아예 없다. 배포 빌드에서는 import.meta.env.DEV가 거짓이라 늘 false다(homeView `__kstNow`와 같은 관례).
@@ -313,6 +313,7 @@ export const useWorkspaceController = () => {
   // 만든 사람·생성 기록은 복제한 사람으로 새로 붙는다(TaskService.create). id는 copyTasks가 미리 정한 것을 지킨다 — create가 새로
   // 뽑으면 선후관계(dependsOn)가 옛 id를 가리킨다. **리더만 보는 원본이면 새 프로젝트도 리더만**(0092 · 아니면 리더 업무의 본문이
   // 공개 프로젝트로 옮겨 간다 — 리더가 아니면 DB 트리거가 'all'로 되돌리지만 리더 프로젝트는 애초에 리더만 연다).
+  // 직접 선택 원본은 새 프로젝트도 같은 고른 사람으로(리더가 아니면 클라우드는 만들지 않고 실패 토스트 · projectCreateCloud).
   // 클라우드: 프로젝트가 먼저 서야 업무가 들어간다. 프로젝트를 못 만들면 스토어에서 통째로 빼고, 업무 일부를 못 넣으면 그 업무만 뺀다.
   const handleDuplicateProject = useCallback((srcId, title, year) => {
     const st = store.getState();
@@ -326,6 +327,8 @@ export const useWorkspaceController = () => {
       createdAt: new Date().toISOString(),
       year: year || new Date().getFullYear(),
       ...(isLeaderOnly(src) ? { visibility: LEADERS } : {}),
+      // 직접 선택(0105) 원본은 같은 고른 사람·팀 칩으로(합치기 2026-10-17 — 'all'로 베끼면 고른 사람만 보던 업무가 모두에게 간다)
+      ...(isCustomOnly(src) ? { visibility: CUSTOM, viewers: [...(src.viewers || [])], viewerTeams: [...(src.viewerTeams || [])] } : {}),
     };
     store.dispatch({ type: 'ADD_PROJECT', payload: newProject });
     const tasks = st.tasks.allIds.map(id => st.tasks.byId[id]).filter(t => t.projectId === srcId);

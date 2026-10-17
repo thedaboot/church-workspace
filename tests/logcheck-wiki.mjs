@@ -761,7 +761,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   const line = A.peopleLines(roster, '찬양팀에는 누가 있나요?').find(l => l.startsWith('찬양팀에는'));
   assert.strictEqual(line, '찬양팀에는 현재 워크스페이스 가입자로는 노준석(팀장), 조준환(인도자 · 싱어), 정민경(베이스), 김승찬(일렉), 재훈(싱어), 안병현(세컨 건반)이 있어요.');
   assert.ok(!/순장|총무|회계|예배팀장/.test(line), '일반 직함은 팀 줄에 없다');
-  assert.ok(ask.includes("import { teamPart } from '../src/services/wikiLive.js';"), 'teamPart는 가져다 쓴다(베끼지 않는다)');
+  assert.ok(/import \{[^}]*teamPart[^}]*\} from '\.\.\/src\/services\/wikiLive\.js';/.test(ask), 'teamPart는 가져다 쓴다(베끼지 않는다 · 팀 사람 고르기 inTeam도 같은 줄 — 0107)');
   assert.ok(A.peopleLines({ pastors: [], members: [{ name: '노준석', role: '', teams: ['찬양팀'] }, { name: '재훈', role: '', teams: ['찬양팀'] }] }, '찬양팀 누구').includes('찬양팀에는 현재 워크스페이스 가입자로는 노준석, 재훈이가 있어요.'));
   assert.strictEqual(A.listSubject(['가나다', '정민경(베이스)']), '가나다, 정민경(베이스)이', '괄호 앞 이름의 받침으로');
   assert.strictEqual(A.listSubject(['가나다', '이하나(일렉)']), '가나다, 이하나(일렉)가');
@@ -1431,6 +1431,10 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.strictEqual((await A.cachedAnswer(admin(leaderAns), '리더 MT 숙소 어디야?', today, fakeDb({}, { leader: true })))?.cached, true, '리더에게는 준다');
   assert.strictEqual((await A.cachedAnswer(admin(publicAns), '리더 MT 숙소 어디야?', today, fakeDb({}, { leader: false })))?.cached, true, '공개 근거는 누구에게나');
   assert.ok(askSource().includes('const hit = await cachedAnswer(admin, question, today, db).catch(() => null);'), '낮의 답은 묻는 사람 세션을 넘긴다');
+  // 지난해 리더(0110 · 합치기 2026-10-17) — 올해 리더가 아니어도 그 사람 세션의 hidden_ids에 그 리더 업무가 없으면(그해 리더) 준다.
+  // **되돌리기**: cachedAnswer의 leaderShut을 `amLeader ? new Set() : leaders`로 되돌리면 첫 단정이 깨진다.
+  assert.strictEqual((await A.cachedAnswer(admin(leaderAns), '리더 MT 숙소 어디야?', today, fakeDb({}, { leader: false, hidden: [] })))?.cached, true, '지난해 리더(hidden_ids에 없음)에게는 준다');
+  assert.strictEqual(await A.cachedAnswer(admin(leaderAns), '리더 MT 숙소 어디야?', today, fakeDb({}, { leader: false, hidden: ['pL', 'cL'] })), null, '그해 리더도 아니면(hidden_ids에 있음) 안 준다');
   // 직접 선택(0105) — 그 프로젝트 근거 답은 묻는 사람 세션의 hidden_ids에 안 드는 사람(고른 사람·마스터)에게만. 리더라도 안 고르면 못 받는다.
   // **되돌리기**: cachedAnswer의 unseenMine 거름을 빼면 '고르지 않은 리더'가, hiddenFor의 배열 검사를 빼면 '모르는 답이면 닫힘'이 깨진다.
   {

@@ -6,7 +6,7 @@ import { selectCurrentUser } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import { useTrashItems, useTrashRefresh, restoreTrash, canRestore } from '../services/trash.js';
 import { myUidSync } from '../services/supabaseClient.js';
-import { errorReason } from '../services/errorText.js';
+import { failText } from '../services/errorText.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useLeave } from '../hooks/useExit.js';
 import { BTN_SOFT } from './buttons.js';
@@ -63,9 +63,9 @@ function TrashRow({ item, who }) {
       if (r === 'no-project') { showToast('프로젝트가 휴지통에 있어요\n프로젝트를 먼저 복원해주세요'); return; }
       showToast(`'${item.title}'을(를) 복원했어요`);
     } catch (e) {
-      // 클라우드 복원 실패 — 앞도막 문구는 아직 정하지 않아 이유 한 줄만(errorText · 원문은 콘솔)
+      // 클라우드 복원 실패 — 다른 실패 토스트와 같은 두 도막(failText · 앞도막은 사용자 결정 2026-10-17 · 원문은 콘솔)
       console.error('[trash] 복원 실패:', e);
-      showToast(errorReason(e));
+      showToast(failText('복원하지 못했어요', e));
     } finally { setBusy(false); }
   };
   return (

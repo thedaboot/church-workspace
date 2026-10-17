@@ -68,7 +68,12 @@ const SRC = join(ROOT, 'src', 'services', 'cloudSync.js');
 const patched = readFileSync(SRC, 'utf8')
   .replace(/import \* as cloud from '\.\/cloud\.js';/, 'const cloud = globalThis.__CLOUD;')
   // supabaseClient의 쓰기 관찰 지점(2026-09-05 — 다녀간 시각)은 여기서 필요 없다
-  .replace(/import \{ setWriteObserver \} from '\.\/supabaseClient\.js';/, 'const setWriteObserver = () => {};')
+  // 팀장 줄(0107 · C 묶음)은 supabase를 직접 읽는다 — 가짜에서는 없음(null → 읽지 않는다) · 탭 차례(0108)는 할 일 없음
+  .replace(/import \{ setWriteObserver(, supabase)? \} from '\.\/supabaseClient\.js';/, 'const setWriteObserver = () => {}; const supabase = null;')
+  .replace(/import \{ primeTabOrder \} from '\.\/tabOrder\.js';/, 'const primeTabOrder = () => {};')
+  // 팀장 원본 거치기(aiPeople.withTeamLead) · 설정(CONFIG)은 순수 모듈 — 진짜 파일을 절대 경로로
+  .replace(/from '\.\/aiPeople\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'aiPeople.js')).href}';`)
+  .replace(/from '\.\.\/config\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'config.js')).href}';`)
   .replace(/import \{ statusToDb, statusFromDb \} from '\.\/cloud\.js';/,
     `const statusToDb = () => 'todo'; const statusFromDb = () => '시작 전';`)
   // utils는 진짜 파일을 절대 경로로 문다(assignees.mjs와 같은 이유 — 가짜로 다시
@@ -302,7 +307,7 @@ assert.equal(notified[0].meta.kind, 'reply');
     rpc: async (fn, args) => ({ data: fn === 'project_audiences' ? [{ project_id: args.ps[0], profile_ids: ['u2'] }] : fn === 'leader_profile_ids' ? ['u9'] : null }),
   });
   assert.deepStrictEqual([...await L.audienceFor(fdb('custom'), { cardId: 'c3' })], ['u2'], 'POST 푸시: 직접 선택은 project_audiences');
-  assert.deepStrictEqual([...await L.audienceFor(fdb('leaders'), { cardId: 'c3' })], ['u9'], '리더만은 leader_profile_ids 그대로');
+  assert.deepStrictEqual([...await L.audienceFor(fdb('leaders'), { cardId: 'c3' })], ['u9', 'u2'], '리더만은 leader_profile_ids ∪ 그 프로젝트 몫(0110 그해 리더)');
   assert.strictEqual(await L.audienceFor(fdb('all'), { cardId: 'c3' }), null, '공개는 거르지 않는다');
   // 비밀번호 재설정 요청 알림(0106) — 사람이 만든 업무 알림 · 문구는 pendingCopy 한 곳
   const PC = await import('file://' + join(ROOT, 'src', 'services', 'pendingCopy.js').replace(/\\/g, '/'));
@@ -312,6 +317,72 @@ assert.equal(notified[0].meta.kind, 'reply');
   C.listProjects = async () => [{ id: 'p1', name: '2026 하계 수련회' }];
   await sync.loadCloudState();
   console.log('PASS  보는 사람 직접 선택(0105) — 알림 받는 사람·멘션 후보·저장·못 읽으면 닫힘·마감 임박·POST 푸시 · 요청 알림(0106) 15가지');
+}
+
+// ── 지난해 리더(0110 · 합치기 2026-10-17 사용자 요청) — 리더 프로젝트의 몫(project_audiences 줄 · 그해 리더)을 올해 리더에 더한다 ──
+// 2025 리더 프로젝트(p2)의 2025 임원 천진영(u3)은 2026 리더가 아니어도 그 업무 알림·멘션 후보·마감 임박·푸시에 든다.
+// **되돌리기**(§3-5): cloudSync seeing의 leaderAudience를 빼면 '배정', getMemberNames의 leaderAud 갈래를 빼면 '멘션 후보',
+// dueSoonWanted의 leaderAudience를 빼면 '마감 임박', _leaders.audienceFor의 audienceMap 합치기를 빼면 'POST 푸시'가 깨진다.
+{
+  const C = globalThis.__CLOUD;
+  C.listProjects = async () => [{ id: 'p1', name: '2026 하계 수련회' }, { id: 'p2', name: '2025 임원 MT', visibility: 'leaders', year: 2025 }];
+  C.getLeaderInfo = async () => ({ amLeader: true, ids: ['u1'] });
+  C.listProjectViewers = async () => [];
+  C.projectAudiences = async () => [{ project_id: 'p2', profile_ids: ['u1', 'u3'] }];
+  await sync.loadCloudState();
+  assert.deepStrictEqual(sync.getMemberNames('p2'), ['노준석', '천진영'], '지난해 리더 프로젝트의 멘션 후보에 그해 리더가 든다');
+  notified.length = 0;
+  await sync.notifyAssignees(['u2', 'u3'], { actorName: '노준석', cardId: 'c9', projectId: 'p2', preview: '숙소' });
+  assert.deepStrictEqual(notified.map(n => n.ids), [['u3']], '배정 알림은 올해 리더 ∪ 그해 리더에게(조준환 빠짐)');
+  // project_audiences를 못 읽으면 올해 리더만(0110 전과 같다 · 닫힌 쪽)
+  C.listProjectViewers = async () => { throw new Error('relation "project_viewers" does not exist'); };
+  await sync.loadCloudState();
+  assert.deepStrictEqual(sync.getMemberNames('p2'), ['노준석'], '몫을 못 읽으면 올해 리더만');
+  // 마감 임박(서버 키)
+  const cards = [{ id: 'c9', title: '숙소', project_id: 'p2', due_date: '2026-10-12', card_assignees: [{ profile_id: 'u2' }, { profile_id: 'u3' }], projects: { archived: false, visibility: 'leaders' } }];
+  assert.deepStrictEqual(api.dueSoonWanted(cards, '2026-10-12', new Set(['u1']), new Map([['p2', new Set(['u1', 'u3'])]])).map(w => w.recipientId), ['u3'],
+    '리더 프로젝트 마감은 올해 리더 ∪ 그해 리더 담당자에게');
+  assert.deepStrictEqual(api.dueSoonWanted(cards, '2026-10-12', new Set(['u1'])), [], '몫이 없으면 올해 리더만(담당자 둘 다 아님)');
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  assert.ok(/live\.filter\(c => isCustomOnly\(c\.projects\) \|\| isLeaderOnly\(c\.projects\)\)/.test(src), '마감 임박은 리더 프로젝트 몫도 읽는다');
+  // POST 푸시 · 달력 — _leaders.audienceFor(가짜 db): 몫을 못 읽으면 올해 리더만
+  const L = await import('file://' + join(ROOT, 'api', '_leaders.js').replace(/\\/g, '/'));
+  const fdb = (audFails) => ({
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { project_id: 'p2', projects: { visibility: 'leaders' } } }) }) }) }),
+    rpc: async (fn) => (fn === 'project_audiences' ? (audFails ? { data: null, error: { message: 'down' } } : { data: [{ project_id: 'p2', profile_ids: ['u1', 'u3'] }] })
+      : fn === 'leader_profile_ids' ? { data: ['u1'] } : { data: null }),
+  });
+  assert.deepStrictEqual([...await L.audienceFor(fdb(false), { cardId: 'c9' })].sort(), ['u1', 'u3'], 'POST 푸시: 그해 리더도 받는다');
+  assert.deepStrictEqual([...await L.audienceFor(fdb(true), { cardId: 'c9' })], ['u1'], 'POST 푸시: 몫을 못 읽으면 올해 리더만');
+  assert.ok(/await audienceFor\(supabase, \{ projectId: proj\.id \}\)/.test(readFileSync(join(ROOT, 'api', 'ics.js'), 'utf8')), '달력 구독도 같은 판정(audienceFor)');
+  delete C.listProjectViewers; delete C.projectAudiences; delete C.getLeaderInfo;
+  C.listProjects = async () => [{ id: 'p1', name: '2026 하계 수련회' }];
+  await sync.loadCloudState();
+  console.log('PASS  지난해 리더(0110) — 리더 프로젝트 몫을 올해 리더에 더한다 · 멘션 후보·배정·마감 임박·POST 푸시·달력 · 못 읽으면 올해 리더만 8가지');
+}
+
+// ── 복제: 직접 선택 원본(합치기 2026-10-17 — A 복제 × B 직접 선택) ─────────────────────────────────────────
+// 'all'로 베끼면 고른 사람만 보던 업무가 모두에게 간다. 'custom'으로 만들고 업무를 넣기 전에 같은 고른 사람을 싣는다.
+// 리더가 아니면 트리거가 'all'로 되돌린다 → 빈 프로젝트를 지우고 42501로 실패(업무를 넣지 않는다).
+// **되돌리기**: projectCreateCloud의 `custom ? { visibility: CUSTOM }`을 빼면 첫 단정이, isCustomOnly(saved) 검사를 빼면 '리더가 아니면'이 깨진다.
+{
+  const C = globalThis.__CLOUD;
+  const made = [], viewersSet = [], deleted = [];
+  C.createProject = async (row) => { made.push(row); return { ...row, visibility: C.__asLeader ? row.visibility : 'all' }; };
+  C.setProjectViewers = async (id, ids, teams) => { viewersSet.push([id, ids, teams]); return { id, visibility: 'custom', viewer_teams: teams }; };
+  C.listProjectViewers = async () => []; C.projectAudiences = async () => [];
+  C.announceProjectVisibility = async () => {};
+  C.deleteProject = async (id) => { deleted.push(id); };
+  C.__asLeader = true;
+  await sync.projectCreateCloud({ id: 'pN', title: '새신자 초청(복제)', position: 9, year: 2027, visibility: 'custom', viewers: ['노준석', '천진영'], viewerTeams: ['웰컴팀'] });
+  assert.deepStrictEqual([made[0].visibility, viewersSet[0]], ['custom', ['pN', ['u1', 'u3'], ['웰컴팀']]], '직접 선택으로 만들고 같은 고른 사람·팀 칩을 싣는다');
+  C.__asLeader = false;
+  const err = await sync.projectCreateCloud({ id: 'pM', title: 'x', visibility: 'custom', viewers: ['노준석'], viewerTeams: [] }).then(() => null, e => e);
+  assert.ok(err && err.code === '42501' && deleted.includes('pM'), '리더가 아니면(트리거가 all로) 빈 프로젝트를 지우고 실패로 돌려준다');
+  await sync.projectCreateCloud({ id: 'pA', title: '공개', visibility: 'all' });
+  assert.ok(!('visibility' in made.at(-1)) && !deleted.includes('pA'), '공개 원본은 예전 그대로');
+  for (const k of ['createProject', 'setProjectViewers', 'listProjectViewers', 'projectAudiences', 'announceProjectVisibility', 'deleteProject', '__asLeader']) delete C[k];
+  console.log('PASS  복제: 직접 선택 원본 — 같은 고른 사람으로 · 리더가 아니면 지우고 실패 · 공개는 그대로 3가지');
 }
 
 // ── 댓글 반응 (0032) ────────────────────────────────────────────────────────

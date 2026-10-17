@@ -1632,7 +1632,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.ok(/revoke all on function public\.apply_handovers\(\) from public, anon, authenticated;/.test(m9) && /grant execute on function public\.apply_handovers\(\) to service_role;/.test(m9), '적용 함수는 서버 키만');
   assert.ok((m9.match(/create policy [^\n]* to authenticated/g) || []).length === 6 && /\(to_person = \(select public\.my_person_id\(\)\) and applied_at is not null\)/.test(m9), '새 정책은 authenticated · 인수자는 적용 뒤부터');
   const m10 = readSrc('supabase/migrations/0110_past_year_leaders.sql');
-  assert.strictEqual((m10.slice(m10.indexOf('alter policy projects_select')).match(/OR \(year = ANY \(\(SELECT my_leader_years\(\)\)\)\)/g) || []).length, 4, 'projects 정책 셋(update는 using·check 둘)에 연도 갈래');
+  assert.strictEqual((m10.slice(m10.indexOf('alter policy projects_select')).match(/OR \(year = ANY \(\(SELECT my_leader_years\(\)\)::integer\[\]\)\)/g) || []).length, 4, 'projects 정책 셋(update는 using·check 둘)에 연도 갈래 — 배열로 캐스트(없으면 ANY(서브쿼리)가 되어 integer = integer[] 오류 · 합치기 리허설에서 잡음)');
   assert.ok(/x\.year = any \(public\.my_leader_years\(\)\)/.test(m10) && /select unnest\(public\.leader_hidden_project_ids\(\)\) as id/.test(m10), 'can_see_project · hidden_ids도 연도 갈래');
   // 다음 해 팀장은 지금 그 팀 팀원이어도 고른다(사용자 결정 2026-10-17) — 겹침은 그해부터.
   // 되돌리기: seatYearApplies를 늘 참으로 하면 첫 단정이, 명단 화면이 blockedLeadTeams로 돌아가면 둘째가 깨진다.

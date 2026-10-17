@@ -1009,3 +1009,70 @@ import { loadSource, readSplit } from './_load.mjs';
   ok(!/create policy|drop policy|using \(|with check \(/i.test(sql), '0102: 정책 식·수는 그대로(§6-31-a)');
   console.log(`PASS  0102 정책은 로그인한 사람에게만 · 판정 함수 익명 회수 ${n}가지`);
 }
+
+// ── v5 1묶음 합치기(2026-10-17) — 마이그레이션 사슬 0104 → 0110 · 함수마다 '마지막 정의'가 모든 갈래를 갖는가 ──────────────
+// 0104(휴지통) · 0105(직접 선택) · 0110(지난해 리더)이 hidden_ids·can_see_project·projects 판정을 각자 다시 썼다. 번호 차례로 적용하면
+// 뒤 파일이 이긴다 — 뒤 파일이 앞 갈래를 안 안고 가면 휴지통 업무의 댓글·첨부가 도로 보인다(PITFALLS 61-b).
+// 여기는 파일 모양만(행 수는 레포 밖 리허설 SQL · PGlite). **되돌리기**: 0105 hidden_ids의 휴지통 줄(`deleted_at is not null`)을 지우면
+// '0105 hidden_ids', 0105 trash_list의 can_see_project를 0104 식으로 되돌리면 '휴지통 줄', 0110 project_audiences를 지우면 '받는 사람',
+// RichText에 지역 seeable을 되살리면 '업무 링크' 단정이 깨진다.
+{
+  const { readdirSync } = await import('node:fs');
+  const dir = new URL('../supabase/migrations/', import.meta.url);
+  const files = readdirSync(dir).filter(f => /^\d{4}_.*\.sql$/.test(f)).sort();
+  const strip = (t) => t.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  const sqlOf = new Map(files.map(f => [f, strip(readFileSync(new URL(f, dir), 'utf8'))]));
+  // 함수 이름 → [파일, 몸통] — 번호 차례로 훑어 마지막 create or replace
+  const lastDef = (name) => {
+    let hit = [null, ''];
+    for (const f of files) {
+      const re = new RegExp(`create or replace function public\\.${name}\\(([\\s\\S]*?)\\$\\$([\\s\\S]*?)\\$\\$`, 'gi');
+      for (const m of sqlOf.get(f).matchAll(re)) hit = [f, m[2]];
+    }
+    return hit;
+  };
+  const policyLast = (name) => {
+    let hit = [null, ''];
+    for (const f of files) {
+      const re = new RegExp(`(?:alter|create) policy ${name} on public\\.projects[\\s\\S]*?;\\n`, 'gi');
+      for (const m of sqlOf.get(f).matchAll(re)) hit = [f, m[0]];
+    }
+    return hit;
+  };
+  let n = 0;
+  const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
+  const b05 = sqlOf.get('0105_project_viewers.sql').match(/create or replace function public\.hidden_ids\(\)[\s\S]*?\$\$([\s\S]*?)\$\$/)?.[1] || '';
+  ok(/deleted_at is not null/.test(b05) && /'custom'/.test(b05) && /'leaders'/.test(b05), '0105 hidden_ids는 0104 몸통(휴지통) 위에 custom을 더한다');
+  const [hf, hb] = lastDef('hidden_ids');
+  ok(hf === '0110_past_year_leaders.sql' && /deleted_at is not null/.test(hb) && /'custom'/.test(hb) && /leader_hidden_project_ids\(\)/.test(hb),
+    `hidden_ids 마지막 정의(${hf})가 휴지통 · custom · 리더(연도) 갈래를 다 갖는다`);
+  const [cf, cb] = lastDef('can_see_project');
+  ok(cf === '0110_past_year_leaders.sql' && /'custom'/.test(cb) && /is_project_viewer/.test(cb) && /my_leader_years\(\)/.test(cb), `can_see_project 마지막 정의(${cf}) — custom · 연도`);
+  const [kf, kb] = lastDef('can_see_card');
+  ok(kf === '0105_project_viewers.sql' && /can_see_project\(k\.project_id\)/.test(kb), `can_see_card 마지막 정의(${kf})는 can_see_project를 불러 뒤 갈래를 따라간다`);
+  for (const fn of ['trash_project', 'restore_card', 'restore_project', 'trash_list']) {
+    const [tf, tb] = lastDef(fn);
+    ok(tf === '0105_project_viewers.sql' && /can_see_project\(/.test(tb) && !/visibility <> 'leaders'|visibility = 'leaders'/.test(tb),
+      `${fn} 마지막 정의(${tf})는 can_see_project 하나로 본다(휴지통 줄에 직접 선택 제목이 새지 않게)`);
+  }
+  const [af, ab] = lastDef('project_audiences');
+  ok(af === '0110_past_year_leaders.sql' && /leader_profile_ids_for\(pj\.year\)/.test(ab) && /project_viewers/.test(ab), `project_audiences 마지막 정의(${af}) — 리더 프로젝트에 그해 리더 · custom 그대로`);
+  for (const p of ['projects_select', 'projects_update']) {
+    const [pf, pb] = policyLast(p);
+    ok(pf === '0110_past_year_leaders.sql' && /deleted_at IS NULL/.test(pb) && /my_leader_years/.test(pb), `${p} 마지막(${pf}) — 휴지통 · 연도`);
+  }
+  const [df, db] = policyLast('projects_delete');
+  ok(df === '0110_past_year_leaders.sql' && /my_leader_years/.test(db), `projects_delete 마지막(${df}) — 연도(옛 앱의 행 삭제 길은 그대로)`);
+  const [gf, gb] = policyLast('projects_custom_guard');
+  ok(gf === '0105_project_viewers.sql' && /as restrictive/i.test(gb), 'projects_custom_guard(0105 restrictive)는 뒤 파일이 건드리지 않는다');
+  // 앱 — 업무 링크 칩·카드는 visibility.canSeeProject 한 곳 · 복원 실패는 두 도막(사용자 결정 2026-10-17)
+  const rt = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
+  ok(/import \{ canSeeProject \} from '\.\.\/services\/visibility\.js';/.test(rt) && !/const seeable/.test(rt) && (rt.match(/!canSeeProject\(project\)/g) || []).length === 2,
+    '업무 링크: RichText는 visibility.canSeeProject로 본다(지역 판정 없음)');
+  const V = await import(new URL('../src/services/visibility.js', import.meta.url).href);
+  ok(V.canSeeProject({ id: 'p' }) === true && V.canSeeProject(undefined) === false, 'canSeeProject: 스토어에 있으면 보인다');
+  ok([...V.leaderAudience(new Set(['a']), new Set(['b']))].join() === 'a,b' && V.leaderAudience(new Set(['a']), null).size === 1, 'leaderAudience: 올해 리더 ∪ 그 프로젝트 몫');
+  const tr = readFileSync(new URL('../src/components/trash.jsx', import.meta.url), 'utf8');
+  ok(/showToast\(failText\('복원하지 못했어요', e\)\)/.test(tr), '복원 실패 토스트는 앞도막 + 이유(failText)');
+  console.log(`PASS  v5 1묶음 합치기 — 마이그레이션 사슬 0104→0110 마지막 정의 · 업무 링크 판정 · 복원 실패 문구 ${n}가지`);
+}
