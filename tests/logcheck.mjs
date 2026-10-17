@@ -655,6 +655,42 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   console.log('PASS  내 달력 구독(문장 · 날짜 · .ics · 기기별 버튼 · 저장 줄 세우기 · 서버 배선)');
 }
 
+// ── 행사 일정(시안 · mock/b2 · services/events.js) — 누가 추가하나 · 띠 자리 ──
+// 되돌리기 검사: canEditEvents를 `() => true`로 바꾸면 첫 단정이, eventSpan의 뒤집기를 빼면 기간 단정이,
+// eventCalItem의 dueDate를 s.start로 두면 대림절 띠 단정이 깨진다.
+{
+  const E = await import(new URL('../src/services/events.js', import.meta.url).href);
+  assert.strictEqual(E.EVENT_EDITORS, 'leaders', '사용자 결정 2026-10-18 — 리더진 + 마스터');
+  assert.strictEqual(E.canEditEvents({ isMaster: false, amLeader: false }), false, '순원은 추가·수정하지 못한다');
+  assert.strictEqual(E.canEditEvents({ isMaster: false }), false, '리더 여부를 모르면(스토어 칸 없음) 닫힌 쪽');
+  assert.strictEqual(E.canEditEvents({ isMaster: false, amLeader: true }), true, '리더');
+  assert.strictEqual(E.canEditEvents({ isMaster: true, amLeader: false }), true, '마스터(게스트도 마스터)');
+  assert.strictEqual(E.canEditEvents({ isMaster: false, amLeader: false }, 'everyone'), true, '규칙 한 줄로 모두에게 열린다');
+  assert.deepStrictEqual(E.eventSpan({ start: '2026-12-30', end: '2026-12-28' }), { start: '2026-12-28', end: '2026-12-30' }, '거꾸로 적힌 기간은 뒤집는다');
+  assert.deepStrictEqual(E.eventSpan({ start: '2026-11-07', end: '' }), { start: '2026-11-07', end: '2026-11-07' }, '종료일이 없으면 하루');
+  assert.strictEqual(E.eventSpan({ start: '', end: '' }), null, '날짜가 없으면 달력에 얹지 않는다');
+  const list = [
+    { id: 'a', title: '대림절', start: '2026-11-29', end: '2026-12-24', kind: 'season' },
+    { id: 'b', title: '성탄 예배', start: '2026-12-25', end: '2026-12-25', kind: 'event' },
+    { id: 'c', title: '날짜 없음', start: '', kind: 'event' },
+  ];
+  const items = E.eventCalItems(list);
+  assert.deepStrictEqual(items.map(i => [i.id, i.startDate, i.dueDate]), [['a', '2026-11-29', '2026-12-24'], ['b', '2026-12-25', '2026-12-25']],
+    '달력 띠는 업무 모양(startDate~dueDate)으로 — 여러 날 띠(대림절)가 시작일부터 종료일까지');
+  assert.deepStrictEqual(E.eventsOn(list, '2026-12-10').map(e => e.id), ['a'], '기간 가운데 날에도 대림절이 선다');
+  assert.deepStrictEqual(E.eventsOn(list, '2026-12-25').map(e => e.id), ['b'], '대림절은 24일까지');
+  assert.strictEqual(E.eventRangeLabel(list[0]), '11월 29일 ~ 12월 24일');
+  assert.strictEqual(E.normalizeEvent({ title: '  ', start: '2026-11-07' }), null, '제목이 비면 저장하지 않는다');
+  const n = E.normalizeEvent({ title: ' 체육대회 ', start: '2026-11-07', end: '2026-11-01', kind: '없는 종류' });
+  assert.ok(n.title === '체육대회' && n.end === '2026-11-07' && n.kind === 'event', '종료일이 앞이면 시작일로 · 모르는 종류는 행사');
+  // 화면 배선 — 추가 길(오른쪽 클릭·길게 누르기·+ 새 일정)은 canEdit일 때만
+  const evUi = readFileSync(new URL('../src/components/events.jsx', import.meta.url), 'utf8');
+  const viewsUi = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  assert.ok(evUi.includes('onDayAdd={canEdit ? openNew : null}') && /\{canEdit && \(\s*<button type="button" onClick=\{onAdd\}/.test(evUi), '추가 길은 canEdit일 때만');
+  assert.ok(viewsUi.includes('canEditEvents({ isMaster, amLeader })'), '전체 일정이 판정 한 곳을 쓴다');
+  console.log('PASS  행사 일정 — 추가 권한 · 기간 · 띠 자리 · 다듬기 · 배선');
+}
+
 
 // ── 내비 부품 한 벌(19차 묶음 D — layout.jsx를 navParts·mobileNav·searchBox·notificationBell로 갈랐다) ──
 // 되돌리기 검사:
