@@ -575,7 +575,9 @@ export async function loadCloudState() {
   const allTeams = [...new Set([primaryTeam, ...myTeamNames].filter(Boolean))];
   const currentUser = shownProfile
     ? { name: shownProfile.display_name || '', team: primaryTeam || allTeams[0] || '', teams: allTeams,
-        avatarUrl: httpsImage(shownProfile.avatar_url || '') }
+        avatarUrl: httpsImage(shownProfile.avatar_url || ''),
+        // 올해 내가 이끄는 팀(0107) — 설정 소속 칩이 명단과 같은 겹침 막기를 쓴다(handover.blockedSeats)
+        ledTeam: leads?.byProfile.get(shownProfile.id) || null }
     : { name: '', team: '', teams: [] };
 
   // 대시보드가 사람을 세우려면 프로필 목록이 화면까지 와야 한다(0019의 생일·다녀간 시각).
@@ -1034,6 +1036,8 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
   if (teamId) patch.team_id = teamId;
   return write(async () => {
     const saved = await cloud.updateMyProfile(patch);
+    // 명단 사람 먼저(0111) — 겹침(23514)이면 여기서 멈춰 계정 쪽 소속도 그대로 둔다
+    await cloud.setMyPersonTeams(list);
     await cloud.setMyTeams(list.map(t => teamNameToId.get(t)).filter(Boolean));
     return saved;
   });

@@ -85,6 +85,15 @@ export async function setMyTeams(teamIds) {
   if (ins.error) console.warn('[cloud] profile_teams 저장 실패:', ins.error.message);
 }
 
+// 설정에서 고친 소속을 내 명단 사람에게도(0111 set_my_person_teams — 명단 이름만 · 겹침은 0107 트리거가 23514로 막는다).
+// 함수가 아직 없는 DB(0111 전)면 건너뛴다 — 지금처럼 계정 쪽만 바뀐다.
+export async function setMyPersonTeams(teamNames) {
+  const { error } = await client().rpc('set_my_person_teams', { p_teams: teamNames });
+  if (!error) return;
+  if (error.code === 'PGRST202' || error.code === '42883') { console.warn('[cloud] set_my_person_teams 없음(0111 전) — 명단 쪽 건너뜀'); return; }
+  throw error;
+}
+
 // 프로필 행이 없을 때 클라이언트가 직접 자기 행을 생성(RLS상 본인 insert 허용).
 // **있는 행은 건드리지 않는다** — 예전 upsert는 getMyProfile이 잠깐 비어 돌아온 순간 OAuth 메타(카카오·
 // 구글 기본 사진, 가입 때 이름)로 사용자가 바꿔 둔 사진·이름을 덮어썼다(2026-09-03 지적 — "내 프로필 사진이

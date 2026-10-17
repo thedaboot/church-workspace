@@ -14,6 +14,7 @@ import { BTN_CONFIRM, BTN_CONFIRM_QUIET } from '../components/buttons.js';
 import { useLeave } from '../hooks/useExit.js';
 import { Segmented } from '../components/segmented.jsx';
 import { retitleForYear, copyOrder, droppedOf, keptOf } from '../services/projectCopy.js';
+import { blockedSeats } from '../services/handover.js';
 
 // ============================================================================
 // 설정 창 — 내 정보(사진·이름·소속·연결된 계정) / 프로젝트 만들기·이름 수정·복제(시안 2026-10-16)
@@ -67,7 +68,9 @@ export function ProfileModal({ onClose, onSave }) {
   const [name, setName] = useState(user.name);
   // teams[0]이 대표 팀. 기존 단일 team만 있던 계정은 그걸 첫 원소로 올려 시작한다.
   const [teams, setTeams] = useState(() => (user.teams?.length ? user.teams : [user.team]).filter(Boolean));
-  const toggleTeam = (t) => setTeams(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  // 겹치는 자리는 명단 수정과 같은 판정으로 막는다(순장 ↔ 순원 · 올해 이끄는 팀 — handover.blockedSeats · 안내 줄 없음 · 0111)
+  const blocked = blockedSeats(teams, user.ledTeam || null);
+  const toggleTeam = (t) => setTeams(prev => prev.includes(t) ? prev.filter(x => x !== t) : (blocked.has(t) ? prev : [...prev, t]));
   const [linking, setLinking] = useState(null); // 연결 중인 provider
   // 사진: 고르는 즉시 올려서 미리 보여주고, 실제 적용은 '저장'에서 한다.
   // undefined = 안 건드림 / '' = 지움(다시 이름 첫 글자 원)
@@ -181,10 +184,11 @@ export function ProfileModal({ onClose, onSave }) {
         <div className="flex flex-wrap gap-1.5 mb-2">
           {Object.entries(CONFIG.TEAMS).map(([t, colorClass]) => {
             const on = teams.includes(t);
+            const off = !on && blocked.has(t);
             return (
               <button
-                key={t} type="button" onClick={() => toggleTeam(t)}
-                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xs text-[11px] font-semibold border transition active:scale-95 ${on ? colorClass + ' border-transparent' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}
+                key={t} type="button" onClick={() => toggleTeam(t)} disabled={off}
+                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xs text-[11px] font-semibold border transition active:scale-95 disabled:opacity-40 disabled:pointer-events-none ${on ? colorClass + ' border-transparent' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}
               >
                 {on && <Check size={11} className="shrink-0" />}{t}
               </button>

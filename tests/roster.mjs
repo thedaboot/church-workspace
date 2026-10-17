@@ -360,13 +360,13 @@ await sleep(1400);
 check("'청년 명단' 탭으로 간다", await clickText('청년 명단'));
 await sleep(700);
 
-// 도구 줄(찾기 · 연도 · 사람 추가) — **줄을 정해서 그린다.** flex-wrap에 맡겼더니
-// 375~430px에서 '사람 추가'만 다음 줄로 떨어져 왼쪽에 혼자 섰다(사용자 지적 2026-09-07).
+// 도구 줄(찾기 · 연도 · 명단 추가) — **줄을 정해서 그린다.** flex-wrap에 맡겼더니
+// 375~430px에서 '명단 추가'만 다음 줄로 떨어져 왼쪽에 혼자 섰다(사용자 지적 2026-09-07).
 const toolbar = () => ev(`(() => {
   const input = document.querySelector('input[aria-label="이름으로 찾기"]');
   if (!input) return null;
   const bar = input.closest('div').parentElement;
-  const add = [...bar.querySelectorAll('button')].find(b => b.textContent.trim() === '사람 추가');
+  const add = [...bar.querySelectorAll('button')].find(b => b.textContent.trim() === '명단 추가');
   const yr = bar.querySelector('[aria-label="연도"]');
   if (!add || !yr) return null;
   const r = (el) => { const b = el.getBoundingClientRect(); return { t: Math.round(b.top), l: Math.round(b.left), r: Math.round(b.right), b: Math.round(b.bottom) }; };
@@ -378,8 +378,8 @@ const toolbar = () => ev(`(() => {
   return { box, find, add: a, year: y, lines };
 })()`);
 const deskBar = await toolbar();
-check('1440px에서는 찾기·연도·사람 추가가 한 줄', deskBar && deskBar.lines === 1, JSON.stringify(deskBar));
-check('한 줄일 때 차례는 찾기 → 연도 → 사람 추가',
+check('1440px에서는 찾기·연도·명단 추가가 한 줄', deskBar && deskBar.lines === 1, JSON.stringify(deskBar));
+check('한 줄일 때 차례는 찾기 → 연도 → 명단 추가',
   deskBar && deskBar.find.r <= deskBar.year.l && deskBar.year.r <= deskBar.add.l, JSON.stringify(deskBar));
 const read = () => ev(`(() => {
   const rows = [...document.querySelectorAll('[data-person]')].map(r => ({
@@ -423,10 +423,10 @@ check('이름으로 찾는다(공백 무시 · 환송한 사람도 같이 걸린
 await fill('input[aria-label="이름으로 찾기"]', '');
 await sleep(300);
 
-// 4) 사람 추가 — 이름 필수 · **생일은 데이트피커로 고른다**(글자로 받지 않는다.
+// 4) 명단 추가 — 이름 필수 · **생일은 데이트피커로 고른다**(글자로 받지 않는다.
 //    사용자 지시 2026-09-05 — 틀린 값이 아예 만들어지지 않으니 '예: 05-26' 안내와
 //    '생일은 05-26처럼 적어주세요' 오류 줄도 같이 없어졌다).
-check("'사람 추가'", await clickText('사람 추가'));
+check("'명단 추가'", await clickText('명단 추가'));
 await sleep(300);
 const emptyForm = await ev(`(() => ({
   off: [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '추가')?.disabled,
@@ -640,11 +640,11 @@ check('모바일에서도 명단과 검색이 보인다', mob.rows > 0 && mob.fi
 check('명단 줄에도 등장 모션이 있다(.dc-row)',
   await ev(`[...document.querySelectorAll('[data-person]')].every(r => r.classList.contains('dc-row'))`));
 
-// 좁은 화면의 줄 나눔: 첫 줄 [찾기 + 사람 추가(오른쪽 끝)] · 둘째 줄 [연도(왼쪽)].
+// 좁은 화면의 줄 나눔: 첫 줄 [찾기 + 명단 추가(오른쪽 끝)] · 둘째 줄 [연도(왼쪽)].
 // 고아 줄(버튼만 혼자 선 줄)이 없어야 한다.
 const mobBar = await toolbar();
 check('375px에서는 두 줄로 나뉜다(고아 줄 없음)', mobBar && mobBar.lines === 2, JSON.stringify(mobBar));
-check("첫 줄은 찾기 + '사람 추가'이고 버튼이 오른쪽 끝",
+check("첫 줄은 찾기 + '명단 추가'이고 버튼이 오른쪽 끝",
   mobBar && Math.abs(mobBar.find.t - mobBar.add.t) <= 8 && mobBar.box.r - mobBar.add.r <= 2,
   JSON.stringify(mobBar));
 check('연도는 둘째 줄 왼쪽에서 시작한다',

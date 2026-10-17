@@ -526,16 +526,16 @@ export function RosterPanel({
 
   return (
     <section className="dc-screen">
-      {/* 줄을 **정해서** 그린다 — flex-wrap에 맡겨 두었더니 375~430px에서 '사람 추가'만
+      {/* 줄을 **정해서** 그린다 — flex-wrap에 맡겨 두었더니 375~430px에서 '명단 추가'만
           다음 줄로 떨어져 왼쪽에 혼자 섰다(사용자 지적 2026-09-07).
-          모바일: [찾기 + 사람 추가] / [연도]  ·  ≥640: [찾기 + 연도 + 사람 추가] 한 줄.
+          모바일: [찾기 + 명단 추가] / [연도]  ·  ≥640: [찾기 + 연도 + 명단 추가] 한 줄.
           연도만 `basis-full`로 둘째 줄을 차지하고, 그 안의 세그먼트는 감싸개 덕에
           내용 폭 그대로다(basis-full을 세그먼트에 직접 주면 배경이 화면을 가로지른다). */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         {/* 이름으로 찾기 — 성경 리더의 검색 폼과 같은 모양이다(wordBible.jsx) */}
         <NameSearch value={q} onChange={setQ} className="flex-1 basis-[11rem] min-w-0" />
         <button type="button" className={`${BTN} shrink-0 whitespace-nowrap sm:order-3`} onClick={() => setAdding(v => !v)}>
-          <Plus size={13} /> 사람 추가
+          <Plus size={13} /> 명단 추가
         </button>
         {/* 연도 — 고를 값이 셋뿐이라 세그먼트 컨트롤이다(탭 줄과 같은 짜임) */}
         <div className="flex shrink-0 basis-full sm:basis-auto sm:order-2">

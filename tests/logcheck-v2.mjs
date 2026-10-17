@@ -1551,6 +1551,17 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     && /if \(team && now && teams && !seatsValid\(teams, team\)\) throw/.test(rosterSvc), '저장(소속 · 팀장 — 게스트·클라우드)이 겹침을 막는다');
   const rosterUi2 = readSrc('src/components/roster.jsx');
   assert.ok(/disabled=\{!teams\.includes\(t\) && blocked\.has\(t\)\}/.test(rosterUi2) && /blocked=\{leadTeamsBlocked\(person\.teams \|\| \[\], year, new Date\(\)\.getFullYear\(\)\)\}/.test(rosterUi2), '화면은 겹치는 칩을 비활성으로');
+  // 설정(내 정보)도 같은 판정이고, 고친 소속은 명단에도 간다(사용자 지적 2026-10-18 · 0111).
+  // 되돌리기: settings의 blocked 줄을 지우거나, profileUpdateCloud에서 setMyPersonTeams를 빼거나 setMyTeams 뒤로 옮기면 깨진다.
+  const settingsUi = readSrc('src/modals/settings.jsx');
+  assert.ok(/const blocked = blockedSeats\(teams, user\.ledTeam \|\| null\)/.test(settingsUi) && /disabled=\{off\}/.test(settingsUi)
+    && /const off = !on && blocked\.has\(t\)/.test(settingsUi), '설정 소속 칩도 명단과 같은 겹침 막기');
+  const syncSrc = readSrc('src/services/cloudSync.js');
+  assert.ok(/await cloud\.setMyPersonTeams\(list\);\s*await cloud\.setMyTeams\(/.test(syncSrc), '설정 저장은 명단 사람 먼저(겹침이면 계정 쪽도 그대로)');
+  assert.ok(/ledTeam: leads\?\.byProfile\.get\(shownProfile\.id\) \|\| null/.test(syncSrc), '내 올해 팀장 팀이 설정까지 온다');
+  const m0111 = readSrc('supabase/migrations/0111_my_teams_to_person.sql');
+  assert.ok(/security definer/.test(m0111) && /public\.my_person_id\(\)/.test(m0111) && /public\.is_roster_team\(t\)/.test(m0111)
+    && /grant execute on function public\.set_my_person_teams\(text\[\]\) to authenticated/.test(m0111), '0111 — 내 명단 사람 · 명단 이름만 · 승인 회원');
 
   const items = H.buildHandovers(pairs, ['msy', 'kdy']);
   const msy = items.find(i => i.from === 'msy');
