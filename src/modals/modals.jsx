@@ -444,7 +444,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   const resetPw = async (pw) => {
     try {
       sync({ id: cardId, lockPw: await makeViewPw(pw), lockReset: null });
-      showToast('새로운 비밀번호를 설정했어요');
+      showToast('새 비밀번호를 설정했어요');
     } catch (e) { console.error('[guest] 새 비밀번호 설정 실패:', e); showToast(failText('새 비밀번호를 설정하지 못했어요', e)); throw e; }
   };
   const lockNotice = demo && lockAsk && isMaster ? <LockResetNotice by={lockAsk.by} onReset={resetPw} /> : null;

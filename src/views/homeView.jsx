@@ -1021,7 +1021,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
           2026-09-06 · 430pt에서 카드 406→416px). `grid-cols-1`은 `minmax(0,1fr)`이라
           트랙 최소가 0이 된다. md 위는 `md:grid-cols-2`가 이미 같은 일을 하고 있었고,
           그래서 이 증상이 모바일에서만 났다. */}
-      {/* 인수인계 카드(시안 · 게스트) — 나가는 사람의 '인계 내용 쓰기' · 받는 사람의 '넘겨받은 것' */}
+      {/* 인수인계 카드(시안 · 게스트) — 나가는 사람의 '인계 내용 작성' · 받는 사람의 '넘겨받은 것' */}
       {handoverOn() && <React.Suspense fallback={null}><HandoverHomeCards onTaskClick={onTaskClick} /></React.Suspense>}
 
       {slots.length ? (

@@ -1563,8 +1563,13 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   // 되돌리기: 옛 문구 하나를 되살리거나 handoverOn() 갈래를 지우면 깨진다.
   const hvUi = readSrc('src/components/handover.jsx');
   for (const w of ['>유지<', '>인수자<', 'placeholder="인수자 선택"', '인계할 업무<', '인계받은 업무 ', '워크스페이스는 그대로 사용할 수 있어요',
-    '${FROM_YEAR}년에 리더만 볼 수 있었던 프로젝트는 ${FROM_YEAR}년 리더진들도 계속 볼 수 있어요']) assert.ok(hvUi.includes(w), `새 문구: ${w}`);
-  for (const w of ['>그대로<', '받는 사람', '넘길 업무', '넘겨받은 업무', '앱은 지금처럼', '리더도 계속 보고 고쳐요']) assert.ok(!hvUi.includes(w), `옛 문구가 남지 않는다: ${w}`);
-  assert.strictEqual((hvUi.match(/\{handoverOn\(\) && <button type="button"[^\n]*onViewAs/g) || []).length, 2, "'화면 보기' 두 자리는 게스트 시연에서만");
+    '${FROM_YEAR}년에 리더만 볼 수 있었던 프로젝트는 ${FROM_YEAR}년 리더진들도 계속 볼 수 있어요',
+    // 4차(사용자 2026-10-17): 넘기다 → 인계 · 작성 여부 · 전달 사항 · 시연 버튼
+    '님에게 인계해요', '님에게서 ${what}${objectParticle(what)} 인계받았어요', '자리가 ${TO_YEAR}년에 변경돼요', "'인계 내용 수정' : '인계 내용 작성'",
+    "'작성 완료' : '미작성'", '>전달 사항<', '예: 회비의 정산은 매달 첫 주에 진행돼요', '>전달 사항 미입력<', '<span>화면 확인</span>',
+    '>1월 1일에 보일 화면 적용해 보기<', "'기존 상태로 되돌렸어요'"]) assert.ok(hvUi.includes(w), `새 문구: ${w}`);
+  for (const w of ['>그대로<', '받는 사람', '넘길 업무', '넘겨받은 업무', '앱은 지금처럼', '리더도 계속 보고 고쳐요',
+    '님에게 넘겨요', '넘겨주었어요', '넘어가요', '인계 내용 쓰기', '인계 내용 고치기', "'작성함'", "'작성 전'", '남길 말', '남긴 말', '화면 보기<', '1월 1일로 적용해 보기', "'처음으로 되돌렸어요'"]) assert.ok(!hvUi.includes(w), `옛 문구가 남지 않는다: ${w}`);
+  assert.strictEqual((hvUi.match(/\{handoverOn\(\) && <button type="button"[^\n]*onViewAs/g) || []).length, 2, "'화면 확인' 두 자리는 게스트 시연에서만");
   console.log('PASS  인수인계 시안(졸업 한국 나이 31 · 직분 짝 · 리더팀장 2026까지 · 졸업+넘김 한 건 · 업무 넘기기 · 문구)');
 }

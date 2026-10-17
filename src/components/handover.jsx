@@ -22,8 +22,8 @@ import {
 // 인수인계(가칭) 시안 — 멤버 화면의 세 번째 탭(마스터만) + 홈 카드 둘 (게스트 전용 · 2026-10-16)
 // ----------------------------------------------------------------------------
 // 흐름(사용자가 정한 차례): 다음 해 직분은 '청년 명단'의 그 해에 넣는다 → ① 직분 짝(자리로 자동 · 고칠 수 있다)
-// → ② 졸업(한국 나이 31세 자동 목록 · 확정 · 인수자) → ③ 인계 내용(나가는 사람이 남길 말 · 인계할 업무)
-// → ④ 1월 1일 적용(시연 버튼) → 인수자이 앱을 열면 홈 맨 위에 카드(누구에게서 · 남긴 말 · 업무).
+// → ② 졸업(한국 나이 31세 자동 목록 · 확정 · 인수자) → ③ 인계 내용(나가는 사람이 전달 사항 · 인계할 업무)
+// → ④ 1월 1일 적용(시연 버튼) → 인수자이 앱을 열면 홈 맨 위에 카드(누구에게서 · 전달 사항 · 업무).
 // 지난해 리더가 지난해 '리더만 보기' 프로젝트를 계속 보고 고치는 것은 ④에 한 줄로 말한다(DB는 나중).
 //
 // 규칙은 services/handover.js(순수 · logcheck-v2), 저장·시드·적용은 services/handoverStore.js.
@@ -204,14 +204,14 @@ function ItemRow({ m, it, onWrite, onViewAs }) {
       </div>
       <div className="mt-2.5 flex items-center gap-2">
         <span className={`shrink-0 px-1.5 py-px rounded-xs text-[10px] font-bold ${note?.done ? 'bg-tag-green text-tag-green-fg' : 'bg-tag-gray text-tag-gray-fg'}`}>
-          {note?.done ? '작성함' : '작성 전'}
+          {note?.done ? '작성 완료' : '미작성'}
         </span>
         <span className="text-[11px] text-fg-muted tabular-nums">{`업무 ${(note?.taskIds || []).length}건`}</span>
         <span className="ml-auto flex items-center gap-1">
-          {/* '화면 보기'는 시연 전용(게스트) — 그 사람의 홈 카드를 미리 보려고만 있다. 실제 앱에는 두지 않는다 */}
+          {/* '화면 확인'는 시연 전용(게스트) — 그 사람의 홈 카드를 미리 보려고만 있다. 실제 앱에는 두지 않는다 */}
           {handoverOn() && <button type="button" onClick={() => onViewAs(from)}
             className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">
-            <Eye size={13} /><span>화면 보기</span>
+            <Eye size={13} /><span>화면 확인</span>
           </button>}
           {!m.hv.applied && (
             <button type="button" className={`${BTN} inline-flex items-center gap-1`} onClick={() => onWrite(it)}>
@@ -242,7 +242,7 @@ function ApplyStep({ m, onViewAs }) {
   const moving = applied ? applied.moves.length
     : m.items.filter(it => it.to).reduce((n, it) => n + (m.hv.notes?.[it.id]?.taskIds || []).length, 0);
   const lines = [
-    [Handshake, `직분 ${seats}자리가 ${TO_YEAR}년으로 넘어가요`],
+    [Handshake, `직분 ${seats}자리가 ${TO_YEAR}년에 변경돼요`],
     [ArrowRight, `업무 ${moving}건의 담당자가 바뀌어요`],
     [GraduationCap, `졸업 ${m.grads.length}명 · 워크스페이스는 그대로 사용할 수 있어요`],
     [Eye, `${FROM_YEAR}년에 리더만 볼 수 있었던 프로젝트는 ${FROM_YEAR}년 리더진들도 계속 볼 수 있어요`],
@@ -270,7 +270,7 @@ function ApplyStep({ m, onViewAs }) {
           ) : (
             <>
               <span className="text-[12.5px] text-fg-muted">1월 1일에 적용돼요</span>
-              <button type="button" data-hv-apply className={`${BTN_CONFIRM} ml-auto`} onClick={apply}>1월 1일로 적용해 보기</button>
+              <button type="button" data-hv-apply className={`${BTN_CONFIRM} ml-auto`} onClick={apply}>1월 1일에 보일 화면 적용해 보기</button>
             </>
           )}
         </div>
@@ -286,13 +286,13 @@ function ApplyStep({ m, onViewAs }) {
                   {m.items.filter(it => it.to === p.id).flatMap(itemLabels).slice(0, 2).map(l => <Badge key={l} label={l} />)}
                   {handoverOn() && <button type="button" data-view-as={p.id} onClick={() => onViewAs(p)}
                     className="ml-1 inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">
-                    <Eye size={13} /><span>화면 보기</span>
+                    <Eye size={13} /><span>화면 확인</span>
                   </button>}
                 </span>
               </div>
             ))}
           </div>
-          <button type="button" className={`${BTN_CONFIRM_QUIET} mt-3`} onClick={() => { resetHandover(); showToast('처음으로 되돌렸어요'); }}>
+          <button type="button" className={`${BTN_CONFIRM_QUIET} mt-3`} onClick={() => { resetHandover(); showToast('기존 상태로 되돌렸어요'); }}>
             <RotateCcw size={14} />처음으로
           </button>
         </div>
@@ -301,7 +301,7 @@ function ApplyStep({ m, onViewAs }) {
   );
 }
 
-// ── 인계 내용 쓰기(아래 시트 · 768부터 가운데 창) ───────────────────────────
+// ── 인계 내용 작성(아래 시트 · 768부터 가운데 창) ───────────────────────────
 export function HandoverSheet({ m, item, onClose }) {
   const saved = m.hv.notes?.[item.id] || {};
   const [note, setNote] = useState(saved.note || '');
@@ -344,8 +344,8 @@ export function HandoverSheet({ m, item, onClose }) {
           {to ? <Who person={to} /> : <span className="text-[12.5px] font-semibold text-tag-orange-fg">미정</span>}
         </div>
 
-        <label className="block mt-4 mb-1.5 text-[11px] font-semibold text-fg-muted" htmlFor="hv-note">남길 말</label>
-        <textarea id="hv-note" value={note} onChange={e => setNote(e.target.value)} rows={5} placeholder="다음 분께 남길 말"
+        <label className="block mt-4 mb-1.5 text-[11px] font-semibold text-fg-muted" htmlFor="hv-note">전달 사항</label>
+        <textarea id="hv-note" value={note} onChange={e => setNote(e.target.value)} rows={5} placeholder="예: 회비의 정산은 매달 첫 주에 진행돼요"
           className={`${FIELD} w-full resize-y leading-[1.6]`} />
 
         <p className="mt-4 mb-1.5 flex items-baseline gap-2 text-[11px] font-semibold text-fg-muted">
@@ -433,8 +433,8 @@ export function HandoverPanel({ onEditRoster, onNavigate }) {
 }
 
 // ── 홈 카드 둘 ─────────────────────────────────────────────────────────────
-// 나가는 사람(적용 전): '인계 내용 쓰기' · 인수자(적용 뒤 · 확인 전): 누구에게서 · 남긴 말 · 인계받은 업무.
-// 보는 사람 = 게스트 currentUser 이름(시안의 '화면 보기'가 바꾼다). 카드는 히어로 아래 · 카드 격자 위 한 줄.
+// 나가는 사람(적용 전): '인계 내용 작성' · 인수자(적용 뒤 · 확인 전): 누구에게서 · 전달 사항 · 인계받은 업무.
+// 보는 사람 = 게스트 currentUser 이름(시안의 '화면 확인'가 바꾼다). 카드는 히어로 아래 · 카드 격자 위 한 줄.
 export function HandoverHomeCards({ onTaskClick }) {
   const m = useHandoverModel();
   const me = useStore(selectCurrentUser)?.name || '';
@@ -466,14 +466,14 @@ export function HandoverHomeCards({ onTaskClick }) {
               <span className="text-[11.5px] font-semibold text-fg-muted">인수인계</span>
             </span>
             <p className="text-[15px] font-extrabold text-fg tracking-[-0.3px] leading-[1.4]">
-              {to ? `${TO_YEAR}년 ${labels}${objectParticle(labels)} ${to}님에게 넘겨요` : `${TO_YEAR}년 ${labels} 인계`}
+              {to ? `${TO_YEAR}년 ${labels}${objectParticle(labels)} ${to}님에게 인계해요` : `${TO_YEAR}년 ${labels} 인계`}
             </p>
             <div className="mt-2.5 flex items-center gap-2">
               <span className="text-[12px] text-fg-muted tabular-nums">
-                {[`업무 ${(m.hv.notes?.[it.id]?.taskIds || []).length}건`, done ? '작성함' : '작성 전'].join(' · ')}
+                {[`업무 ${(m.hv.notes?.[it.id]?.taskIds || []).length}건`, done ? '작성 완료' : '미작성'].join(' · ')}
               </span>
               <button type="button" className={`${BTN} ml-auto inline-flex items-center gap-1`} onClick={() => setWriting(it)}>
-                <PencilLine size={13} /><span>{done ? '인계 내용 고치기' : '인계 내용 쓰기'}</span>
+                <PencilLine size={13} /><span>{done ? '인계 내용 수정' : '인계 내용 작성'}</span>
               </button>
             </div>
           </div>
@@ -494,13 +494,13 @@ export function HandoverHomeCards({ onTaskClick }) {
             <div className="flex items-center gap-2">
               <Face person={from} size="w-7 h-7 text-[11.5px]" />
               <p className="min-w-0 text-[15px] font-extrabold text-fg tracking-[-0.3px] leading-[1.4]">
-                {`${from?.name || ''}님이 ${what}${objectParticle(what)} 넘겨주었어요`}
+                {`${from?.name || ''}님에게서 ${what}${objectParticle(what)} 인계받았어요`}
               </p>
             </div>
             <div className="mt-3 md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:gap-4">
               <blockquote className="px-3 py-2.5 rounded-lg text-[13px] leading-[1.65] text-fg whitespace-pre-wrap"
                 style={{ background: 'var(--app-surface-hover)' }}>
-                {note?.note || <span className="text-fg-muted">남긴 말 미입력</span>}
+                {note?.note || <span className="text-fg-muted">전달 사항 미입력</span>}
               </blockquote>
               <div className="mt-3 md:mt-0">
                 <p className="mb-1.5 text-[11px] font-semibold text-fg-muted">{`인계받은 업무 ${tasks.length}건`}</p>

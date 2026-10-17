@@ -17,7 +17,7 @@ import { LEADERS } from './visibility.js';
 //     (게스트 스위트가 자기 명단을 심는다 · 시드가 끼면 줄 수가 달라진다).
 //   · 주소에 `?demo=handover`가 있으면 언제나 처음 상태로 다시 심는다(시연을 되돌리는 길).
 // '1월 1일 적용'은 시연용 버튼이 흉내 낸다 — 고른 업무의 담당자를 바꾸고, 받는 사람 홈에 카드가 선다.
-// '받는 사람 화면 보기'는 게스트 currentUser 이름을 그 사람으로 바꿔 홈을 연다(되돌리기는 같은 판의 '처음으로').
+// '받는 사람 화면 확인'는 게스트 currentUser 이름을 그 사람으로 바꿔 홈을 연다(되돌리기는 같은 판의 '처음으로').
 // ============================================================================
 
 const KEY = 'church_handover_v1';
@@ -171,7 +171,7 @@ export function resetHandover() {
   updateHandover(() => ({ applied: null, seen: {}, origName: null }));
 }
 
-// 받는/나가는 사람 화면 보기 — 게스트 currentUser 이름만 바꾼다(권한은 게스트라 그대로)
+// 받는/나가는 사람 화면 확인 — 게스트 currentUser 이름만 바꾼다(권한은 게스트라 그대로)
 export function viewAs(name) {
   const cur = store.getState().currentUser?.name || '';
   updateHandover(s => ({ origName: s.origName ?? cur }));
