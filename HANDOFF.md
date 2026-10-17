@@ -52,7 +52,7 @@
 4. ~~사용자가 클라우드에서 볼 것(v5 1묶음)~~ — **사용자 확인 2026-10-18**(휴지통 · 직접 선택 · 비밀번호 재설정 · 팀장 칩 · 탭 순서 · 복제 · 인수인계 사진).
 5. **운영 DB 쓰기(사용자 결정 2026-10-18 — 어시스턴트가 직접 한다)**: 리허설(begin … rollback)을 먼저 돌리고 문제가 없으면 어시스턴트가 직접 `psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f <파일>`로 적용한다(bash: `set -a; . ./.env; set +a`로 값을 읽는다 · 값을 출력하지 않는다). 권한 모드가 막을 때만 사용자에게 `! <같은 bash 명령>`으로 넘긴다(이 창의 `!`은 bash다 — PowerShell 문법을 주면 깨진다). Windows psql은 한글 SQL을 `-c`로 넘기면 깨진다 — 파일로.
 6. **행사 일정(사용자 피드백 2026-10-18 · 시안 `mock/b2` 올림 — 사용자 검토 대기 · 문구 표·열린 질문 다섯은 그 커밋 8bee114 메시지와 대화)**: 일반 회원이 보는 '전체 일정'이 전도사님 업무로 가득하다 → 수련회·대림절·체육대회 같은 **행사만** 보는 보기(행사 | 업무 · 생일은 둘 다) · 프로젝트 달력처럼 오른쪽 판에 `내 달력`·`+ 새 일정` · 데스크톱 날짜 우클릭 / 폰 길게 누르기로 바로 추가. 추가·수정은 **리더진+마스터**(사용자 결정 2026-10-18). 승인 뒤 0112 `events` 표 + RLS + ics(0111은 아래 8번이 썼다).
-7. **비밀번호 칸에 브라우저 '강력한 비밀번호'·저장 제안이 뜨는 문제(사용자 피드백 2026-10-18 · 작업 중)**: 우리 비밀번호는 간단한 문지기용이다 — 모든 비밀번호 칸을 공용 부품 하나로(`type=text` + `-webkit-text-security` 가림 · 안 되는 브라우저는 password로) · 실기기(윈도우 크롬 · 맥 · 아이폰·아이패드 · 갤럭시 · 카톡) 확인은 사용자.
+7. **비밀번호 칸에 브라우저 '강력한 비밀번호'·저장 제안이 뜨는 문제(사용자 피드백 2026-10-18 · 코드 끝 · 실기기 확인만 남음)**: 칸 일곱이 `SecretInput` 한 벌(PITFALLS 64) · 실기기(윈도우 크롬 · 맥 · 아이폰·아이패드 · 갤럭시 · 카톡) 확인은 사용자.
 8. **설정 소속 ↔ 명단 소속 맞추기(사용자 지적 2026-10-18 · 코드 푸시 · **0111 라이브 적용 2026-10-18**)**: 설정 '내 정보'의 소속 칩도 명단과 같은 겹침 막기(순장 ↔ 순원 · 올해 이끄는 팀 — `handover.blockedSeats` · 내 팀장 팀은 `currentUser.ledTeam`) · 설정에서 고친 소속은 `set_my_person_teams`(0111)로 명단에도 간다(명단 이름만 · 0111 전에는 건너뜀). 멤버 관리 버튼 `+ 사람 추가` → `+ 명단 추가`. **다음 마이그레이션 번호 0112**.
 
 ### v5 1묶음 — 한 일 · 결정 (2026-10-17 · 사용자 승인 시안 `mock/b1` · A·B·C 세 worktree를 main 위에 합침 · **0104~0110 라이브 적용 2026-10-17**(리허설 한 벌 ROLLBACK → 적용 · 정책 128→137) · 다음 번호 0111)
@@ -328,6 +328,7 @@ src/components/FilePreviewModal.jsx  첨부 미리보기 창 — 갈래 판정�
 src/components/fileRow.jsx    파일 한 줄의 크기·종류 표기 — 업무 첨부와 주보 송폼 공용 · 첨부 메타 '크기 · 올린 날 · 올린 사람'(fileMeta)
 src/components/linkIcons.jsx  참고 링크 앞의 서비스 표시(커밋된 path · §4.2)
 src/components/links.jsx      프로젝트 헤더의 참고 링크 부품 — PinnedLinkChip·LinkAddPopover(주소 먼저 · 이름을 비우면 받아 온다 · 60-f)·useLinkAccess·LinkPwFields(§6-35)
+src/components/SecretInput.jsx 비밀번호 칸 한 벌(업무 잠금·첨부·참고 링크·문서 창) — type=text + CSS 점 · 누른 글쇠(services/secretKeys.js) · type="password" 금지(64)
 src/components/LoginScreen.jsx 로그인 화면(라이트 고정 hex · 로고 preload — §6-29-z-5)
 src/components/MarkdownEditor.jsx  TipTap 편집기 — 서식 바·sticky·LockedHeadings·frame(§6-32-o·32-p·§6-9-aa)
 src/components/media.jsx      이미지·영상·소리 미리보기

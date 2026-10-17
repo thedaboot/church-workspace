@@ -1447,3 +1447,11 @@ t가 붙은 주소가 방금 돌아온 자리를 덮는다). 열기 전 화면�
 판정은 될 수 있으면 `can_see_project` 한 함수를 부르게 둔다(휴지통 함수처럼) — 그러면 뒤 파일이 그 함수만 고쳐도 따라온다.
 **63-i.** **`cloudSync.js`의 import 줄을 바꾸면 `tests/push`·`tests/assignees`의 가짜 패치도 같이 본다** — 두 스위트는 소스 글자를 정규식으로 바꿔 끼워 노드에서 돌린다
 (`supabaseClient` · `tabOrder` · `aiPeople` · `config`). 패치가 못 맞으면 모듈을 못 찾아 CRASH다(C 묶음의 import가 합칠 때 둘을 깨뜨렸다).
+
+### 비밀번호 칸 (2026-10-18 · 사용자 피드백)
+**64.** **비밀번호 칸에 `type="password"`를 쓰지 않는다 — `components/SecretInput.jsx` 한 벌이다**(업무 잠금 셋 · 첨부 둘 · 참고 링크 · 문서 창 = 일곱). 우리 비밀번호는 같이 아는
+문지기 값인데, password 칸이면 크롬·사파리 키체인·삼성 패스·구글 자동완성이 강력한 비밀번호 제안·저장·자동 채우기를 계속 띄운다(`autocomplete=off`는 무시된다).
+그래서 `type=text` + `-webkit-text-security: disc`(값이 있을 때만 — 빈 칸에 걸면 placeholder까지 점이 된다) · name/id 없음 · 관리자 무시 표시. 그 CSS를 모르는 브라우저만 password로.
+**대신 잃은 것 하나**: password 칸은 윈도 크롬이 한글 입력기를 끄고 맥이 영문으로 돌려 '한' 상태로 쳐도 글쇠가 들어갔다. 일반 칸은 한글이 조합되고 점으로 가려진다 —
+그래서 칸이 넘기는 값은 **누른 글쇠**다(`services/secretKeys.js` · '사랑' → 'tkfkd'). 거는 칸·여는 칸이 같은 규칙 · 예전에 한글로 걸어 둔 값은 여는 칸이 원래 글자로 한 번 더(`matchSecret` —
+틀림(false)일 때만 · 업무 잠금 1분 5회 중 하나를 더 쓴다). 칸은 안에 친 글자를 들고(조합 중 DOM을 다시 쓰지 않게) 부르는 쪽 value는 글쇠다. `logcheck-sec`가 src 전체를 훑는다.

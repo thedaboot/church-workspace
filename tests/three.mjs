@@ -694,7 +694,7 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
   })()`);
   const asking = () => ev(`!!document.querySelector('form[data-pw-prompt]')`);
   const typePw = (text) => ev(`(() => {
-    const i = document.querySelector('form[data-pw-prompt] input[type="password"]');
+    const i = document.querySelector('form[data-pw-prompt] input[data-secret]');
     if (!i) return false;
     const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
     set.call(i, ${JSON.stringify(text)}); i.dispatchEvent(new Event('input', { bubbles: true }));
@@ -736,7 +736,17 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
   check('잠긴 링크를 눌렀다', (await clickLink('참가자 명단')) === true);
   await sleep(400);
   check('비밀번호를 먼저 묻는다(창은 아직 안 열린다)', (await asking()) === true && (await embed()) === null);
-  await typePw('0000'); await submitPw(); await sleep(400);
+  // 브라우저 비밀번호 제안·저장이 안 뜨게 type=text + CSS 점(PITFALLS 64) — 빈 칸은 안 가린다(placeholder가 점이 되지 않게)
+  const field = () => ev(`(() => { const i = document.querySelector('form[data-pw-prompt] input[data-secret]');
+    return i ? { type: i.type, sec: getComputedStyle(i).webkitTextSecurity, ac: i.getAttribute('autocomplete'), op: i.hasAttribute('data-1p-ignore'),
+      name: i.name || i.id || '', css: CSS.supports('-webkit-text-security', 'disc') } : null; })()`);
+  const empty = await field();
+  await typePw('0000');
+  const typed = await field();
+  check('비밀번호 칸: type=text · 친 글자는 점(-webkit-text-security: disc) · 빈 칸은 안 가림 · autocomplete=off · 관리자 무시 · name 없음',
+    typed?.css === true && typed.type === 'text' && typed.sec === 'disc' && empty?.sec === 'none' && typed.ac === 'off' && typed.op && typed.name === '',
+    JSON.stringify({ empty, typed }));
+  await submitPw(); await sleep(400);
   const wrong = await ev(`(() => {
     const f = document.querySelector('form[data-pw-prompt]');
     return { msg: f ? /비밀번호가 맞지 않아요/.test(f.textContent) : null, open: !!document.querySelector('[data-doc-embed]') };

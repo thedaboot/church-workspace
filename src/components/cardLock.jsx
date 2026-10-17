@@ -6,6 +6,8 @@ import { LOCK_MOTION_MS, lockFormError } from '../services/cardLock.js';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { BTN } from './buttons.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { SecretInput } from './SecretInput.jsx';
+import { matchSecret } from '../services/secretKeys.js';
 
 // ============================================================================
 // 업무 잠금(0099) — 자물쇠 그림 · 업무 창 머리줄 자물쇠 버튼 + `업무 잠그기` 팝오버 · 잠금 판 · 판이 접히고 걷히는 모션 · 보드 카드 자물쇠
@@ -91,13 +93,13 @@ function LockForm({ open, title, submitLabel, onSubmit, onCancel, onDone, extra 
     <div data-card-lock-pop="" className="flex flex-col gap-2">
       <div className="text-[12.5px] font-bold text-fg">{title}</div>
       <label className="flex flex-col gap-1 text-[11px] text-fg-muted">비밀번호
-        <input ref={pwRef} type="password" autoComplete="new-password" value={pw}
-          onChange={e => { setPw(e.target.value); shake.clear(); }} onKeyDown={onKey} data-lock-field="pw" aria-invalid={shake.bad === 'pw'}
+        <SecretInput ref={pwRef} value={pw}
+          onValue={v => { setPw(v); shake.clear(); }} onKeyDown={onKey} data-lock-field="pw" aria-invalid={shake.bad === 'pw'}
           className={fieldCls(shake.bad === 'pw')} />
       </label>
       <label className="flex flex-col gap-1 text-[11px] text-fg-muted">비밀번호 확인
-        <input ref={pw2Ref} type="password" autoComplete="new-password" value={pw2}
-          onChange={e => { setPw2(e.target.value); shake.clear(); }} onKeyDown={onKey} data-lock-field="confirm" aria-invalid={shake.bad === 'confirm'}
+        <SecretInput ref={pw2Ref} value={pw2}
+          onValue={v => { setPw2(v); shake.clear(); }} onKeyDown={onKey} data-lock-field="confirm" aria-invalid={shake.bad === 'confirm'}
           className={fieldCls(shake.bad === 'confirm')} />
       </label>
       <div className="flex items-center gap-1.5 justify-end mt-0.5">
@@ -195,6 +197,7 @@ export function LockResetNotice({ by, onReset }) {
 // onForgot() → 약속 — 없으면 `비밀번호를 까먹었어요`가 서지 않는다(클라우드에서 요청 표를 못 읽었을 때). asked: 내가 이미 요청했나.
 export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = false }) {
   const [pw, setPw] = useState('');
+  const [raw, setRaw] = useState('');   // 친 글자 그대로 — 예전에 한글로 건 비밀번호(secretKeys.js)
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
   const shake = useShake({ pw: inputRef });
@@ -203,7 +206,7 @@ export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = fa
     if (!pw) { shake.flag('pw'); return; }
     setBusy(true);
     let ok = false;
-    try { ok = await onUnlock(pw); } catch { ok = null; } finally { setBusy(false); }
+    try { ok = await matchSecret(onUnlock, pw, raw); } catch { ok = null; } finally { setBusy(false); }
     if (ok === false) shake.flag('pw');
   };
   return (
@@ -211,8 +214,8 @@ export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = fa
       <LockGlyph size={26} strokeWidth={1.8} className={`text-fg-faint ${stir ? `dc-lock-${stir}` : ''}`} />
       <div className="text-[13px] leading-relaxed text-center text-fg">이 업무는 현재 잠겨있어요</div>
       <div className="flex gap-1.5 w-[260px] max-w-full">
-        <input ref={inputRef} type="password" autoComplete="off" value={pw} placeholder="비밀번호" aria-label="비밀번호"
-          onChange={e => { setPw(e.target.value); shake.clear(); }}
+        <SecretInput ref={inputRef} value={pw} placeholder="비밀번호" aria-label="비밀번호"
+          onValue={(v, r) => { setPw(v); setRaw(r); shake.clear(); }}
           onKeyDown={e => { if (e.key === 'Enter' && !imeComposing(e)) { e.preventDefault(); submit(); } }}
           data-lock-field="unlock" aria-invalid={!!shake.bad}
           className={`flex-1 min-w-0 h-9 px-[11px] rounded-[9px] bg-surface text-[13px] text-fg placeholder:text-fg-muted outline-none border transition-colors ${

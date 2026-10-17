@@ -1076,3 +1076,52 @@ import { loadSource, readSplit } from './_load.mjs';
   ok(/showToast\(failText\('복원하지 못했어요', e\)\)/.test(tr), '복원 실패 토스트는 앞도막 + 이유(failText)');
   console.log(`PASS  v5 1묶음 합치기 — 마이그레이션 사슬 0104→0110 마지막 정의 · 업무 링크 판정 · 복원 실패 문구 ${n}가지`);
 }
+
+// ── 비밀번호 칸은 SecretInput 한 벌 (PITFALLS 64 · 사용자 피드백 2026-10-18) ──────────────────
+// type="password"면 브라우저·비밀번호 관리자가 강력한 비밀번호 제안·저장·자동 채우기를 띄운다. src 전체에서
+// type="password"는 SecretInput.jsx의 대비(그 CSS를 모르는 브라우저) 하나뿐이고, '비밀번호' 칸은 전부 SecretInput이다.
+// 되돌리기 검사: 아무 칸을 <input type="password">로 되돌리면 첫 단정이, SecretInput의 관리자 무시 표시를 지우면 둘째가 깨진다.
+{
+  const { readdirSync, statSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const walk = (d) => readdirSync(d).flatMap(f => { const p = `${d}/${f}`; return statSync(p).isDirectory() ? walk(p) : /\.jsx?$/.test(f) ? [p] : []; });
+  const files = walk(fileURLToPath(new URL('../src', import.meta.url)).replace(/\\/g, '/'));
+  const relOf = (f) => f.slice(f.lastIndexOf('/src/') + 1);
+  const bad = [];
+  for (const f of files) {
+    const t = readFileSync(f, 'utf8').replace(/^\s*\/\/.*$/gm, ''); // 주석 줄은 빼고
+    const rel = relOf(f);
+    if (rel === 'src/components/SecretInput.jsx') { if (!/masked && !MASK_OK \? 'password' : 'text'/.test(t)) bad.push(rel + ' 대비 줄'); continue; }
+    const hits = (t.match(/type=(?:"password"|'password'|\{['"]password['"]\})|\?\s*'password'/g) || []).length;
+    if (hits) bad.push(`${rel} type=password ${hits}`);
+    // '비밀번호' 이름표·placeholder를 단 <input>이 남았으면 SecretInput을 안 지난 칸이다
+    for (const m of t.matchAll(/<input\b[^>]*>/gs)) if (/비밀번호|new-password|current-password/.test(m[0])) bad.push(`${rel} <input> ${m[0].slice(0, 60)}`);
+  }
+  assert.deepStrictEqual(bad, [], '비밀번호 칸은 SecretInput만 쓴다');
+  const si = readFileSync(new URL('../src/components/SecretInput.jsx', import.meta.url), 'utf8');
+  for (const a of ['autoComplete="off"', 'autoCorrect="off"', 'autoCapitalize="off"', 'spellCheck={false}', 'data-1p-ignore', 'data-lpignore="true"', 'data-bwignore', 'data-form-type="other"', "WebkitTextSecurity: 'disc'", "CSS.supports?.('-webkit-text-security', 'disc')"])
+    assert.ok(si.includes(a), `SecretInput: ${a}`);
+  assert.ok(!/\s(name|id)=/.test(si), 'SecretInput: name/id를 달지 않는다(관리자가 열쇠로 삼지 않게)');
+  const used = files.filter(f => /^\s*<SecretInput\b/m.test(readFileSync(f, 'utf8'))).map(relOf).sort();
+  assert.deepStrictEqual(used, ['src/components/DocEmbed.jsx', 'src/components/cardLock.jsx', 'src/components/links.jsx', 'src/modals/attachments.jsx'], '쓰는 자리 넷');
+  // 넘기는 값은 누른 글쇠(type=password가 하던 한글 입력기 끄기를 대신한다)
+  const { secretKeys, matchSecret } = await import(new URL('../src/services/secretKeys.js', import.meta.url).href);
+  assert.strictEqual(secretKeys('ㅂㅈㄷㄱ'), 'qwer', '홀자모');
+  assert.strictEqual(secretKeys('사랑1234'), 'tkfkd1234', '음절 + 숫자');
+  assert.strictEqual(secretKeys('왜 값'), 'dho rkqt', '겹모음 · 겹받침');
+  assert.strictEqual(secretKeys('ㄲㅒ쌰'), 'ROTi', '쌍자음 · Shift 모음');
+  assert.strictEqual(secretKeys('abc!@#'), 'abc!@#', '영문·기호는 그대로');
+  assert.strictEqual(secretKeys('사'), 'tk', 'NFD(맥)도 같은 값');
+  const seen = [];
+  const chk = (want) => async (v) => { seen.push(v); return v === want; };
+  assert.strictEqual(await matchSecret(chk('tkfkd'), 'tkfkd', '사랑'), true, '글쇠로 맞으면 한 번');
+  assert.strictEqual(seen.length, 1);
+  seen.length = 0;
+  assert.strictEqual(await matchSecret(chk('사랑'), 'tkfkd', '사랑'), true, '예전 한글 비밀번호는 원래 글자로 한 번 더');
+  assert.deepStrictEqual(seen, ['tkfkd', '사랑']);
+  seen.length = 0;
+  assert.strictEqual(await matchSecret(chk('x'), 'abc', 'abc'), false, '영문만이면 두 번 묻지 않는다(1분 5회를 아낀다)');
+  assert.strictEqual(seen.length, 1);
+  assert.strictEqual(await matchSecret(async () => undefined, 'a', 'ㅁ'), undefined, '틀림(false)이 아닌 답은 그대로');
+  console.log('PASS  비밀번호 칸 — type=password 없음 · SecretInput 한 벌(넷) · 관리자 무시 표시 · 누른 글쇠');
+}

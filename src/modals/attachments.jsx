@@ -19,6 +19,8 @@ import { sheetPreviewUrl } from '../utils.js';
 // 붙일 때 한쪽만 고쳐져서 "미리보기는 되는데 펼쳐지지 않는 파일"이 생긴다.
 import { SHEET_EXT, extOf } from '../services/previewKind.js';
 import { BTN } from '../components/buttons.js';
+import { SecretInput } from '../components/SecretInput.jsx';
+import { matchSecret } from '../services/secretKeys.js';
 import { uploadingByCard, uploadWatchers, notifyUploads, hasActiveUploads, stagedRow, runUploads, failedRow, unstageUpload, cancelUpload } from './uploadQueue.js';
 
 // 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
@@ -309,17 +311,18 @@ export const PendingAttachments = ({ files = [], onChange }) => {
 // 그래서 문구에 '암호화'라는 말을 쓰지 않고, 무엇을 막는지 그대로 적는다.
 function PasswordGate({ row, onUnlock }) {
   const [pw, setPw] = useState('');
+  const [raw, setRaw] = useState('');
   const [wrong, setWrong] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
-    if (await checkFilePassword(row, pw)) { onUnlock(); return; }
+    if (await matchSecret((v) => checkFilePassword(row, v), pw, raw)) { onUnlock(); return; }
     setWrong(true);
   };
   return (
     <form onSubmit={submit} className="flex items-center gap-2 pb-2 pl-[46px]">
-      <input
-        type="password" value={pw} autoComplete="off"
-        onChange={(e) => { setPw(e.target.value); setWrong(false); }}
+      <SecretInput
+        value={pw}
+        onValue={(v, r) => { setPw(v); setRaw(r); setWrong(false); }}
         placeholder="비밀번호" aria-label="비밀번호"
         className="w-32 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
       />
@@ -342,8 +345,8 @@ function PasswordSetter({ row, onDone }) {
   return (
     <div className="pb-2 pl-[46px]">
       <div className="flex items-center gap-2">
-        <input
-          type="text" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="off"
+        <SecretInput
+          masked={false} value={pw} onValue={(v) => setPw(v)}
           placeholder={row.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}
           aria-label={row.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}
           className="w-40 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"

@@ -9,6 +9,7 @@ import { isLocked, verifyViewPw } from '../services/viewPw.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { BTN } from './buttons.js';
+import { SecretInput } from './SecretInput.jsx';
 import { authedPost } from '../services/cloud/core.js';
 import { isCloudEnabled } from '../services/supabaseClient.js';
 import { domainOf, fallbackTitle } from '../services/linkTitle.js';
@@ -79,9 +80,9 @@ function LinkPwFields({ link, busy, onSave }) {
   return (
     <>
       <div className="flex items-center gap-2">
-        <input
-          type="text" value={pw} autoComplete="off" autoFocus
-          onChange={(e) => setPw(e.target.value)}
+        <SecretInput
+          masked={false} value={pw} autoFocus
+          onValue={(v) => setPw(v)}
           onKeyDown={(e) => { if (imeComposing(e)) return; if (e.key === 'Enter' && pw) onSave(pw); }}
           placeholder={link.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}
           aria-label={link.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}

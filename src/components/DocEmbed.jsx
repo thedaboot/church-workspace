@@ -6,6 +6,8 @@ import { useMyEmail } from '../services/auth.jsx';
 import { Skeleton } from './media.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { BTN } from './buttons.js';
+import { SecretInput } from './SecretInput.jsx';
+import { matchSecret } from '../services/secretKeys.js';
 
 // ============================================================================
 // 구글 문서·시트·슬라이드 링크를 **앱 안에서 열어 편집**하는 창 (2026-09-07)
@@ -213,19 +215,20 @@ export function DocEmbedModal({ url, title = '', onClose }) {
 //  그 차이를 이 부품이 알 필요가 없다).
 export function PwPrompt({ onOk, onCancel, className = '' }) {
   const [pw, setPw] = useState('');
+  const [raw, setRaw] = useState('');
   const [wrong, setWrong] = useState(false);
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
-    try { if ((await onOk?.(pw)) === false) setWrong(true); }
+    try { if ((await matchSecret((v) => onOk?.(v), pw, raw)) === false) setWrong(true); }
     finally { setBusy(false); }
   };
   return (
     <form onSubmit={submit} className={`flex items-center gap-2 ${className}`} data-pw-prompt>
-      <input
-        type="password" value={pw} autoComplete="off" autoFocus
-        onChange={(e) => { setPw(e.target.value); setWrong(false); }}
+      <SecretInput
+        value={pw} autoFocus
+        onValue={(v, r) => { setPw(v); setRaw(r); setWrong(false); }}
         placeholder="비밀번호" aria-label="비밀번호"
         className="w-32 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
       />
