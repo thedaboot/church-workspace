@@ -26,7 +26,7 @@ import { LeaderChip, LeaderLockButton, useSetVisibility } from '../components/le
 import { trashProject } from '../services/trash.js';
 
 // ── 프로젝트 화면 ─────────────────────────────────────────────────────────
-// 헤더(제목 · 메타 줄 · 참고 링크 · 리더만 보기·공유·삭제 · 새 업무) + 보기 전환(보드 · 캘린더 · 그래프) + 팀 칩.
+// 헤더(제목 · 메타 줄 · 참고 링크 · 리더만 보기·공유·삭제 · 새 업무) + 보기 전환(보드 · 캘린더 · 그래프 · 표 · 간트 — 뒤 둘은 시안 mock/b3) + 팀 칩.
 // 리더만 보는 프로젝트(0092): 자물쇠는 리더에게만(게스트는 언제나) · 켜지면 제목 옆 '리더만' 칩(components/leaderOnly.jsx).
 // 삭제는 휴지통으로 간다(0104 · 30일 안에 복원 — 클라우드는 DB 함수 trash_project · 게스트는 services/trash.js).
 // 리더가 아닌 사람에게는 이 화면 자체가 안 온다(RLS가 행을 걷는다 → 아래 '없는 프로젝트' 가드가 대시보드로).
@@ -34,7 +34,12 @@ import { trashProject } from '../services/trash.js';
 
 // 선후관계 그래프는 그 보기로 바꿀 때만 받는다(2026-09-24)
 const DepGraph = lazy(() => import('../components/depgraph.jsx').then(m => ({ default: m.DepGraph })));
-const VIEW_MODES = [['kanban', '보드'], ['calendar', '캘린더'], ['graph', '그래프']];
+// 표·간트(시안 mock/b3 · v5 2묶음)도 그 보기로 바꿀 때만 받는다 — 규칙은 services/projectViews.js
+const TaskTable = lazy(() => import('../components/taskTable.jsx').then(m => ({ default: m.TaskTable })));
+const GanttBoard = lazy(() => import('../components/gantt.jsx').then(m => ({ default: m.GanttBoard })));
+const VIEW_MODES = [['kanban', '보드'], ['calendar', '캘린더'], ['graph', '그래프'], ['table', '표'], ['gantt', '간트']];
+// 날짜가 있는 업무만 그리는 보기 — 팀 칩 숫자도 그것만 센다(아래 countable)
+const DATED_VIEWS = new Set(['calendar', 'gantt']);
 
 // 모바일 프로젝트 화면의 접히는 조작은 팀 필터 하나뿐이다(→ TeamFilterBar).
 // '⋯' 메뉴와 그 안의 팀 필터 팝오버는 없앴다 — 공유·삭제·참고 링크를 메타 줄에
@@ -116,7 +121,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   // 전부를 세면 `웰컴팀 7`이라 해놓고 띠는 3개만 뜬다(사용자 지적 2026-08-29).
   // 보드·그래프는 마감이 없어도 다 그리므로 그때는 전부가 맞다.
   const countable = useMemo(
-    () => (viewMode === 'calendar' ? datedTasks(projectTasks) : projectTasks),
+    () => (DATED_VIEWS.has(viewMode) ? datedTasks(projectTasks) : projectTasks),
     [projectTasks, viewMode]);
   const teamCounts = useMemo(() => teamCountsOf(countable), [countable]);
   const teamChips = useMemo(() => teamChipsOf(teamCounts), [teamCounts]);
@@ -291,7 +296,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
       <div className="flex items-center gap-2.5 py-[11px] flex-wrap shrink-0">
         <Segmented className="flex p-[3px] rounded-md shrink-0"
           items={VIEW_MODES} value={viewMode} onPick={setViewMode}
-          btnClassName="px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors" />
+          btnClassName="px-2.5 md:px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors" />
 
         {/* 데스크톱: 전체 칩 + 업무가 있는 팀만 */}
         <span className="hidden md:block w-px h-5 shrink-0" style={{ background: 'var(--app-line)' }} />
@@ -325,7 +330,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         <TeamFilterBar
           className="md:hidden"
           teams={teamChips} counts={teamCounts} total={countable.length}
-          shownCount={(viewMode === 'calendar' ? datedTasks(filteredTasks) : filteredTasks).length} selected={selectedTeams}
+          shownCount={(DATED_VIEWS.has(viewMode) ? datedTasks(filteredTasks) : filteredTasks).length} selected={selectedTeams}
           onToggle={toggleTeam} onClear={() => setSelectedTeams([])}
         />
       </div>
@@ -337,6 +342,8 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {viewMode === 'calendar' && <CalendarBoard tasks={calendarTasks} onTaskClick={onTaskClick} onNewTask={onNewTask} headerExtra={feedButton} />}
         {/* 그래프(0020): 선후관계. 필터를 그대로 물려받는다 — 팀을 고르면 그 팀 순서만 남는다 */}
         {viewMode === 'graph' && <Suspense fallback={null}><DepGraph tasks={filteredTasks} onTaskClick={onTaskClick} /></Suspense>}
+        {viewMode === 'table' && <Suspense fallback={null}><TaskTable tasks={filteredTasks} onTaskClick={onTaskClick} onStatusChange={onStatusChange} /></Suspense>}
+        {viewMode === 'gantt' && <Suspense fallback={null}><GanttBoard tasks={calendarTasks} onTaskClick={onTaskClick} /></Suspense>}
       </div>
     </div>
   );

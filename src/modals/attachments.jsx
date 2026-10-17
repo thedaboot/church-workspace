@@ -22,6 +22,7 @@ import { BTN } from '../components/buttons.js';
 import { SecretInput } from '../components/SecretInput.jsx';
 import { matchSecret } from '../services/secretKeys.js';
 import { uploadingByCard, uploadWatchers, notifyUploads, hasActiveUploads, stagedRow, runUploads, failedRow, unstageUpload, cancelUpload } from './uploadQueue.js';
+import { isCloudEnabled } from '../services/supabaseClient.js';
 
 // 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
 const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
@@ -31,7 +32,10 @@ const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx')
 // ----------------------------------------------------------------------------
 // 업로드·삭제는 수정 모드에서, 보기 모드는 읽기 전용 목록.
 // 파일 실체는 Supabase Storage(private 버킷), DB에는 참조(files)만 있다.
+// **게스트(시안 mock/b3 · 이미지 붙여넣기 시연)**: 서버가 없어 같은 큐·같은 줄로 '올리는 척'만 한다 — 줄은 이 탭의 메모리
+// (addedByCard)에만 있고 바이트는 blob 주소다(새로 고치면 사라진다 · 스토어에 넣지 않는다 — 죽은 blob 주소가 남는다).
 // ============================================================================
+const guestMode = () => !isCloudEnabled();
 
 // 이번 세션에 지운 첨부 id — **모듈 레벨**이라 수정 화면에서 지우고 바로 저장해
 // 보기 화면(다른 인스턴스)이 떠도 공유된다. 삭제가 DB에 닿기 전에 다녀간 조회가
@@ -59,6 +63,7 @@ export const mergeKnown = (cardId, rows) => {
 const addUploaded = (cardId, row) => {
   const list = addedByCard.get(cardId) || [];
   if (!list.some(r => r.id === row.id)) addedByCard.set(cardId, [...list, row]);
+  if (row._guest) { notifyUploads(); return; }
   const prev = store.getState().tasks.byId[cardId]?.attachments || [];
   if (!prev.some(r => r.id === row.id)) {
     store.dispatch({ type: 'SYNC_TASK', payload: { id: cardId, attachments: [...prev, row] } });
@@ -108,7 +113,32 @@ export async function startUploads({ task, project, files, onFileActivity }) {
 }
 
 // 줄을 실제로 보낸다 — 처음 고른 파일과 '다시 시도'가 같은 길이다(같은 줄·같은 blob 주소).
+// 게스트 — 줄이기 → 0.7초 동안 진행 막대 → 같은 큐가 줄을 올라간 줄로 바꾼다(위 머리말)
+function sendGuestRows({ task, rows, onFileActivity }) {
+  return runUploads({
+    cardId: task.id, rows,
+    send: async (file, _ctx, ctl) => {
+      const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
+      for (let i = 1; i <= 7; i++) {
+        await new Promise(r => setTimeout(r, 100));
+        if (ctl?.isCancelled()) throw cancelledError();
+        ctl?.onProgress(i, 7);
+      }
+      const row = {
+        id: `guest:${Math.random().toString(36).slice(2, 10)}`, name: sending.name || file.name, size_bytes: sending.size,
+        mime_type: sending.type || file.type || null, source: 'local', _guest: true, _file: sending,
+        _url: URL.createObjectURL(sending), created_at: new Date().toISOString(), uploaded_by: null,
+      };
+      addUploaded(task.id, row);
+      onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
+      return row;
+    },
+    onError: (file, e) => { console.error('[guest] 첨부 실패:', e); showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e)); },
+  });
+}
+
 function sendRows({ task, project, rows, onFileActivity }) {
+  if (guestMode()) return sendGuestRows({ task, rows, onFileActivity });
   let folderId = null;
   let cardFolderId = null;
   return runUploads({
@@ -455,12 +485,12 @@ const AttachmentRow = ({ row, meta, canDelete, thumb, thumbFailed, onOpen, onRem
   // 스켈레톤을 영원히 두면 "고장"으로 읽힌다.
   // 아직 올리는 중인 파일(source: 'local')은 **고른 파일 자체**를 그린다 —
   // 드라이브가 확정될 때까지 기다리지 않고 바로 보이게 하는 것이 이 줄의 요지다.
-  const src = row.source === 'local'
+  const src = row.source === 'local'   // 올리는 중 · 게스트 줄(시안)은 고른 바이트 그대로
     ? row._url
     : row.source === 'drive'
       ? (row.drive_file_id ? driveImageUrl(row.drive_file_id) : null)
       : thumb;
-  const pending = row.source === 'local';
+  const pending = row.source === 'local' && !row._guest;
   // 올리는 중인 엑셀은 **미리보기·펼쳐보기를 주지 않는다**(사용자 결정 2026-08-30).
   // 표를 그리는 것은 이제 구글이고, 그 화면은 드라이브에 변환 사본이 생긴 뒤에만 있다.
   // 그전에 열면 우리가 쓰던 옛 화면이 잠깐 나왔다 바뀌어서 두 벌처럼 보였다.
@@ -618,7 +648,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       // 온다. 그걸 그대로 받으면 방금 올라온 파일을 도로 지운다.
       // **다만 "짧으면 무조건 버린다"로 두면 지운 파일이 되살아난다**(사용자 지적).
       // 올리는 중일 때만 버린다 — 그때가 조회가 앞질러 갈 수 있는 유일한 순간이다.
-      listCardFiles(task.id)
+      (guestMode() ? Promise.resolve([]) : listCardFiles(task.id))
         .then(rows => {
           if (!alive) return;
           rows = mergeKnown(task.id, rows);   // 방금 지운 것은 빼고, 방금 올린 것은 더한다
@@ -720,10 +750,11 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     const next = items.filter(x => x.id !== row.id);
     const put = (list) => {
       setItems(list);
-      store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, attachments: list } });
+      if (!guestMode()) store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, attachments: list } });
     };
     deletedFileIds.add(row.id);
     put(next);
+    if (row._guest) { onFileActivity?.(`파일 '${row.name}'을(를) 삭제했습니다.`); return; }
     try {
       await deleteAttachment(row);
       onFileActivity?.(`파일 '${row.name}'을(를) 삭제했습니다.`);

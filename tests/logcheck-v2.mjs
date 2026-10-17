@@ -1064,6 +1064,36 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.strictEqual(g.searchParams.get('ctz'), 'Asia/Seoul');
   assert.strictEqual(ND.kakaoExternal('https://a.b/api/ics?s=1&n=2'), 'kakaotalk://web/openExternal?url=https%3A%2F%2Fa.b%2Fapi%2Fics%3Fs%3D1%26n%3D2');
 
+  // 이번 주 일정 한 번에 추가(시안 mock/b3 · v5 2묶음) — 날짜가 읽히는 광고만 · 날짜 차례 · .ics 하나에 VEVENT 여러 개(머리는 한 번)
+  // · 한 건짜리 buildIcs는 예전 글자 그대로(api/ics.js가 쓴다).
+  // **되돌리기**: noticeDate.buildIcsMulti에서 flatMap을 events[0] 하나로 줄이면 'VEVENT 셋'이, noticeEvents의 sort를 빼면 '날짜 차례'가 깨진다.
+  {
+    const svc = { id: 's9', service_date: '2026-10-18', kind: 'sunday' };
+    const notices = [
+      { title: '축제', body: '10월 24일 (토) 오후 2시 본당' },
+      { title: '리더 모임', body: '10월 21일 (수) 오후 7시 30분' },
+      { title: '다음 주 예배 위원', body: '대표기도: 이수빈 형제' },
+      { title: '생일 축하', body: '생일: 박지호 형제 10/20' },
+      { title: '야유회 마감', body: '10월 23일까지 신청' },
+    ];
+    const evs = ND.noticeEvents(svc, notices, '주일 4부 젊은이 예배');
+    assert.deepStrictEqual(evs.map(e => e.title), ['리더 모임', '야유회 마감', '축제'], '날짜가 읽히는 광고만 · 날짜 차례');
+    assert.deepStrictEqual(evs.map(e => e.uid), ['s9-1@thedaboot', 's9-4@thedaboot', 's9-0@thedaboot'], 'UID는 광고 차례 번호 그대로(한 건씩 넣은 것과 같은 일정)');
+    assert.strictEqual(evs[0].label, '10월 21일 (수) 오후 7:30', '확인 판의 날짜 글자는 칩과 같다');
+    const multi = ND.buildIcsMulti(evs, Date.UTC(2026, 9, 18));
+    assert.strictEqual((multi.match(/BEGIN:VEVENT/g) || []).length, 3, 'VEVENT 셋');
+    assert.strictEqual((multi.match(/BEGIN:VCALENDAR/g) || []).length, 1, '달력 머리는 한 번');
+    assert.ok(multi.startsWith('BEGIN:VCALENDAR\r\n') && multi.endsWith('END:VCALENDAR\r\n'), '처음과 끝');
+    assert.ok(multi.includes('DTSTART;VALUE=DATE:20261023\r\n'), '시각 없는 광고는 하루 종일');
+    assert.ok(multi.split('\r\n').every(l => new TextEncoder().encode(l).length <= 75), '여러 건도 75옥텟 접기');
+    const one = ND.buildIcs({ ...evs[0], now: Date.UTC(2026, 9, 18) });
+    assert.strictEqual(one, ND.buildIcsMulti([evs[0]], Date.UTC(2026, 9, 18)), '한 건 .ics = 여러 건 .ics의 한 건(같은 글자)');
+    assert.deepStrictEqual(ND.noticeEvents(svc, [{ title: 'x', body: '' }], 'k'), [], '날짜가 없으면 빈 목록');
+    const wd = readFileSync(new URL('../src/components/worshipDetail.jsx', import.meta.url), 'utf8');
+    assert.ok(/events\.length >= 2 && <AddAllNotices/.test(wd), '둘 이상일 때만 버튼(한 건이면 칩이 같은 일을 한다)');
+    console.log('PASS  이번 주 일정 한 번에 추가(.ics 여러 건 · 날짜 차례 · 한 건과 같은 글자)');
+  }
+
   // api/ics — 공용 머리 · 같은 파서 · 발행본만 · 서명 비교는 safeEqual · 토큰은 주소에 싣지 않는다
   const icsApi = readFileSync(new URL('../api/ics.js', import.meta.url), 'utf8');
   assert.ok(/requireApprovedUser\(req, res/.test(icsApi) && !/auth\.getUser\(/.test(icsApi), 'api/ics는 공용 승인 머리를 쓴다');

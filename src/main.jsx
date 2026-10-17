@@ -1,6 +1,8 @@
 // 본문 폰트는 SUIT 한 벌이다(index.css의 @font-face). Pretendard 동적 서브셋 CSS를
 // 여기서 같이 불러오던 탓에 배포에 woff2가 92개(약 4MB) 실리고, 첫 화면에서 두 벌의
 // 한글 폰트를 받았다. --font-sans의 폴백 이름으로만 남긴다(기기에 깔려 있으면 쓰인다).
+// 시안(mock/b3) 시연 씨앗 — 스토어보다 먼저 돌아야 해서 첫 줄이다(src/mockSeed.js 머리말)
+import './mockSeed.js';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';

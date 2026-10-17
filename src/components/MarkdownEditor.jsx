@@ -375,10 +375,12 @@ export function MarkdownEditor({
     setActiveIdx(0);
   }, [closeMention]);
 
+  // 게스트(시안 mock/b3)는 서버가 없다 — 같은 1600px 줄이기 뒤 blob 주소로 넣는다(이 탭에서만 보인다 · markdown IMAGE_LINE_RE)
   const uploadImage = useCallback(async (file) => {
     setUploading(true);
     try {
-      const url = await uploadContentImage(await downscaleImage(file, BODY_MAX_DIM));
+      const small = await downscaleImage(file, BODY_MAX_DIM);
+      const url = cloudModeRef.current ? await uploadContentImage(small) : URL.createObjectURL(small);
       editorRef.current?.chain().focus().setImage({ src: url }).run();
     } catch (e) {
       console.error('[cloud] 본문 이미지 업로드 실패:', e);
@@ -419,7 +421,7 @@ export function MarkdownEditor({
       },
       handlePaste: (view, event) => {
         const img = Array.from(event.clipboardData?.files || []).find(f => (f.type || '').startsWith('image/'));
-        if (img && cloudModeRef.current) {
+        if (img) {
           event.preventDefault();
           uploadImage(img);
           return true;
@@ -448,7 +450,7 @@ export function MarkdownEditor({
       },
       handleDrop: (_view, event) => {
         const img = Array.from(event.dataTransfer?.files || []).find(f => (f.type || '').startsWith('image/'));
-        if (!img || !cloudModeRef.current) return false;
+        if (!img) return false;
         event.preventDefault();
         uploadImage(img);
         return true;

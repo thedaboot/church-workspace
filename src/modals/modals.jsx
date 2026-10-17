@@ -34,7 +34,7 @@ const EditorSkeleton = () => (
 );
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
-import { isMyUid } from '../services/supabaseClient.js';
+import { isMyUid, isCloudEnabled } from '../services/supabaseClient.js';
 import { getMemberNames, loadCardDetail, loadCardPatch, cardWritePromise, lockCardCloud, unlockCardCloud, unlockOwnerCloud, loadLockAsk, requestLockResetCloud, resetCardLockCloud } from '../services/cloudSync.js';
 import { isCardClosed, allowTry } from '../services/cardLock.js';
 import { makeViewPw, verifyViewPw } from '../services/viewPw.js';
@@ -654,7 +654,12 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
     : null;
   const activityPanel = listsReady && !closed ? <ActivityPanel logs={source.activityLog} loading={detailLoading} /> : null;
   const versionsPanel = showVersions && !closed ? <VersionPanel cardId={task.id} pickedId={diffPick?.version.id} onPick={pickVersion} refreshKey={versionsKey} load={cloudMode ? null : fake?.versions} /> : null;
-  const commentInputEl = closed ? null : <CommentInput key={task.id} cardId={task.id} onAdd={addComment} members={members} />;
+  // 댓글 칸에 붙인 사진 → 이 업무 첨부(시안 mock/b3 · 같은 큐) · 잠긴 업무·새 업무에는 없다
+  const pasteToAttach = (!isNew && !source.locked && (cloudMode || !isCloudEnabled())) ? (files) => {
+    startUploads({ task: source, project, files, onFileActivity });
+    showToast('첨부 파일에 추가했어요');
+  } : null;
+  const commentInputEl = closed ? null : <CommentInput key={task.id} cardId={task.id} onAdd={addComment} members={members} onPasteFiles={pasteToAttach} />;
   const sideShown = sideOpen && !closed;
 
   // ── 모바일: 풀스크린 + 세그먼트 탭 ──
@@ -1018,7 +1023,7 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
       <SubtaskList readOnly value={task.subtasks || []}
         onChange={(fn, opts) => commit(cur => ({ ...cur, subtasks: fn(cur.subtasks || []) }), opts)} />
 
-      {cloudMode && <AttachmentSection task={task} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />}
+      {(cloudMode || !isCloudEnabled()) && <AttachmentSection task={task} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />}
       </div>
       </LockGate>
     </div>
@@ -1143,7 +1148,8 @@ function TaskLive({ task, commit, register, hold, onSession, co, coPending, memb
       <SubtaskList live value={task.subtasks || []} members={members} register={register} hold={hold}
         onChange={(fn, opts) => commit(cur => ({ ...cur, subtasks: fn(cur.subtasks || []) }), opts)} />
 
-      {cloudMode && <AttachmentSection task={task} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />}
+      {/* 게스트도 세운다(시안 mock/b3 — 붙여넣기 시연 · attachments.jsx 머리말 '게스트') */}
+      {(cloudMode || !isCloudEnabled()) && <AttachmentSection task={task} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />}
     </div>
   );
 }

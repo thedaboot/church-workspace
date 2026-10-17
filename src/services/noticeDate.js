@@ -135,10 +135,9 @@ export function fold(line) {
   return out.join('\r\n ');
 }
 
-// { uid, title, description, date, time, now? } → .ics 글자(CRLF)
-export function buildIcs({ uid, title, description = '', date, time = null, now = Date.now() }) {
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//thedaboot//worship//KO', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-    'BEGIN:VEVENT', `UID:${uid}`, `DTSTAMP:${stampUtc(now)}`];
+// 일정 한 건의 VEVENT 줄들(접기 전)
+function veventLines({ uid, title, description = '', date, time = null }, now) {
+  const lines = ['BEGIN:VEVENT', `UID:${uid}`, `DTSTAMP:${stampUtc(now)}`];
   if (time) {
     const s = kstToUtc(date, time);
     lines.push(`DTSTART:${stampUtc(s)}`, `DTEND:${stampUtc(s + 3600000)}`);
@@ -148,8 +147,29 @@ export function buildIcs({ uid, title, description = '', date, time = null, now 
   }
   lines.push(`SUMMARY:${icsText(title)}`);
   if (description) lines.push(`DESCRIPTION:${icsText(description)}`);
-  lines.push('END:VEVENT', 'END:VCALENDAR');
+  lines.push('END:VEVENT');
+  return lines;
+}
+const VCAL_HEAD = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//thedaboot//worship//KO', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+
+// { uid, title, description, date, time, now? } → .ics 글자(CRLF)
+export function buildIcs({ now = Date.now(), ...ev }) {
+  return buildIcsMulti([ev], now);
+}
+
+// 일정 여러 건 → .ics 하나(VEVENT 여러 개 · 시안 mock/b3 '이번 주 일정 한 번에 추가') — 폰 달력은 한 번의 '추가'로 전부 받는다.
+// UID가 광고마다 같으므로(noticeEvent) 같은 광고를 한 건씩 넣었어도 달력이 같은 일정으로 본다(겹쳐 쌓이지 않는다).
+export function buildIcsMulti(events, now = Date.now()) {
+  const lines = [...VCAL_HEAD, ...(events || []).flatMap(ev => veventLines(ev, now)), 'END:VCALENDAR'];
   return `${lines.map(fold).join('\r\n')}\r\n`;
+}
+
+// 주보 한 장에서 날짜가 읽히는 광고 전부 → 일정 목록(날짜 차례 · 화면 칩과 같은 파서) — '이번 주 일정 한 번에 추가'
+export function noticeEvents(service, notices, kindText) {
+  return (notices || []).flatMap((n, i) => {
+    const r = readNoticeDate(n, service?.service_date);
+    return r ? [{ ...noticeEvent(service, n, i, r, kindText), label: noticeDateLabel(r) }] : [];
+  }).sort((a, b) => `${a.date} ${a.time || ''}`.localeCompare(`${b.date} ${b.time || ''}`));   // 날짜 차례(하루 종일이 그날 맨 앞)
 }
 
 // 안드로이드 — 구글 캘린더 앱은 .ics를 못 여는 기기가 많아 템플릿 주소로 보낸다(앱이 받는다).

@@ -31,7 +31,7 @@ import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 import { imeComposing, isKakaoInApp } from '../utils.js';
 import { churchSeason } from '../services/churchYear.js';
 import { myNoteRows, coverImage } from '../services/serviceView.js';
-import { buildIcs, googleCalendarUrl, kakaoExternal, noticeEvent } from '../services/noticeDate.js';
+import { buildIcs, buildIcsMulti, googleCalendarUrl, kakaoExternal, noticeEvent } from '../services/noticeDate.js';
 
 import { Segmented } from '../components/segmented.jsx';
 import { useScrollMemory } from '../hooks/useScrollMemory.js';
@@ -998,6 +998,23 @@ export function WorshipView({ onOpenBible } = {}) {
     }, { quiet: true });
   }, []);
 
+  // ── 이번 주 일정 한 번에 추가(시안 mock/b3 · v5 2묶음) ───────────────────────────────
+  // 날짜가 읽힌 광고 전부를 .ics 하나(VEVENT 여러 개 · noticeDate.buildIcsMulti)로 — **지금은 기기를 가리지 않고 화면에서 만든다**
+  // (게스트 한 건 넣기와 같은 blob 내려받기). 실제로 붙일 때: 아이폰·데스크톱은 api/ics.js에 '그 주보의 광고 전부' 갈래
+  // (같은 10분 서명 주소 · 서버가 같은 파서로 다시 읽는다) · 안드로이드는 구글 템플릿이 한 건씩이라 .ics 내려받기 · 카카오 인앱은
+  // 같은 kakaoExternal(실기기 확인 대상).
+  const addAllToCalendar = useCallback(async (svc, events) => {
+    if (!events?.length) return;
+    await attempt('달력에 넣기', '달력에 넣지 못했어요', null, async () => {
+      const blob = new Blob([buildIcsMulti(events)], { type: 'text/calendar;charset=utf-8' });
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href; a.download = `${String(svc?.service_date || '').replace(/-/g, '.')} 광고 일정.ics`; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 10000);
+    }, { quiet: true });
+  }, []);
+
   // 주보 공개 보기 주소(2026-09-26 · api/service-view.js) — 주보마다 한 번만 묻고 쥔다(서명은 늘 같다).
   // 실패는 쥐지 않는다(다음에 다시 묻는다). 게스트는 null → 버튼이 서지 않는다.
   const shareLinks = useRef(new Map());
@@ -1059,7 +1076,7 @@ export function WorshipView({ onOpenBible } = {}) {
         onOpenAttendance={() => { setEditOnOpen(false); setNoteOnOpen(false); setScreen('attendance'); }}
         onOpenBible={onOpenBible}
         onPullPlaylist={pullPlaylist} onLookupTitle={lookupTitle} onShareNote={shareNote}
-        onAddToCalendar={addToCalendar} focusNote={noteOnOpen}
+        onAddToCalendar={addToCalendar} onAddAllToCalendar={addAllToCalendar} focusNote={noteOnOpen}
       />
     );
   }

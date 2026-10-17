@@ -1250,3 +1250,84 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/onCancel=\{\(\) => goStep\('edit'\)\}/.test(set), '복제의 취소는 이름 수정으로 돌아온다');
   console.log('PASS  한 창 안의 단계 전환(높이·폭 따라감 · dc-nav · 움직임 줄이기)');
 }
+
+// ── 프로젝트 '표' · '간트' 보기 + 댓글 고정·해결(시안 mock/b3 · v5 2묶음 '업무 편의') ─────────────────────────────
+// **되돌리기**: projectViews.sortTasks의 '빈 값은 맨 아래'(a.v == null → 1)를 sign에 곱하면 '내림차순에서도 미정은 맨 아래'가,
+// placeBars의 Math.max(0, …)를 빼면 '창 앞에서 걸친 띠는 0칸부터'가, weekStart의 -wd를 +wd로 바꾸면 '주일 시작'이,
+// commentMarks.withMark의 `c.parentId` 거름을 빼면 '답글에는 붙지 않는다'가 깨진다.
+{
+  const PV = await import(new URL('../src/services/projectViews.js', import.meta.url).href);
+  const T = (id, o = {}) => ({ id, title: id, status: '시작 전', teams: [], assignees: [], startDate: '', dueDate: '', subtasks: [], dependsOn: [], ...o });
+  const list = [
+    T('a', { title: '포스터', status: '진행 중', dueDate: '2026-10-21', assignees: ['박지호'], subtasks: [{ done: true }, { done: false }] }),
+    T('b', { title: '대관', status: '완료', dueDate: '2026-10-06', assignees: ['김윤주'] }),
+    T('c', { title: '현수막', status: '시작 전' }),                                   // 마감 미정 · 담당자 없음
+    T('d', { title: '리허설', status: '보류 중', dueDate: '2026-11-07', assignees: ['이하랑', '정민수'], subtasks: [{ done: true }] }),
+    T('e', { title: '순번표', status: '상시', assignees: ['홍길동'] }),
+  ];
+  const ids = (a) => a.map(t => t.id).join('');
+  assert.strictEqual(ids(PV.sortTasks(list, 'dueDate', 'asc')), 'badce', '마감 오름차순 · 미정은 맨 아래(원래 차례)');
+  assert.strictEqual(ids(PV.sortTasks(list, 'dueDate', 'desc')), 'dabce', '내림차순에서도 미정은 맨 아래');
+  assert.strictEqual(ids(PV.sortTasks(list, 'status', 'asc')), 'cadbe', '상태는 보드 차례(시작 전 → 상시)');
+  assert.strictEqual(ids(PV.sortTasks(list, 'title', 'asc')), 'bdeac', '제목은 가나다');
+  assert.strictEqual(ids(PV.sortTasks(list, 'subtasks', 'desc')), 'dabce', '하위 업무 진척(다 한 것 먼저) · 없으면 맨 아래');
+  assert.strictEqual(ids(PV.sortTasks(list, 'assignees', 'asc')), 'badec', '담당자는 첫 사람 이름 · 없으면 맨 아래');
+  assert.deepStrictEqual([PV.nextSort(null, 'title'), PV.nextSort({ key: 'title', dir: 'asc' }, 'title'), PV.nextSort({ key: 'title', dir: 'desc' }, 'title'), PV.nextSort({ key: 'title', dir: 'desc' }, 'status')],
+    [{ key: 'title', dir: 'asc' }, { key: 'title', dir: 'desc' }, null, { key: 'status', dir: 'asc' }], '머리 누르기: 오름 → 내림 → 보드 차례 · 다른 칸은 오름부터');
+  assert.strictEqual(ids(PV.filterTasks(list, { statuses: ['진행 중', '보류 중'] })), 'ad', '상태 거르기');
+  assert.strictEqual(ids(PV.filterTasks(list, { assignees: ['정민수'] })), 'd', '여럿이 맡은 업무도 한 사람으로 걸린다');
+  assert.strictEqual(ids(PV.filterTasks(list, { assignees: [''] })), 'c', "'' = 담당자 미지정");
+  assert.strictEqual(ids(PV.filterTasks(list, { statuses: ['시작 전'], assignees: ['박지호'] })), '', '두 조건은 그리고');
+  assert.strictEqual(ids(PV.filterTasks(list, {})), 'abcde', '빈 조건은 전부');
+  assert.deepStrictEqual(PV.assigneesOf(list), ['김윤주', '박지호', '이하랑', '정민수', '홍길동', ''], '담당자 목록 가나다 + 미지정 맨 뒤');
+  assert.ok(PV.PHONE_COLS_DEFAULT.every(k => PV.PHONE_COL_CHOICES.includes(k)) && !PV.PHONE_COL_CHOICES.includes('title'), '폰은 제목 + 고른 두 칸');
+
+  // 간트
+  assert.deepStrictEqual(PV.ganttSpan(T('x', { dueDate: '2026-10-21' })), { start: '2026-10-21', end: '2026-10-21' }, '시작일이 없으면 마감일 하루');
+  assert.deepStrictEqual(PV.ganttSpan(T('x', { startDate: '2026-10-30', dueDate: '2026-10-21' })), { start: '2026-10-21', end: '2026-10-30' }, '뒤집힌 기간은 바로 세운다');
+  assert.strictEqual(PV.ganttSpan(T('x')), null, '날짜가 없으면 띠 없음');
+  const G = [
+    T('p', { startDate: '2026-10-09', dueDate: '2026-10-21' }),
+    T('q', { startDate: '2026-10-22', dueDate: '2026-11-03', dependsOn: ['p'] }),
+    T('r', { startDate: '2026-11-20', dueDate: '2026-12-02', dependsOn: ['q'] }),
+    T('s', { status: '상시', dueDate: '2026-10-10' }),
+    T('t', { dueDate: '2026-10-01' }),
+  ];
+  const rows = PV.ganttRows(G);
+  assert.strictEqual(rows.map(r => r.task.id).join(''), 'tpqr', '상시는 빠지고 시작일 차례');
+  assert.deepStrictEqual(PV.ganttRange(rows, '2026-10-18'), { from: '2026-10-01', to: '2026-12-31', days: 92 }, '달 단위 범위(첫 달 1일 ~ 끝 달 말일)');
+  assert.deepStrictEqual(PV.ganttRange([], '2026-02-10'), { from: '2026-02-01', to: '2026-02-28', days: 28 }, '업무가 없으면 이번 달');
+  assert.strictEqual(PV.weekStart('2026-10-18'), '2026-10-18', '주일은 그 날');
+  assert.strictEqual(PV.weekStart('2026-10-24'), '2026-10-18', '토요일은 그 주 주일');
+  assert.strictEqual(PV.WINDOW_DAYS, 28, '폰 창은 4주');
+  const from = '2026-10-11';
+  const bars = PV.placeBars(rows, from, PV.WINDOW_DAYS);   // 10/11 ~ 11/7
+  const by = Object.fromEntries(bars.map(b => [b.task.id, b]));
+  assert.ok(!by.t && !by.r, '창 밖 띠는 없다');
+  assert.deepStrictEqual([by.p.left, by.p.width, by.p.clipL, by.p.clipR, by.p.row], [0, 11, true, false, 1], '창 앞에서 걸친 띠는 0칸부터 · 잘림 표시 · 줄은 전체 차례');
+  assert.deepStrictEqual([by.q.left, by.q.width, by.q.clipL, by.q.clipR], [11, 13, false, false], '창 안의 띠');
+  const cut = PV.placeBars(rows, '2026-10-25', PV.WINDOW_DAYS);
+  const q2 = cut.find(b => b.task.id === 'q');
+  assert.deepStrictEqual([q2.left, q2.width, q2.clipL], [0, 10, true], '다음 창에서는 앞이 잘린다');
+  assert.strictEqual(PV.depLinks(bars).map(l => `${l.from.task.id}>${l.to.task.id}`).join(), 'p>q', '선행 선은 두 띠가 다 창 안에 있을 때만');
+  assert.strictEqual(PV.depLinks(PV.placeBars(rows, '2026-10-01', 92)).length, 2, '넓은 범위에서는 둘 다');
+  assert.strictEqual(PV.depLinks(cut).map(l => `${l.from.task.id}>${l.to.task.id}`).join(), 'q>r', '앞 띠(p)가 창 밖이면 그 선은 없고 · 둘 다 안이면 선다');
+  assert.strictEqual(PV.depLinks(PV.placeBars(rows, '2026-10-15', 7)).length, 0, '이 띠의 시작이 창 앞에서 잘렸으면 선 없음');
+
+  // 댓글 고정·해결 — commentMarks는 스토어를 들이므로 순수 두 함수만 떼어 들인다
+  const cmSrc = readFileSync(new URL('../src/services/commentMarks.js', import.meta.url), 'utf8')
+    .replace(/^import .*$/m, '').replace(/export function markComment[\s\S]*$/, '');
+  const { splitPinned, withMark } = await loadSource('src/services/commentMarks.js', { src: cmSrc });
+  const C = [
+    { id: 'c1', text: '1', parentId: null }, { id: 'c2', text: '2', parentId: null, pinnedAt: '2026-10-02' },
+    { id: 'r1', text: 'r', parentId: 'c1' }, { id: 'c3', text: '3', parentId: null, pinnedAt: '2026-10-01' },
+  ];
+  const sp = splitPinned(C);
+  assert.deepStrictEqual([sp.pinned.map(c => c.id), sp.rest.map(c => c.id)], [['c3', 'c2'], ['c1']], '고정은 고정한 차례 · 답글은 둘 다에서 빠진다');
+  const m1 = withMark(C, 'c1', { pinned: true, resolved: true }, '홍길동', 'T');
+  assert.deepStrictEqual([m1[0].pinnedAt, m1[0].pinnedBy, m1[0].resolvedAt, m1[0].resolvedBy], ['T', '홍길동', 'T', '홍길동'], '고정·해결 표시');
+  assert.strictEqual(withMark(m1, 'c1', { resolved: false }, 'x', 'U')[0].resolvedAt, null, '해결 취소');
+  assert.strictEqual(withMark(m1, 'c1', { resolved: false }, 'x', 'U')[0].pinnedAt, 'T', '한쪽만 바꾸면 다른 쪽은 그대로');
+  assert.strictEqual(withMark(C, 'r1', { pinned: true }, 'x', 'T')[2].pinnedAt, undefined, '답글에는 붙지 않는다');
+  console.log('PASS  표 정렬·거르기 · 간트 범위·4주 창·띠 자리·선행 선 · 댓글 고정·해결');
+}

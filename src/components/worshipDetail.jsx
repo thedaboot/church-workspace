@@ -18,7 +18,7 @@ import { ServiceSheetOne, ServiceSheetTwo, PAPER, paperDate } from './paper.jsx'
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { churchSeason } from '../services/churchYear.js';
 import { realNameOf, realNamesInRoleLines, isNextWeekNotice } from '../services/serviceView.js';
-import { readNoticeDate, noticeDateLabel } from '../services/noticeDate.js';
+import { readNoticeDate, noticeDateLabel, noticeEvents } from '../services/noticeDate.js';
 import { ServiceStory } from './worshipStory.jsx';
 import { CoverImg, CoverDialog, useCoverShown } from './worshipCover.jsx';
 import { coverImage } from '../services/serviceView.js';
@@ -365,9 +365,42 @@ function NoticeCard({ notice, index, serviceDate = '', onCalendar, held = false 
 // '다음 주 예배 위원' 광고의 이름은 본명으로 세운다(real · serviceView.realNamesInRoleLines) —
 // 저장된 광고 글은 그대로다. 나머지 광고는 사람이 쓴 글이라 한 글자도 안 건드린다.
 // 그 광고의 글은 명단이 오기 전에는 숨긴다(namesReady — 본명으로 바뀌기 전 글자가 섰다가 바뀌지 않게 · 제목은 선다).
-function NoticesTab({ rows, serviceDate = '', onCalendar, real = null, namesReady = true, onEdit = null }) {
+// **이번 주 일정 한 번에 추가**(시안 mock/b3 · v5 2묶음): 날짜가 읽히는 광고가 둘 이상이면 목록 위에 버튼 하나 —
+// 누르면 무엇이 들어가는지(칩과 같은 날짜 글자 · 제목) 확인 판을 띄우고, 확인하면 .ics 하나(VEVENT 여러 개)로 넣는다
+// (noticeDate.buildIcsMulti · 부르는 쪽 worshipView.addAllToCalendar). 한 건뿐이면 그 광고의 칩이 같은 일을 한다.
+function AddAllNotices({ events, onAll }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="flex justify-end mb-2">
+      <ConfirmPopover tone="ok" confirmLabel="추가"
+        message={(
+          <span className="block text-left">
+            <span className="block font-bold text-fg mb-1.5">일정 {events.length}건을 내 달력에 추가할까요?</span>
+            {events.map(e => (
+              <span key={e.uid} className="flex gap-2 text-[12px] leading-[1.6]">
+                <span className="shrink-0 text-fg-muted tabular-nums">{e.label}</span>
+                <span className="min-w-0 truncate text-fg">{e.title}</span>
+              </span>
+            ))}
+          </span>
+        )}
+        onConfirm={async () => { setBusy(true); try { await onAll(events); } finally { setBusy(false); } }}>
+        <button type="button" data-notice-cal-all=""
+          className="worship-notice-cal-all inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <CalendarPlus size={13} />}
+          <span>이번 주 일정 모두 추가 · {events.length}건</span>
+        </button>
+      </ConfirmPopover>
+    </div>
+  );
+}
+
+function NoticesTab({ rows, serviceDate = '', onCalendar, onCalendarAll = null, service = null, real = null, namesReady = true, onEdit = null }) {
+  const events = useMemo(() => (onCalendarAll && service ? noticeEvents(service, rows, kindLabel(service.kind)) : []), [onCalendarAll, service, rows]);
   if (!rows.length) return <WorshipEmpty text="광고를 아직 적지 않았어요" onEdit={onEdit} />;
   return (
+    <>
+    {events.length >= 2 && <AddAllNotices events={events} onAll={onCalendarAll} />}
     <ul className={`${LIST} space-y-2`}>
       {rows.map((n, i) => (
         <NoticeCard key={i} index={i} serviceDate={serviceDate} onCalendar={onCalendar}
@@ -375,6 +408,7 @@ function NoticesTab({ rows, serviceDate = '', onCalendar, real = null, namesRead
           notice={real && isNextWeekNotice(n) ? { ...n, body: realNamesInRoleLines(n.body, real) } : n} />
       ))}
     </ul>
+    </>
   );
 }
 
@@ -551,7 +585,7 @@ function CoverTools({ cover, busy = false, onPick, onPosition, onRemove }) {
 export function ServiceDetail({
   service, people = [], personRoles = [], rosterReady = true, perms = {}, note = null, canWriteNote = false, startEditing = false,
   files = [], recentSongs = [], prefill = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
-  onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile, onAddToCalendar, focusNote = false, onCopyLastCue = null,
+  onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile, onAddToCalendar, onAddAllToCalendar = null, focusNote = false, onCopyLastCue = null,
   cover = null, onUploadCover, onRemoveCover, onSaveCoverFocus, onShareLink = null,
 }) {
   const [tab, setTab] = useState('paper');
@@ -836,7 +870,8 @@ export function ServiceDetail({
         {activeTab === 'notices' && (editing
           ? <NoticesEdit rows={rows('notices')} onChange={v => set({ notices: v })} />
           : <NoticesTab rows={rows('notices')} serviceDate={service.service_date} real={real} namesReady={rosterReady} onEdit={editFrom('notices')}
-              onCalendar={onAddToCalendar && !isDraft ? (i, n, r) => onAddToCalendar(service, i, n, r) : null} />)}
+              onCalendar={onAddToCalendar && !isDraft ? (i, n, r) => onAddToCalendar(service, i, n, r) : null}
+              service={service} onCalendarAll={onAddAllToCalendar && !isDraft ? (evs) => onAddAllToCalendar(service, evs) : null} />)}
       </div>
 
       {/* **발행 전에는 노트 자리가 없다**(사용자 결정 2026-09-09 — "발행하기 전에는 예배
