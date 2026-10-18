@@ -436,7 +436,7 @@ const seg = await ev(`(() => {
 })()`);
 check('프로젝트 보기 토글: 고른 칸(보드)만 흰 바탕 · 진한 글자 · 칸 클래스 그대로',
   !!seg && seg.same && seg.boxCls === 'flex p-[3px] rounded-md shrink-0' && seg.boxBg === 'var(--app-surface-hover)'
-    && seg.cls.every(c => c === 'px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors')
+    && seg.cls.every(c => c === 'px-2.5 md:px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors')
     && seg.bg.join() === 'var(--app-surface),transparent,transparent'
     && seg.fg.join() === 'var(--app-ink),var(--app-ink-muted),var(--app-ink-muted)',
   JSON.stringify(seg));
