@@ -427,6 +427,19 @@
   .dc-lock-veil-in, .dc-lock-veil-out, .dc-lock-blur-out, .dc-lock-blur-in, .dc-shake { animation: none !important; }
 }
 
+/* ── v5 2묶음 시안(mock/b3) — 생체 인증 기다림(cardLock.jsx) · 당겨서 새로 고침의 다붓이(pullRefresh.jsx) · 다붓이 답 펼치기 커서(dabooti.jsx).
+   이징은 quint 하나(§4.2) · 고리 움직임은 기다리는 동안만 · 움직임 줄이기면 전부 끈다(부품도 화면을 움직이지 않는다). */
+@keyframes dc-bio-wait { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.dc-bio-wait { animation: dc-bio-wait 1s var(--ease-out-quint) infinite; }
+@keyframes dc-pull-wait { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-9deg) translateY(-1px); } 75% { transform: rotate(7deg); } }
+.dc-pull-wait { animation: dc-pull-wait 1.1s var(--ease-out-quint) infinite; transform-origin: 50% 90%; }
+@keyframes dab-caret-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+.dab-caret { display: inline-block; width: 2px; height: 1.05em; margin-right: -2px; vertical-align: -0.17em; border-radius: 1px;
+  background: var(--app-accent); animation: dab-caret-blink .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dc-bio-wait, .dc-pull-wait, .dab-caret { animation: none !important; }
+}
+
 /* 엑셀 표 애니메이션(.dc-sheet · .dc-cell-paint · .dc-bar-grow)은 2026-08-31에 뺐다.
    우리가 표를 직접 그리던 SheetView가 없어졌는데(커밋 "표는 구글이 그린다") 규칙만
    남아서, 아무 요소도 쓰지 않는 죽은 CSS였다. 표는 이제 구글 iframe이 그리므로

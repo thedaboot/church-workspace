@@ -133,6 +133,11 @@ import logoDark from './assets/logo-dark.webp';
 import { BTN_CONFIRM } from './components/buttons.js';
 import { errorReason } from './services/errorText.js';
 import { prefetchViewsIdle } from './services/viewChunks.js';
+import { PullRefresh } from './components/pullRefresh.jsx';
+import { kakaoDemo } from './services/inApp.js';
+import { ensurePhoneDemo } from './services/phoneDemo.js';
+// 게스트 시연 표식(?demo=kakao)을 주소가 '/'로 정리되기 전에 붙잡는다(v5 2묶음 시안 · services/inApp.js)
+kakaoDemo();
 
 // activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
 // 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다
@@ -443,6 +448,22 @@ function WorkspaceShell() {
   // 늦게 싣는 화면(예배·말씀·모임·청년 명단·위키)을 첫 화면이 선 뒤 한가할 때 미리 받는다(services/viewChunks.js) —
   // 그 탭을 처음 누를 때 조각을 기다리며 빈 화면이 서던 자리(2026-10-15). 폰 하단 탭은 누르는 순간에도 받는다(mobileNav).
   useEffect(() => (cloudReady ? prefetchViewsIdle() : undefined), [cloudReady]);
+
+  // 게스트 시연(?demo=lock — 남이 잠근 업무 하나 · services/phoneDemo.js). 클라우드는 아무것도 안 한다.
+  useEffect(() => { if (!authEnabled) ensurePhoneDemo({ cloud: false }); }, [authEnabled]);
+
+  // 당겨서 새로 고침(폰 · components/pullRefresh.jsx · v5 2묶음 시안). 클라우드는 워크스페이스를 다시 읽고(reloadCloud — 열린 창 상세까지)
+  // 탭 줄 앞 칸은 다시 재지 않는다(첫 로드 · 다시 보일 때만 — 위 refreshTabFront · logcheck-live) · 자기 데이터를 따로 읽는 화면(예배·말씀·모임·위키)은 'app:pull-refresh' 신호를 받아 다시 읽을 자리(시안에서는 아직 안 받는다).
+  // 게스트는 저장된 워크스페이스(church_app_v4)를 다시 읽는다(짧게 기다린다 — 네트워크 없음).
+  const pullRefresh = useCallback(async () => {
+    if (cloudMode) {
+      await reloadCloud();
+    } else {
+      await new Promise(r => setTimeout(r, 450));
+      try { const saved = localStorage.getItem('church_app_v4'); if (saved) store.dispatch({ type: 'LOAD_STATE', payload: JSON.parse(saved) }); } catch { /* 막힌 저장소 */ }
+    }
+    window.dispatchEvent(new Event('app:pull-refresh'));
+  }, [cloudMode, reloadCloud]);
 
   // 지금 접속해 있는 사람(presence) — DB에 아무것도 쓰지 않고, 연결이 끊기면 서버가
   // 바로 지운다. 값은 전용 미니 스토어로 흐른다(LOAD_STATE가 상태를 통째로 갈아치우는
@@ -1015,6 +1036,7 @@ function WorkspaceShell() {
           모바일 아래 여백 = 탭바 높이 + 홈 인디케이터(safe-area) + 숨 쉴 틈.
           고정값(pb-20)으로 두면 아이폰에서 마지막 카드가 탭바에 잘렸다 */}
       <main ref={mainRef} className="flex-1 overflow-auto px-3 pt-2.5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:px-4 md:pt-3.5 md:pb-3 relative">
+        <PullRefresh mainRef={mainRef} enabled={isMobile} onRefresh={pullRefresh} />
         <ErrorBoundary>
           {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생.
               h-full은 프로젝트 화면에만 — 보드/캘린더가 안에서 스크롤하려면 높이가

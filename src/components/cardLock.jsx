@@ -8,6 +8,9 @@ import { BTN } from './buttons.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { SecretInput } from './SecretInput.jsx';
 import { matchSecret } from '../services/secretKeys.js';
+import { ScanFace, FingerprintPattern } from 'lucide-react';
+import { bioMode, platformReady, readBio, registerBio, verifyBio } from '../services/bioUnlock.js';
+import { inKakao } from '../services/inApp.js';
 
 // ============================================================================
 // 업무 잠금(0099) — 자물쇠 그림 · 업무 창 머리줄 자물쇠 버튼 + `업무 잠그기` 팝오버 · 잠금 판 · 판이 접히고 걷히는 모션 · 보드 카드 자물쇠
@@ -31,7 +34,38 @@ import { matchSecret } from '../services/secretKeys.js';
 //   잠금 판은 본문 자리를 끝까지 채운다(flex-1 · 시안 2차 — 판 아래 창 바닥까지 빈 띠가 남았다 · 내용은 가운데).
 //   게스트는 마스터이자 요청한 사람이라(auth 기본값) 둘이 한 화면에 같이 선다(요청은 그 업무의 로컬 값 · 알림 없음).
 //   클라우드는 업무 창이 요청 표를 읽었을 때만 버튼을 세운다(modals.jsx — 0106 전이면 예전 잠금 판 그대로).
+//
+// ── 생체 인증으로 열기(v5 2묶음 시안 · mock/b3 · services/bioUnlock.js — 서버 검증은 아직 없다) ──
+//   useBioUnlock    길(real · sim · null) · 이 기기 등록 여부 · 등록 · 확인. 카카오 인앱(inApp.inKakao)과 클라우드는 null.
+//   LockedPanel     등록한 기기면 비밀번호 줄 위에 생체 인증 버튼(onBio) — 취소·실패는 조용히(흔들지 않는다).
+//   BioOffer        비밀번호로 연 직후 그 업무 보기 위 한 줄 — 등록 / 다음에. 등록하면 한 줄이 '등록했어요'로 바뀌고 잠시 뒤 걷힌다.
+//   문구는 BIO_COPY 한 곳(사용자가 정할 자리표).
 // ============================================================================
+
+// 생체 인증 문구 — **자리표**(사용자가 정한다 · 시안 문구 표)
+export const BIO_COPY = {
+  open: '생체 인증으로 열기',
+  offer: '다음부터 이 기기에서 생체 인증으로 열 수 있어요',
+  set: '등록',
+  later: '다음에',
+  done: '이 기기를 등록했어요',
+};
+const isApple = () => typeof navigator !== 'undefined' && (/iPhone|iPad|iPod|Macintosh/i.test(navigator.userAgent));
+const BioIcon = (props) => (isApple() ? <ScanFace {...props} /> : <FingerprintPattern {...props} />);
+
+// 이 기기의 생체 인증 — who: 지금 사람 이름(등록은 사람·브라우저마다) · cloud: 클라우드면 아직 null(서버 검증 전)
+export function useBioUnlock({ who = '', cloud = false } = {}) {
+  const [platform, setPlatform] = useState(false);
+  const [registered, setRegistered] = useState(() => !!readBio(who));
+  useEffect(() => { let live = true; platformReady().then(v => { if (live) setPlatform(v); }); return () => { live = false; }; }, []);
+  useEffect(() => { setRegistered(!!readBio(who)); }, [who]);
+  const mode = bioMode({ cloud, kakao: inKakao(), platform });
+  return {
+    mode, registered: !!mode && registered,
+    register: async () => { const ok = await registerBio(who, mode); if (ok) setRegistered(true); return ok; },
+    verify: () => verifyBio(who, mode),
+  };
+}
 
 // 자물쇠 그림 — lucide Lock과 같은 선(몸통 + 고리). 고리만 따로 움직이게 path에 클래스를 단다.
 export function LockGlyph({ size = 16, strokeWidth = 2, className = '', ...rest }) {
@@ -195,7 +229,14 @@ export function LockResetNotice({ by, onReset }) {
 // 못 여는 사람의 본문 자리. onUnlock(pw) → 약속<boolean>(맞으면 true · 틀렸거나 1분 5회를 넘었으면 false · 통신 실패는 던진다).
 // stir: LockGate가 넘기는 'shut' | 'lift' — 판의 자물쇠 고리가 한 번 움직인다.
 // onForgot() → 약속 — 없으면 `비밀번호를 까먹었어요`가 서지 않는다(클라우드에서 요청 표를 못 읽었을 때). asked: 내가 이미 요청했나.
-export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = false }) {
+// onBio() → 약속<boolean> — 있으면(이 기기 등록됨) 비밀번호 줄 위에 생체 인증 버튼. 취소·실패면 그대로 둔다.
+export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = false, onBio = null }) {
+  const [bioBusy, setBioBusy] = useState(false);
+  const bio = async () => {
+    if (bioBusy) return;
+    setBioBusy(true);
+    try { await onBio(); } catch { /* 부르는 쪽이 토스트 */ } finally { setBioBusy(false); }
+  };
   const [pw, setPw] = useState('');
   const [raw, setRaw] = useState('');   // 친 글자 그대로 — 예전에 한글로 건 비밀번호(secretKeys.js)
   const [busy, setBusy] = useState(false);
@@ -213,6 +254,12 @@ export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = fa
     <div data-lock-panel="" className="flex-1 flex flex-col items-center justify-center gap-2.5 pt-[34px] pb-[26px] px-4 rounded-[10px] bg-surface-2">
       <LockGlyph size={26} strokeWidth={1.8} className={`text-fg-faint ${stir ? `dc-lock-${stir}` : ''}`} />
       <div className="text-[13px] leading-relaxed text-center text-fg">이 업무는 현재 잠겨있어요</div>
+      {onBio && (
+        <button type="button" onClick={bio} disabled={bioBusy} data-lock-bio="" aria-busy={bioBusy}
+          className="w-[260px] max-w-full h-9 inline-flex items-center justify-center gap-1.5 rounded-[9px] bg-accent-weak text-accent-text text-[12.5px] font-bold transition active:scale-[0.98] disabled:opacity-40">
+          <BioIcon size={16} strokeWidth={2} className={bioBusy ? 'dc-bio-wait' : ''} />{BIO_COPY.open}
+        </button>
+      )}
       <div className="flex gap-1.5 w-[260px] max-w-full">
         <SecretInput ref={inputRef} value={pw} placeholder="비밀번호" aria-label="비밀번호"
           onValue={(v, r) => { setPw(v); setRaw(r); shake.clear(); }}
@@ -231,6 +278,36 @@ export function LockedPanel({ onUnlock, stir = null, onForgot = null, asked = fa
             className="mt-0.5 text-[11.5px] text-fg-muted underline underline-offset-2 decoration-line hover:text-fg">비밀번호를 까먹었어요</button>
         </ConfirmPopover>
       ))}
+    </div>
+  );
+}
+
+// 비밀번호로 연 직후 그 업무 보기 위 한 줄(LockResetNotice와 같은 모양). onSet() → 약속<boolean> · onClose() 걷기.
+export function BioOffer({ onSet, onClose }) {
+  const [state, setState] = useState('ask');   // ask | busy | done
+  useEffect(() => {
+    if (state !== 'done') return undefined;
+    const t = setTimeout(onClose, 1800);
+    return () => clearTimeout(t);
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
+  const set = async () => {
+    setState('busy');
+    const ok = await onSet().catch(() => false);
+    setState(ok ? 'done' : 'ask');
+  };
+  return (
+    <div data-lock-bio-offer={state} className="dc-fade mt-4 pl-3 pr-2 py-2 rounded-[10px] bg-accent-weak">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 min-h-[29px]">
+        <BioIcon size={15} strokeWidth={2.2} className="text-accent-text shrink-0" />
+        <span className="flex-1 min-w-[160px] text-[12.5px] leading-snug text-fg">{state === 'done' ? BIO_COPY.done : BIO_COPY.offer}</span>
+        {state !== 'done' && (
+          <span className="inline-flex items-center gap-1 shrink-0">
+            <button type="button" onClick={onClose} disabled={state === 'busy'} data-lock-bio-later=""
+              className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold text-fg-muted hover:text-fg hover:bg-surface-hover disabled:opacity-40">{BIO_COPY.later}</button>
+            <button type="button" onClick={set} disabled={state === 'busy'} data-lock-bio-set="" className={`${BTN} whitespace-nowrap`}>{BIO_COPY.set}</button>
+          </span>
+        )}
+      </div>
     </div>
   );
 }

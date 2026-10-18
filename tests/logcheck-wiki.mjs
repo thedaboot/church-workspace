@@ -1343,7 +1343,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     assert.strictEqual(W.waitLine(...args), want, `waitLine(${args.join(', ')})`);
   }
   const dab = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
-  assert.ok(!/const WAIT_LINES = \[/.test(dab) && dab.includes('let line = waitLine(stage, now - since, follow);') && dab.includes('askDabooti(question, prev, { onStage })'), '말풍선이 서버 단계로 문구를 고른다');
+  assert.ok(!/const WAIT_LINES = \[/.test(dab) && dab.includes('let line = waitLine(stage, now - since, follow);') && dab.includes('askDabooti(question, prev, { onStage, onEvidence })'), '말풍선이 서버 단계로 문구를 고른다');
   assert.ok(dab.includes('if (prefersReducedMotion()) { if (!frozen.current) frozen.current = line; line = frozen.current; }'), '모션 줄이기면 처음 선 말에 머문다');
 
   // ── A-1. doc_vec에 위키 장 · 주보(0096) — 다붓이와 같은 글 · 자주 묻는 질문 장·작성 중 주보는 빼고 · 옛 세 종류의 행 모양 그대로 ──

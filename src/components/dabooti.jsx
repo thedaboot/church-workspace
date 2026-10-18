@@ -6,6 +6,7 @@ import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { glideTo } from '../hooks/scrollGlide.js';
 import { chipPool, rotateChips, normQ, chatExpired, looksFollowUp, waitLine, tellTurn, TELL_ASK, NUDGE, TALK_ANSWERS } from '../services/wikiCore.js';
 import { fetchMyPerson, fetchGroups, fetchGroupMembers } from '../services/people.js';
+import { revealPlan, revealAt, revealTotal, sliceGlyphs } from '../services/answerReveal.js';
 
 // ============================================================================
 // 다붓이 — 입구(상단 알약 · 폰 얼굴)와 물어보기 판 (0088 · 16차 · 목업 v12)
@@ -19,6 +20,9 @@ import { fetchMyPerson, fetchGroups, fetchGroupMembers } from '../services/peopl
 // 평소 입력창의 다음 말이 원래 물음과 이어지면 알려 준 말(wikiCore.tellTurn → services/wiki.tellDabooti · 고마움 말풍선 { told }),
 // 다른 물음이면 새 질문(알려 주기는 접는다). 👎를 풀거나 👍로 바꾸면 아직 답하지 않은 그 말풍선을 걷는다(마지막 것만).
 // 서버가 nudge를 단 답은 말풍선 끝에 권유 한 줄(NUDGE · 가운데 👎 아이콘은 답 줄의 버튼과 같은 회색 선 아이콘).
+// 답 속도(v5 2묶음 시안 · mock/b3 · services/answerReveal.js): 서버가 답보다 먼저 '찾은 근거'를 흘리면(onEvidence — 시안은 게스트
+// 흉내만 · services/dabootiDemo.js) 기다리는 말풍선에 그 칩이 먼저 선다. 답이 오면 **검사가 끝난 문장**을 한 문장씩 쳐 나가듯 펼친다
+// (근거를 먼저 받은 답 · a.reveal만 — 바로 오는 답·같은 말 기억은 그대로) · 다 펼친 뒤 권유 줄·파일·👍/👎. 움직임 줄이기면 한 번에.
 // ============================================================================
 
 // ── 대화 · 같은 질문 답 (메모리만) ─────────────────────────────────────────────
@@ -232,10 +236,12 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     try {
       // 서버가 흘려보내는 단계(기록 모음 → 답 작성 → flash-lite) — 기다리는 말풍선이 그 단계의 문구를 고른다(wikiCore.waitLine)
       const onStage = (stage) => setChat(c => c.map(m => (m.id === id && m.loading ? { ...m, stage } : m)));
-      const a = await askDabooti(question, prev, { onStage });
+      const onEvidence = (evidence) => setChat(c => c.map(m => (m.id === id && m.loading ? { ...m, evidence } : m)));
+      const a = await askDabooti(question, prev, { onStage, onEvidence });
       // 받아친 말 · 학습하지 마(a.talk · 2026-10-17)는 앞 대화에 따라 다르고 '학습하지 마'는 서버가 앞 질문을 빼야 해서 기억하지 않는다
       if (!follow && !a.asked && !a.talk) memoPut(question, a);
-      setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, a } : m)));
+      // 근거를 먼저 받은 답(또는 a.reveal)은 한 문장씩 — 펼치기 시작 시각을 적어 두어 판이 다시 붙어도 처음부터 다시 돌지 않는다
+      setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, a, revealFrom: (m.evidence || a.reveal) && !prefersReducedMotion() ? Date.now() : null } : m)));
     } catch (e) {
       setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, err: e.human || '답을 받지 못했어요' } : m)));
     }
@@ -385,6 +391,12 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
                 <div className="dab-bub-in justify-self-start rounded-[4px_14px_14px_14px] px-3 py-3" style={{ background: 'var(--app-hero)' }} aria-label="다붓이가 답을 찾는 중">
                   <WaitLine stage={m.stage} since={m.since} follow={m.follow} />
                   <span className="dab-dots inline-flex gap-1 align-middle"><span /><span /><span /></span>
+                  {/* 찾은 근거 먼저(시안) — 답보다 먼저 칩이 하나씩 선다 · 누르면 그 업무·장으로 */}
+                  {m.evidence?.length > 0 && (
+                    <div data-dab-evidence="" className="flex flex-wrap gap-1 mt-2">
+                      {m.evidence.map((c, i) => <span key={`${c.t}:${c.id}`} className="dc-card inline-flex max-w-full" style={{ animationDelay: `${i * 90}ms` }}><CiteChip cite={c} onOpen={onOpenCite} /></span>)}
+                    </div>
+                  )}
                 </div>
               ) : m.err ? (
                 <div className="dab-bub-in dab-err justify-self-start min-w-0 rounded-[4px_14px_14px_14px] bg-surface-hover px-3 py-2.5 text-[13px] leading-relaxed text-fg-muted whitespace-pre-line" role="alert">
@@ -438,8 +450,30 @@ function Chip({ text, i, swapped, leaving, onPick }) {
   );
 }
 
+// 한 문장씩 펼치기 — revealFrom부터 지난 시간으로 문장마다 보인 글자 수(services/answerReveal). 끝났거나 없으면 null.
+function useReveal(m) {
+  const texts = useMemo(() => (m.a?.sentences || []).map(x => x.text || ''), [m.a]);
+  const plan = useMemo(() => revealPlan(texts), [texts]);
+  const total = revealTotal(plan);
+  const live = !!m.revealFrom && Date.now() - m.revealFrom < total;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return undefined;
+    let raf = 0;
+    const tick = () => { setNow(Date.now()); if (Date.now() - m.revealFrom < total) raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [live, m.revealFrom, total]);
+  if (!m.revealFrom) return null;
+  const r = revealAt(plan, now - m.revealFrom);
+  return r.done ? null : r.shown;
+}
+
 function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
   const a = m.a;
+  const shown = useReveal(m);   // null = 다 보임
+  const typing = !!shown;
+  const cur = typing ? shown.findIndex((n, i) => n < Array.from(a.sentences[i]?.text || '').length) : -1;
   const refused = a.status === 'refused';
   const cites = [];
   // 자주 묻는 질문 장은 마스터만 본다(0090) — onOpenFaq가 없으면(마스터 아님) 그 장으로 가는 칩을 세우지 않는다
@@ -460,11 +494,20 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
           </span>
           {a.sentences.length > 1 && <span className="block break-words">{a.sentences.slice(1).map(s => s.text).join(' ')}</span>}
         </>
+      ) : typing ? (
+        // 펼치는 중 — 다 펼친 글과 같은 줄바꿈이 되게 남은 글자는 투명하게 자리를 잡아 둔다(말풍선이 늘었다 줄었다 하지 않는다)
+        <span className="break-words" data-dab-typing="" aria-busy="true">
+          {(a.sentences || []).map((s, i) => {
+            const vis = sliceGlyphs(s.text, shown[i]);
+            const rest = Array.from(s.text || '').slice(shown[i]).join('');
+            return <span key={i}>{i > 0 ? ' ' : ''}{vis}{i === cur && <span className="dab-caret" aria-hidden="true" />}<span className="opacity-0">{rest}</span></span>;
+          })}
+        </span>
       ) : (
         <span className="break-words">{(a.sentences || []).map(s => s.text).join(' ')}</span>
       )}
       {/* 권유 한 줄(20차 ⑧ · 사용자 문구) — 글자는 accent 600 · 가운데 아이콘은 아래 👎 버튼과 같은 회색 선 아이콘(누르는 자리는 아래 버튼) */}
-      {a.nudge && !refused && (
+      {a.nudge && !refused && !typing && (
         <span className="dab-nudge block mt-1 font-semibold text-accent-text break-words">
           {NUDGE.before}<ThumbsDown size={13} fill="none" className="inline-block align-[-2px] text-fg-faint" role="img" aria-label="싫어요" />{NUDGE.after}
         </span>
@@ -474,8 +517,8 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
           {cites.map(c => <CiteChip key={`${c.t}:${c.id}`} cite={c} onOpen={isFaq(c) ? onOpenFaq : onOpenCite} />)}
         </div>
       )}
-      {(a.files || []).map(f => <FileCard key={f.id} file={f} onOpen={onOpenFile} />)}
-      {!refused && a.id && (
+      {!typing && (a.files || []).map(f => <FileCard key={f.id} file={f} onOpen={onOpenFile} />)}
+      {!refused && a.id && !typing && (
         <div className="flex items-center gap-0.5 mt-1.5 -mb-1 -ml-1">
           <Thumb m={m} v="good" onRate={onRate} />
           <Thumb m={m} v="bad" onRate={onRate} />

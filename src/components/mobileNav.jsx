@@ -22,7 +22,7 @@ import { FreshDot, useFreshProjects, moveTab, useYearTabs, YearPicker } from './
 import { useTrashItems } from '../services/trash.js';
 import { TrashEntry, TrashDialog } from './trash.jsx';
 import { SearchBox } from './searchBox.jsx';
-import { NotificationBell } from './notificationBell.jsx';
+import { NotificationBell, bellOn } from './notificationBell.jsx';
 import { demoOn } from '../services/opsDemo.js';
 import { LeaderTitleLock, TabLock, useSetVisibility } from './leaderOnly.jsx';
 import { prefetchView } from '../services/viewChunks.js';
@@ -116,7 +116,7 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
           </span>
           <span className="w-9 h-9 flex items-center justify-center"><SearchBox onSearchSelect={onSearchSelect} variant="icon" /></span>
           {/* 게스트 시연(시안 v5 2묶음)에도 종이 선다 — 알림 종류별 설정을 보려고(services/opsDemo.demoOn) */}
-          {(cloudMode || demoOn()) && <span className="w-9 h-9 flex items-center justify-center"><NotificationBell guest={!cloudMode} onOpenTask={onOpenTask} onOpenLink={onOpenLink} /></span>}
+          {(bellOn(cloudMode) || demoOn()) && <span className="w-9 h-9 flex items-center justify-center"><NotificationBell guest={!cloudMode} onOpenTask={onOpenTask} onOpenLink={onOpenLink} /></span>}
           {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
           <span className="w-9 h-9 flex items-center justify-center"><ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} /></span>
         </div>

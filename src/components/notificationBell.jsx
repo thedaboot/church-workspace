@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { X, Bell, BellRing, BellOff, Users, CalendarClock, Smartphone, Church, Settings2, ChevronLeft, Check, Wrench } from 'lucide-react';
+import { X, Bell, BellRing, BellOff, Users, CalendarClock, Smartphone, Church, Settings2, ChevronLeft, Check, Wrench, Compass } from 'lucide-react';
+import { inKakao, openExternal, kakaoDemo } from '../services/inApp.js';
 import { store } from '../store/workspaceStore.js';
 import { useAuth } from '../services/auth.jsx';
 import { formatRelative } from '../utils.js';
@@ -24,6 +25,8 @@ import { ShareSwitch } from './bibleParts.jsx';
 // 19차 묶음 D에서 layout.jsx에서 갈라 왔다(동작·모양은 그대로).
 //   · 알림은 **남긴 계정 앞으로** 온다(0063) — 구독 필터는 myUid()로 물은 값(세션 uid가 아니다)
 //   · 판 안: 머리(모두 읽음) · 안드로이드 설치 줄 · '이 기기로 알림 받기'(권한은 여기서 묻는다) · 알림 줄(열기 · 지우기)
+//   · 카카오톡 인앱(v5 2묶음 시안 · services/inApp.js)에서는 설치 줄·알림 받기 줄 대신 '브라우저로 열기' 한 줄(KakaoOutRow) —
+//     인앱 웹뷰는 웹 푸시도 홈 화면 추가도 못 한다. CloudBell·GuestBell 둘 다 · 게스트 시연(?demo=kakao)이면 종이 게스트 dev에서도 선다(layout·mobileNav bellOn)
 //   · 판은 앵커 곁에 그린다(portal: false — 원래 그렇다) · 껍데기는 hooks/usePopover 한 벌 · 640 미만 폰은 화면 폭 - 32px(좌우 16px · PITFALLS 49-f)
 // ============================================================================
 
@@ -104,6 +107,39 @@ function PushRow() {
     </button>
   );
 }
+
+// 카카오 인앱 — 같은 주소를 기본 브라우저로(kakaotalk://web/openExternal · 아이폰·안드로이드 둘 다). 문구는 자리표(시안 문구 표).
+export const KAKAO_OUT_COPY = {
+  ios: '사파리로 열기',
+  android: '크롬으로 열기',
+  other: '브라우저로 열기',
+  sub: '알림 받기와 홈 화면 추가는 브라우저에서 할 수 있어요',
+  demo: '시연: 카카오톡 안이라면 여기서 브라우저로 넘어가요',
+};
+const outLabel = () => {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return KAKAO_OUT_COPY.ios;
+  if (/Android/i.test(ua)) return KAKAO_OUT_COPY.android;
+  return KAKAO_OUT_COPY.other;
+};
+function KakaoOutRow() {
+  const go = () => {
+    openExternal();
+    // 진짜 인앱이 아니면(게스트 시연) 넘기지 않는다 — 넘어갔을 자리를 토스트로만
+    if (!/KAKAOTALK/i.test(navigator.userAgent)) showToast(KAKAO_OUT_COPY.demo);
+  };
+  return (
+    <button onClick={go} data-kakao-out=""
+      className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-line text-left hover:bg-surface-hover transition-colors">
+      <Compass size={13} strokeWidth={1.75} className="shrink-0 text-accent-text" />
+      <span className="flex-1 min-w-0">
+        <span className="block text-[11px] text-fg">{outLabel()}</span>
+        <span className="block text-[10px] text-fg-muted mt-0.5">{KAKAO_OUT_COPY.sub}</span>
+      </span>
+    </button>
+  );
+}
+export const bellOn = (cloudMode) => cloudMode || kakaoDemo();
 
 // 시스템 알림의 동그라미 — 갈래(notifArea)마다 [아이콘, 색]. 표에 없는 갈래(마감 등)는 시계
 const AREA_ICON = {
@@ -246,8 +282,7 @@ function CloudBell({ onOpenTask, onOpenLink }) {
           <PanelHead title="알림">
             {unread > 0 && <ReadAllButton onClick={readAll} />}
           </PanelHead>
-          <InstallRow />
-          <PushRow />
+          {inKakao() ? <KakaoOutRow /> : <><InstallRow /><PushRow /></>}
           <NotifRows items={items} openItem={openItem} dismiss={dismiss} />
         </>)}
     </span>
@@ -379,8 +414,7 @@ function GuestBell({ onOpenLink }) {
             <button type="button" onClick={() => setView('prefs')} aria-label="알림 설정" title="알림 설정" data-notif-prefs-open=""
               className="-mr-1.5 p-1 rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95"><Settings2 size={14} /></button>
           </PanelHead>
-          <InstallRow />
-          <PushRow />
+          {inKakao() ? <KakaoOutRow /> : <><InstallRow /><PushRow /></>}
           <NotifRows items={items} openItem={openItem} dismiss={dismiss} />
         </>
       ))}
