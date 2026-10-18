@@ -514,6 +514,13 @@ try {
       check(`폰: 대화가 길어도 키보드를 열면 칸이 화면 안 · 맨 아래 그대로`, longKb.inputBottom <= longKb.mainBottom && longKb.left <= 2 && longKb.wikiOverflowY !== 'auto', JSON.stringify(longKb));
       await ev(`document.activeElement.blur()`);
       await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true }); await sleep(400);
+      // 입력 줄 아래 띠(칸 ~ 하단 바)도 페이지 바탕으로 덮인다 — sticky는 main 아래 여백 위에 서서 그 띠로 말풍선이 비쳤다(사용자 지적
+      // 2026-10-18 아이폰 · PITFALLS 68-b) · 맨 아래로 내리면 마지막 답이 칸 위에 다 선다.
+      // **되돌리기**: dabooti.jsx 입력 줄의 dab-dock(또는 index.css의 그 규칙)을 지우면 덮는 끝(cover)이 하단 바 위에서 멈춰 깨진다.
+      {
+        const dock = await ev(`(()=>{const main=document.querySelector('main');main.scrollTop=main.scrollHeight;const d=document.querySelector('.dab-input').parentElement;const r=d.getBoundingClientRect();const nav=document.querySelector('nav[data-tab-bar]').getBoundingClientRect();const cs=getComputedStyle(d);const m=cs.boxShadow.match(/(-?[\\d.]+)px (-?[\\d.]+)px (-?[\\d.]+)px (-?[\\d.]+)px/);const turns=[...document.querySelectorAll('[data-turn]')];return {gap:Math.round(nav.top-r.bottom), cover:Math.round(m?r.bottom+parseFloat(m[2])+parseFloat(m[4]):r.bottom), navTop:Math.round(nav.top), same:cs.boxShadow.startsWith(getComputedStyle(document.body).backgroundColor), lastBottom:Math.round(turns[turns.length-1].getBoundingClientRect().bottom), inputTop:Math.round(document.querySelector('.dab-input').getBoundingClientRect().top)}})()`);
+        check(`폰: 대화 입력 줄 아래 띠(하단 바까지)도 페이지 바탕 · 마지막 답은 칸 위에 다 선다`, dock.gap > 0 && dock.cover >= dock.navTop && dock.same && dock.lastBottom <= dock.inputTop, JSON.stringify(dock));
+      }
       // 띄어쓰기 없는 긴 낱말·주소 — 질문·답 말풍선이 둘 다 화면 안에서 줄을 바꾼다(2026-10-14 점검 · PITFALLS 49-a ·
       // **되돌리기**: dabooti.jsx 대화 grid들의 minmax(0,1fr)와 말풍선의 overflow-wrap:anywhere를 옛 모양(grid gap-3 · 34px_1fr ·
       // break-words)으로 두면 둘 다 오른쪽 밖(right 746 · 폭 390)으로 밀려 깨진다 — 둘 중 하나만 남아도 막힌다(겹쳐 막은 것))

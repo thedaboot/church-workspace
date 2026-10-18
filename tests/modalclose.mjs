@@ -1640,6 +1640,63 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await closeTask();
 }
 
+// ── 해결한 댓글 한 줄 · 접고 펴기 끝 상태(폰 · 사용자 지적 2026-10-18 아이폰 · PITFALLS 68-c) ─────────────────────────────
+// ① 긴 첫 줄은 줄 안에서 말줄임 — 업무 창 어디에도 가로 스크롤이 없다
+// ② 펼친 동안은 안쪽을 자르지 않는다(얼굴·밝히기 그림자) · 접으면 높이 0 + visibility:hidden + 안을 뗀다
+// ③ 같은 틱에 두 번 눌러도 · transitionend가 안 와도 같은 끝 · ④ 움직임 줄이기면 바로
+// **되돌리기**: index.css .dc-fold의 grid-template-columns: minmax(0, 1fr)와 Fold 안쪽의 min-w-0을 지우면 ①이(가로 496px 넘침),
+// Fold.jsx의 시간 끝내기(setTimeout)를 지우면 ③의 'transitionend 없이'가(안이 남는다), .dc-fold의 visibility를 지우면 ②·③이 깨진다.
+{
+  const LONG = '이번 주 예배 순서지 최종본은 금요일 저녁까지 공유 드라이브에 올려 두었고 찬양 콘티와 광고 문구도 같이 확인 부탁드립니다 수정할 곳이 있으면 댓글로 알려 주세요';
+  const cm = (cid, text, extra = {}) => ({ id: cid, author: '노준석', text, timestamp: '2026-10-17T00:00:00Z', parentId: null, edited: false, ...extra });
+  const rt = { id: 'rz', projectId: 'p1', title: '해결 댓글 업무', content: '', status: '진행 중', assignees: ['노준석'], teams: ['찬양팀'], startDate: '', dueDate: '2026-10-20',
+    position: 0, author: '노준석', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', activityLog: [], attachments: [],
+    comments: [cm('rk1', LONG, { resolvedAt: '2026-10-17T03:00:00Z', resolvedBy: '노준석' }), cm('rk2', '보통 댓글이에요')] };
+  const st = { currentUser: { name: '노준석', team: '찬양팀', teams: ['찬양팀'] }, projects: { byId: { p1: { id: 'p1', title: '2026 예배팀', pinnedLinks: [] } }, allIds: ['p1'] }, tasks: { byId: { rz: rt }, allIds: ['rz'] } };
+  const openResolved = async (reduce = false) => {
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduce ? 'reduce' : 'no-preference' }] });
+    await send('Emulation.setDeviceMetricsOverride', { width: 393, height: 852, deviceScaleFactor: 3, mobile: true });
+    await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))})`);
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=rz' }); await wait('Page.loadEventFired'); await sleep(1500);
+    await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('댓글 ('))?.click()`); await sleep(700);
+  };
+  const LINE = `document.querySelector('[data-comment-resolved="rk1"]')`;
+  const FOLD = `(() => { const f = ${LINE}.closest('[data-thread]').querySelectorAll(':scope > .dc-fold')[1]; const inner = f.firstElementChild;
+    return { h: Math.round(f.getBoundingClientRect().height), vis: getComputedStyle(f).visibility, kids: inner.childElementCount, clip: getComputedStyle(inner).overflow }; })()`;
+  const shut = (s) => s.h === 0 && s.vis === 'hidden' && s.kids === 0;
+  await openResolved();
+  const wide = await ev(`(() => { const ov = document.querySelector('.fixed.z-50');
+    const sc = [...ov.querySelectorAll('*')].filter(e => e.scrollWidth > e.clientWidth + 1 && !['visible', 'hidden', 'clip'].includes(getComputedStyle(e).overflowX));
+    const l = ${LINE}.getBoundingClientRect(), txt = ${LINE}.querySelector('.truncate');
+    return { line: !!${LINE}, over: sc.map(e => e.scrollWidth - e.clientWidth), right: Math.round(l.right), vw: innerWidth, cut: txt.scrollWidth > txt.clientWidth, doc: document.documentElement.scrollWidth - innerWidth }; })()`);
+  check('해결한 댓글(폰): 긴 첫 줄은 줄 안에서 말줄임 · 업무 창에 가로 스크롤 없음', wide.line && wide.over.length === 0 && wide.right <= wide.vw && wide.cut && wide.doc <= 0, JSON.stringify(wide));
+  await ev(`${LINE}.click()`); await sleep(700);
+  const opened = await ev(FOLD);
+  await ev(`${LINE}.click()`); await sleep(700);
+  const closed = await ev(FOLD);
+  check('해결한 댓글: 펼친 동안은 안쪽을 자르지 않고 · 접으면 높이 0 · 숨김 · 안을 뗀다', opened.h > 40 && opened.kids === 1 && opened.clip === 'visible' && shut(closed), JSON.stringify({ opened, closed }));
+  await ev(`(${LINE}.click(), ${LINE}.click())`); await sleep(700);
+  const rapid = await ev(FOLD);
+  await ev(`window.addEventListener('transitionend', e => e.stopPropagation(), true)`);
+  await ev(`${LINE}.click()`); await sleep(700);
+  const noEndOpen = await ev(FOLD);
+  await ev(`${LINE}.click()`); await sleep(700);
+  const noEndShut = await ev(FOLD);
+  check('해결한 댓글: 같은 틱에 두 번 눌러도 · transitionend가 안 와도 끝은 같다(펴면 안 자름 · 접으면 남는 토막 없음)',
+    shut(rapid) && noEndOpen.kids === 1 && noEndOpen.clip === 'visible' && shut(noEndShut), JSON.stringify({ rapid, noEndOpen, noEndShut }));
+  await openResolved(true);
+  await ev(`${LINE}.click()`); await sleep(60);
+  const rOpen = await ev(FOLD);
+  await ev(`${LINE}.click()`); await sleep(60);
+  const rShut = await ev(FOLD);
+  check('해결한 댓글(움직임 줄이기): 바로 펴지고 바로 접힌다', rOpen.kids === 1 && rOpen.h > 40 && rOpen.clip === 'visible' && shut(rShut), JSON.stringify({ rOpen, rShut }));
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

@@ -580,6 +580,18 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
     check(`그래프 ${w}px: 업무 25건 알약이 서로 안 겹치고 판 가장자리에 줄지어 붙지 않는다`,
       !!g && g.n === 25 && g.over === 0 && g.edge === 0 && g.H >= (w < 768 ? 360 : 440), JSON.stringify(g));
   }
+  // ①-b 폰에서 맨 아래 알약까지 내려갈 수 있다 — 프로젝트 화면은 h-full이라 판이 넘친 몫에 main 아래 여백이 안 붙어 마지막 알약이
+  // 하단 바 밑에 깔린 채 멈췄다(사용자 지적 2026-10-18 아이폰 · PITFALLS 68-a). 판은 모든 알약을 담고, 끝까지 내리면 마지막 알약이 하단 바 위.
+  // **되돌리기**: depgraph.jsx 뿌리의 pb-[calc(5.5rem+env(safe-area-inset-bottom))]를 지우면 lastBottom > navTop으로 깨진다.
+  await openGraph(393); await sleep(2600);
+  const reach = await ev(`(() => {
+    const m = document.querySelector('main'); m.scrollTop = m.scrollHeight;
+    const btns = ${graphNodes}; const wrap = btns[0]?.parentElement; if (!wrap) return null;
+    const C = wrap.getBoundingClientRect(), R = btns.map(b => b.getBoundingClientRect());
+    const nav = document.querySelector('nav[data-tab-bar]').getBoundingClientRect();
+    return { n: btns.length, inside: R.every(r => r.top >= C.top && r.bottom <= C.bottom), lastBottom: Math.round(Math.max(...R.map(r => r.bottom))), navTop: Math.round(nav.top) };
+  })()`);
+  check('그래프 폰 393: 판이 알약을 다 담고 끝까지 내리면 마지막 알약이 하단 바 위', !!reach && reach.n === 25 && reach.inside && reach.lastBottom <= reach.navTop, JSON.stringify(reach));
   // ② 업무가 늘어 판이 길어져도 툭 튀지 않는다 — 한 프레임에 움직인 거리 · 판 높이가 같은 곡선으로 늘어나는지
   await openGraph(393); await sleep(3000);
   await ev(`(() => {

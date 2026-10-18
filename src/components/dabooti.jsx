@@ -412,7 +412,8 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
         <div ref={endRef} />
       </div>
       {/* bottom 0 — 스티키 자리는 main의 아래 여백(폰은 하단 바 몫)을 이미 뺀 곳이라 더 띄우면 하단 바 높이만큼 떠 있었다(2026-10-03) */}
-      <div className="sticky bottom-0 pt-2 pb-1 bg-gradient-to-t from-[var(--app-canvas)] via-[var(--app-canvas)] to-transparent">{input}</div>
+      {/* dab-dock — 그 아래 여백 띠(탭바까지)도 같은 바탕으로 덮는다(index.css · PITFALLS 68-b) */}
+      <div className="dab-dock sticky bottom-0 pt-2 pb-1 bg-gradient-to-t from-[var(--app-canvas)] via-[var(--app-canvas)] to-transparent">{input}</div>
     </div>
   );
 }
