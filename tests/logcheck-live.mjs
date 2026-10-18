@@ -1027,12 +1027,12 @@ import { loadSource, readSplit } from './_load.mjs';
 // ── 시안 v5 2묶음(mock/b3): 알림 종류별 설정 · 화면 오류 묶기 · 다붓이 답변 속도 ────────────
 // 알림 종 '알림 설정'(갈래 넷 + 항목 칩)이 거르는 규칙(services/notifyPrefs.js)과 운영 창의 셈(services/opsCore.js) — 둘 다 import 0.
 // **되돌리기**: notifAllowed에서 갈래 줄(`off.includes(s.group)`)을 빼면 ①, topFrame의 해시 걷기(`replace(/-[A-Za-z0-9_]{6,}…/)`)를
-// 빼면 ⑤(배포가 바뀌면 같은 오류가 두 줄로 갈린다), normMessage의 숫자 걷기를 빼면 ⑥, speedStats의 기간 거르기를 빼면 ⑨가 깨진다.
+// 빼면 ⑤(배포가 바뀌면 같은 오류가 두 줄로 갈린다), normMessage의 숫자 걷기를 빼면 ⑥, speedStats의 기간 거르기를 빼면 ⑨, shotScale의 최소 2배를 빼면 ⑫가 깨진다.
 {
   const P = await loadSource('src/services/notifyPrefs.js');
   const N = await import(new URL('../src/services/notifyText.js', import.meta.url).href);
   const list = ['mention', 'reply', 'reaction', 'assignee_comment', 'assign', 'due_soon', 'lock_reset', 'worship_today', 'service_published', 'note_shared',
-    'club_apply', 'club_accepted', 'meeting_new', 'meeting_tomorrow', 'guide_pinned', 'approval', 'approved', 'feedback_fixed'].map((kind, i) => ({ id: i, kind }));
+    'club_apply', 'club_accepted', 'meeting_new', 'meeting_tomorrow', 'guide_pinned', 'approval', 'approved', 'feedback_resolved'].map((kind, i) => ({ id: i, kind }));
   const kinds = (off) => P.filterNotifs(list, off).map(n => n.kind);
   // ① 갈래를 끄면 그 갈래 알림이 모두 빠진다(항목 칩이 없는 lock_reset도)
   assert.deepStrictEqual(kinds(['task']).filter(k => P.notifSlot(k)?.group === 'task'), [], '① 업무 갈래 끄기');
@@ -1043,8 +1043,8 @@ import { loadSource, readSplit } from './_load.mjs';
   // ③ 갈래가 꺼지면 항목 값과 상관없이 꺼지고, 다시 켜면 예전 항목 값이 살아난다
   const off = P.flipOff(['task.mention'], 'task');
   assert.ok(!P.notifAllowed('assign', off) && P.notifAllowed('assign', P.flipOff(off, 'task')) && !P.notifAllowed('mention', P.flipOff(off, 'task')), '③ 갈래 ↔ 항목');
-  // ④ 표에 없는 kind(운영 '고침')는 언제나 보이고, 표의 kind는 모두 notifyText가 아는 말이다(새 kind를 표에만 넣는 실수)
-  assert.deepStrictEqual(kinds(P.NOTIF_GROUPS.map(g => g.key)), ['feedback_fixed'], '④ 다 꺼도 표 밖 kind는 남는다');
+  // ④ 표에 없는 kind(관리자 메뉴 '해결')는 언제나 보이고, 표의 kind는 모두 notifyText가 아는 말이다(새 kind를 표에만 넣는 실수)
+  assert.deepStrictEqual(kinds(P.NOTIF_GROUPS.map(g => g.key)), ['feedback_resolved'], '④ 다 꺼도 표 밖 kind는 남는다');
   for (const g of P.NOTIF_GROUPS) for (const k of [...(g.kinds || []), ...g.items.flatMap(i => i.kinds)]) {
     assert.ok(N.isSystemNotif(k) || k === 'mention' || N.notifText(k) !== N.notifText('__none__'), `④ ${k}는 notifyText에 문구가 있다`);
   }
@@ -1076,11 +1076,22 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.strictEqual(O.median([]), null);
   assert.deepStrictEqual([O.secText(8000), O.secText(2450), O.secText(12600)], ['8초', '2.5초', '13초'], '⑨ 초 글자');
   // ⑩ 불편 사항 셈 · 관리 기록 거르기 · 날짜 묶음 · 화면 이름
-  assert.deepStrictEqual(O.feedbackCounts([{ status: 'new' }, { status: 'fixed' }, { status: 'new' }]), { all: 3, new: 2, seen: 0, fixed: 1 });
+  assert.deepStrictEqual(O.feedbackCounts([{ status: 'new' }, { status: 'resolved' }, { status: 'new' }]), { all: 3, new: 2, checking: 0, resolved: 1 });
   assert.strictEqual(O.filterAudit([{ kind: 'lock' }, { kind: 'role' }], 'lock').length, 1);
   const local = (d, h) => new Date(2026, 9, d, h).getTime();
   assert.deepStrictEqual(O.byDay([{ at: local(18, 9) }, { at: local(16, 9) }, { at: local(17, 9) }, { at: local(18, 1) }], local(18, 12)).map(d => [d.label, d.rows.length]),
     [['오늘', 2], ['어제', 1], ['10월 16일', 1]], '⑩ 날짜 묶음');
   assert.deepStrictEqual([O.screenOf('/?p=worship'), O.screenOf('/'), O.screenOf('/?p=team:미디어팀'), O.screenOf('/?p=abc', '여름 수련회')], ['예배', '홈', '미디어팀 보드', '여름 수련회']);
+  // ⑪ 사용자 문구(2026-10-18) — 알림 설정 칸 이름 · 피드백 상태 셋
+  assert.deepStrictEqual(P.NOTIF_GROUPS.map(g => [g.label, g.items.map(i => i.label)]), [
+    ['업무', ['댓글', '멘션', '담당자', '마감 임박']], ['예배', ['오늘 예배', '주보 발행', '노트 공유']],
+    ['모임', ['동아리 신청', '동아리 수락', '새로운 모임', '내일 모임', '순모임 가이드 고정']], ['가입', []]], '⑪ 알림 설정 칸 이름');
+  assert.deepStrictEqual(O.FEEDBACK_STATES, ['new', 'checking', 'resolved'], '⑪ 피드백 상태');
+  assert.strictEqual(N.notifLine('feedback_resolved'), '보내 주신 피드백이 해결됐어요', '⑪ 해결 알림 문구');
+  // ⑫ 화면 사진 배율 — 1배 기기도 2배로 · 아이폰 3배는 그대로 · 데스크톱 1440×900은 긴 변 2560에 맞춰 깎는다
+  // **되돌리기**: shotScale에서 Math.max(2, …)를 빼면 첫 줄, 상한(max / …)을 빼면 셋째 줄이 깨진다.
+  assert.strictEqual(O.shotScale(393, 852, 1), 2, '⑫ 최소 2배');
+  assert.strictEqual(O.shotScale(393, 852, 3), 3, '⑫ 기기 화소 비');
+  assert.strictEqual(Math.round(1440 * O.shotScale(1440, 900, 2)), 2560, '⑫ 긴 변 2560');
   console.log('PASS  알림 종류별 설정 · 화면 오류 묶기 · 다붓이 답변 속도(시안 v5 2묶음)');
 }

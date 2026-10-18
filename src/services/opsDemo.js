@@ -2,22 +2,22 @@ import { useSyncExternalStore } from 'react';
 import { isCloudEnabled } from './supabaseClient.js';
 
 // ============================================================================
-// 운영 · 불편 사항 · 알림 설정 — **게스트 시연의 저장 자리**(시안 v5 2묶음 · mock/b3 · 실제 앱에는 아직 없다)
+// 관리자 메뉴 · 피드백 · 알림 설정 — **게스트 시연의 저장 자리**(시안 v5 2묶음 · mock/b3 · 실제 앱에는 아직 없다)
 // ----------------------------------------------------------------------------
-// 화면: components/opsDesk.jsx(운영 창) · components/feedbackSend.jsx(불편 사항 보내기) · components/notificationBell.jsx(알림 설정).
+// 화면: components/opsDesk.jsx(관리자 메뉴 창) · components/feedbackSend.jsx(피드백 전송) · components/notificationBell.jsx(알림 설정).
 // 규칙: services/opsCore.js · services/notifyPrefs.js(순수).
 //   · 켜지는 조건(demoOn): 게스트(클라우드 키 없음) + **빌드본**(미리보기 브랜치 mock/b3는 게스트 모드로 빌드한다) — 게스트 스위트는
 //     dev 서버를 돌아서 상단바·프로필 메뉴가 그대로다(헤드리스 크롬은 navigator.webdriver가 거짓이라 그것으로는 못 가른다 —
 //     tests/mobbits '게스트 모드라 알림 종은 없음'이 잡았다). dev에서 보려면 localStorage `ops_demo`='1'.
 //   · 시연 역할(demoRole): 'master' | 'member' — 게스트는 마스터라 회원 쪽 화면(운영 메뉴 없음)을 보려면 프로필 메뉴의
 //     시연 줄로 바꾼다(localStorage `ops_demo_role`). 클라우드에서는 쓰지 않는다.
-//   · 저장은 localStorage 열쇠 넷(불편 사항 · 화면 오류 · 알림 · 끈 알림) — 처음 열면 씨앗을 심는다(날짜는 지금 기준).
+//   · 저장은 localStorage 열쇠 넷(피드백 · 화면 오류 · 알림 · 끈 알림) — 처음 열면 씨앗을 심는다(날짜는 지금 기준).
 //   · 화면 오류는 씨앗 + **이 브라우저에서 실제로 난 오류**(window error · unhandledrejection)를 받는다 — 실제 앱의 수집 모양을 미리 본다.
 // 실제 앱에 붙일 때(마이그레이션 없이 지금은 시안만): 표 넷(feedback · client_errors · ai_timings · admin_audit) + RLS(마스터만 읽기 ·
-//   본인 불편 사항은 넣기만) · 오류는 /api 한 곳으로 모아 넣기(하루 지문당 상한) · '고침'은 DB 함수가 보낸 사람에게 알림 행을 넣는다.
+//   본인 피드백은 넣기만) · 오류는 /api 한 곳으로 모아 넣기(하루 지문당 상한) · '해결'은 DB 함수가 보낸 사람에게 알림 행을 넣는다.
 // ============================================================================
 
-const K = { fb: 'ops_feedback_v1', err: 'ops_errors_v1', notif: 'ops_notifs_v1', off: 'notif_off_v1', role: 'ops_demo_role' };
+const K = { fb: 'ops_feedback_v2', err: 'ops_errors_v1', notif: 'ops_notifs_v1', off: 'notif_off_v1', role: 'ops_demo_role' };
 const MIN = 60000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
@@ -73,17 +73,17 @@ const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15',
 };
 
-// ── 불편 사항 ───────────────────────────────────────────────────────────────
+// ── 피드백 ───────────────────────────────────────────────────────────────
 const seedFeedback = () => [
   { id: nid('fb'), at: ago(40 * MIN), user: '김은지', status: 'new', route: '/?p=worship', screenName: '예배', ua: UA.iphoneKakao, size: '390×844', build: 'b3·7f2c1a0',
     text: '카톡으로 들어와서 주보 PDF 저장을 누르면 아무 반응이 없어요. 사파리에서는 잘 돼요.', shot: mockShot('#4f5bd5', 6) },
   { id: nid('fb'), at: ago(5 * HOUR), user: '박지훈', status: 'new', route: '/?p=groups', screenName: '모임', ua: UA.galaxy, size: '384×832', build: 'b3·7f2c1a0',
     text: '동아리 모임 날짜를 고를 때 달력이 키보드에 반쯤 가려져요.', shot: mockShot('#2f9e6e', 4) },
-  { id: nid('fb'), at: ago(1 * DAY + 3 * HOUR), user: '이수빈', status: 'seen', statusAt: ago(20 * HOUR), route: '/?p=dashboard', screenName: '업무 대시보드', ua: UA.win, size: '1536×864', build: 'b3·6d91e4b',
+  { id: nid('fb'), at: ago(1 * DAY + 3 * HOUR), user: '이수빈', status: 'checking', statusAt: ago(20 * HOUR), route: '/?p=dashboard', screenName: '업무 대시보드', ua: UA.win, size: '1536×864', build: 'b3·6d91e4b',
     text: '대시보드에서 팀별 남은 업무 숫자랑 보드에 있는 숫자가 하나 달라요. 보류 중인 업무 때문인 것 같아요.', shot: mockShot('#4f5bd5', 5) },
-  { id: nid('fb'), at: ago(3 * DAY), user: '최다은', status: 'fixed', statusAt: ago(2 * DAY), notified: true, route: '/?p=word', screenName: '말씀', ua: UA.iphone, size: '393×852', build: 'b3·5a03c77',
+  { id: nid('fb'), at: ago(3 * DAY), user: '최다은', status: 'resolved', statusAt: ago(2 * DAY), notified: true, route: '/?p=word', screenName: '말씀', ua: UA.iphone, size: '393×852', build: 'b3·5a03c77',
     text: '말씀 검색 결과에서 뒤로 가면 맨 위로 올라가요.', shot: null },
-  { id: nid('fb'), at: ago(6 * DAY), user: '조은혜', status: 'fixed', statusAt: ago(5 * DAY), notified: true, route: '/?p=home', screenName: '홈', ua: UA.mac, size: '1440×900', build: 'b3·5a03c77',
+  { id: nid('fb'), at: ago(6 * DAY), user: '조은혜', status: 'resolved', statusAt: ago(5 * DAY), notified: true, route: '/?p=home', screenName: '홈', ua: UA.mac, size: '1440×900', build: 'b3·5a03c77',
     text: '홈 생일 카드 이름이 길면 잘려요.', shot: mockShot('#d9822b', 3) },
 ];
 const fb = cell(K.fb, seedFeedback);
@@ -93,16 +93,16 @@ export function addFeedback(row) {
   fb.set(list => [item, ...list]);
   return item;
 }
-// 상태 바꾸기 — '고침'으로 갈 때 보낸 사람에게 알림(시연: 보낸 사람이 나면 내 알림 종에 들어온다)
+// 상태 바꾸기(new · checking · resolved) — '해결'로 갈 때 보낸 사람에게 알림(시연: 보낸 사람이 나면 내 알림 종에 들어온다)
 export function setFeedbackStatus(id, status, me) {
   let target = null;
   fb.set(list => list.map(f => {
     if (f.id !== id) return f;
-    target = { ...f, status, statusAt: new Date().toISOString(), notified: status === 'fixed' ? true : f.notified };
+    target = { ...f, status, statusAt: new Date().toISOString(), notified: status === 'resolved' ? true : f.notified };
     return target;
   }));
-  if (target && status === 'fixed' && target.user === me) {
-    pushNotif({ kind: 'feedback_fixed', actor_name: null, preview: target.text.slice(0, 80), link: null });
+  if (target && status === 'resolved' && target.user === me) {
+    pushNotif({ kind: 'feedback_resolved', actor_name: null, preview: target.text.slice(0, 80), link: null });
   }
   return target;
 }

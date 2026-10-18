@@ -255,6 +255,8 @@ function CloudBell({ onOpenTask, onOpenLink }) {
 }
 
 const PANEL = 'z-[90] max-w-[calc(100vw-2rem)] max-sm:w-[calc(100vw-2rem)]! max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated';
+// 알림 설정(게스트 시연)은 갈래 넷이 한 판에 다 서게 더 길다 — 낮은 창에서는 판 안에서 구른다(상단바 아래 · 아래 5rem 여백)
+const PANEL_PREFS = PANEL.replace('max-h-96', 'max-h-[min(36rem,calc(100dvh-5.5rem))]');
 
 function BellTrigger({ pop, unread }) {
   return (
@@ -343,7 +345,7 @@ function NotifRows({ items, openItem, dismiss }) {
 }
 
 // ── 게스트 시연 종(시안 v5 2묶음 · mock/b3) ─────────────────────────────────
-// 알림은 services/opsDemo.js의 브라우저 목록(씨앗 + 운영 화면 '고침'이 넣는 것) · 끈 갈래·항목은 notifyPrefs가 거른다
+// 알림은 services/opsDemo.js의 브라우저 목록(씨앗 + 관리자 메뉴 '해결'이 넣는 것) · 끈 갈래·항목은 notifyPrefs가 거른다
 // (끈 것은 줄도 안 서고 빨간 숫자에도 안 든다). 판 머리의 톱니 → 같은 판 안에서 '알림 설정'으로 바뀐다(뒤로 → 목록).
 // 자리를 고른 까닭: 알림을 받는 일('이 기기로 알림 받기')이 이미 이 판에 있고, 설정 창(내 정보)은 '저장'으로 모아 쓰는 폼이라
 // 누르는 즉시 바뀌는 토글과 결이 다르다.
@@ -365,7 +367,7 @@ function GuestBell({ onOpenLink }) {
   return (
     <span className="inline-flex shrink-0" ref={pop.rootRef}>
       <BellTrigger pop={pop} unread={unread} />
-      {pop.panel(PANEL, view === 'prefs' ? (
+      {pop.panel(view === 'prefs' ? PANEL_PREFS : PANEL, view === 'prefs' ? (
         <>
           <PanelHead title="알림 설정" onBack={() => setView('list')} />
           <NotifPrefs off={off} />
@@ -386,7 +388,10 @@ function GuestBell({ onOpenLink }) {
   );
 }
 
-// 갈래 넷 — 갈래 스위치 + 항목 칩(갈래가 꺼지면 칩은 흐리고 못 누른다 · 항목 값은 남는다)
+// 갈래 넷 — 머리 줄(갈래 이름 + 스위치) 아래 항목 칸(사용자 문구 2026-10-18).
+// 항목 칸은 **두 칸 격자**(같은 폭 · 같은 높이 32px · 왼쪽 맞춤 · 앞에 체크 상자) — 글자 길이가 다른 칩을 흘려 놓으면
+// 줄 끝이 들쭉날쭉하고 혼자 남은 칩이 떠 보였다(사용자 지적 2026-10-18). 폰 판(화면 폭 - 32)·데스크톱 판(320) 둘 다 두 칸.
+// 갈래가 꺼지면 칸은 흐리고(.4) 못 누른다 — 체크 상자는 저장된 항목 값을 그대로 보인다(갈래를 켜면 그대로 살아난다).
 function NotifPrefs({ off }) {
   const flip = (key) => setNotifOff(flipOff(off, key));
   return (
@@ -394,22 +399,26 @@ function NotifPrefs({ off }) {
       {NOTIF_GROUPS.map(g => {
         const on = !off.includes(g.key);
         return (
-          <div key={g.key} className="px-3 py-2.5" data-notif-group={g.key}>
+          <div key={g.key} className="px-3 py-3" data-notif-group={g.key}>
             <button type="button" role="switch" aria-checked={on} onClick={() => flip(g.key)}
-              className="w-full flex items-center gap-3 text-left">
-              <span className="flex-1 text-[12px] font-semibold text-fg">{g.label}</span>
+              className="w-full min-h-6 flex items-center gap-3 text-left">
+              <span className="flex-1 text-[12.5px] font-semibold text-fg">{g.label}</span>
               <ShareSwitch on={on} />
             </button>
             {g.items.length > 0 && (
-              <div className={`flex flex-wrap gap-1.5 mt-2 transition-opacity ${on ? '' : 'opacity-40'}`}>
+              <div className={`grid grid-cols-2 gap-1.5 mt-2.5 transition-opacity ${on ? '' : 'opacity-40'}`}>
                 {g.items.map(it => {
                   const key = `${g.key}.${it.key}`;
                   const itOn = !off.includes(key);
                   return (
-                    <button key={it.key} type="button" aria-pressed={itOn} disabled={!on} onClick={() => flip(key)}
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-xs text-[11px] font-semibold border transition active:scale-95 disabled:pointer-events-none ${
-                        itOn ? 'bg-accent-weak text-accent-text border-transparent' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
-                      {itOn && <Check size={11} className="shrink-0" />}{it.label}
+                    <button key={it.key} type="button" aria-pressed={itOn} disabled={!on} onClick={() => flip(key)} data-notif-item={key}
+                      className={`h-8 min-w-0 flex items-center gap-2 px-2.5 rounded-md text-left text-[11.5px] font-semibold transition-colors disabled:pointer-events-none ${
+                        itOn ? 'bg-accent-weak text-accent-text' : 'bg-surface-hover text-fg-muted hover:text-fg'}`}>
+                      <span aria-hidden="true" className={`shrink-0 w-3.5 h-3.5 rounded-[4px] flex items-center justify-center ${
+                        itOn ? 'bg-accent text-white' : 'border border-line bg-surface'}`}>
+                        {itOn && <Check size={10} strokeWidth={3} />}
+                      </span>
+                      <span className="min-w-0 truncate">{it.label}</span>
                     </button>
                   );
                 })}

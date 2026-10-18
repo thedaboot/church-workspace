@@ -7,7 +7,7 @@
 //   · 기기·브라우저 이름(deviceOf) — user agent에서 사람이 읽는 이름 둘만.
 //   · 다붓이 답변 속도(speedStats) — 기간 안의 중간값 · 느린 답 비율 · 최근 느린 질문. **사람 칸이 없다**
 //     (누가 물었는지 견주지 않는다 — HANDOFF §8 '누가 누구와 견주는 구조를 만들지 마세요').
-//   · 불편 사항 셈(feedbackCounts) · 관리 기록 거르기(filterAudit) · 날짜 묶음(byDay).
+//   · 피드백 셈(feedbackCounts) · 관리 기록 거르기(filterAudit) · 날짜 묶음(byDay).
 // ============================================================================
 
 const DAY = 86400000;
@@ -115,10 +115,13 @@ export function speedStats(samples, { now = Date.now(), days = 7, slowMs = 8000,
 export const secText = (ms) => (ms == null ? '-'
   : ms >= 10000 || ms % 1000 === 0 ? `${Math.round(ms / 1000)}초` : `${(ms / 1000).toFixed(1)}초`);
 
-// ── 불편 사항 · 관리 기록 ─────────────────────────────────────────────────
-export const FEEDBACK_STATES = ['new', 'seen', 'fixed'];
+// 피드백 화면 사진 배율 — 기기 화소 비(최소 2배 · 글자가 또렷하게) · 긴 변 상한(기본 2560px · 파일 크기)
+export const shotScale = (w, h, dpr = 1, max = 2560) => Math.min(Math.max(2, dpr || 1), max / Math.max(w, h, 1));
+
+// ── 피드백 · 관리 기록 ─────────────────────────────────────────────────
+export const FEEDBACK_STATES = ['new', 'checking', 'resolved'];
 export function feedbackCounts(list) {
-  const c = { all: list.length, new: 0, seen: 0, fixed: 0 };
+  const c = { all: list.length, new: 0, checking: 0, resolved: 0 };
   list.forEach(f => { if (c[f.status] != null) c[f.status] += 1; });
   return c;
 }
