@@ -115,15 +115,15 @@ export function FeedbackSend({ onClose }) {
               <Skeleton className="w-16 h-20 rounded-xs shrink-0" />
             ) : shot ? (
               <span className="relative shrink-0" data-feedback-shot="">
-                <img src={shot} alt="화면 사진" className="w-16 h-20 object-cover object-top rounded-xs border border-line bg-canvas" />
-                <button type="button" onClick={() => setShot(null)} aria-label="화면 사진 빼기" title="화면 사진 빼기"
+                <img src={shot} alt="화면 스크린샷" className="w-16 h-20 object-cover object-top rounded-xs border border-line bg-canvas" />
+                <button type="button" onClick={() => setShot(null)} aria-label="화면 스크린샷 삭제" title="화면 스크린샷 삭제"
                   className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-fg text-surface flex items-center justify-center shadow-elevated before:absolute before:-inset-1.5">
                   <X size={11} strokeWidth={2.5} />
                 </button>
               </span>
             ) : null}
             <span className="flex-1 min-w-0 pt-0.5">
-              {shot !== null && <span className="block text-[12px] font-semibold text-fg">화면 사진</span>}
+              {shot !== null && <span className="block text-[12px] font-semibold text-fg">화면 스크린샷</span>}
               <span className="flex items-center gap-1.5 mt-0.5 text-[11.5px] text-fg-muted" data-feedback-device="">
                 {phone ? <Smartphone size={12} className="shrink-0" /> : <Monitor size={12} className="shrink-0" />}
                 <span className="min-w-0 break-words">{[device, browser, info.current.size, info.current.screenName].join(' · ')}</span>

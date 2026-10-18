@@ -39,7 +39,7 @@ const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => (
 const EXT = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/svg+xml': 'svg' };
 const shotRow = (f) => {
   const mime = (/^data:([^;,]+)/.exec(f.shot) || [])[1] || 'image/jpeg';
-  return { id: `shot-${f.id}`, name: `화면 사진.${EXT[mime] || 'jpg'}`, mime_type: mime, source: 'local', _url: f.shot };
+  return { id: `shot-${f.id}`, name: `화면 스크린샷.${EXT[mime] || 'jpg'}`, mime_type: mime, source: 'local', _url: f.shot };
 };
 
 const SLOW_MS = 8000;
@@ -145,13 +145,13 @@ function FeedbackDetail({ f, me, onBack }) {
 
       <div className="mt-4">
         {f.shot ? (
-          <button type="button" onClick={() => setViewing(true)} data-fb-shot-open="" aria-label="화면 사진"
+          <button type="button" onClick={() => setViewing(true)} data-fb-shot-open="" aria-label="화면 스크린샷"
             className="block max-w-full rounded-md border border-line bg-canvas overflow-hidden cursor-zoom-in transition active:scale-[.99]">
-            <img src={f.shot} alt="화면 사진" draggable={false}
+            <img src={f.shot} alt="화면 스크린샷" draggable={false}
               className="block w-auto h-auto max-w-full max-h-[min(70dvh,640px)] object-contain" />
           </button>
         ) : (
-          <span className="inline-flex items-center gap-1.5 text-[12px] text-fg-muted"><ImageOff size={13} />화면 사진 미첨부</span>
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-fg-muted"><ImageOff size={13} />화면 스크린샷 미첨부</span>
         )}
       </div>
       {viewing && f.shot && (
@@ -278,11 +278,11 @@ function SpeedTab() {
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 md:px-5 py-3">
       <Filter label="기간" value={period} onPick={setPeriod} items={[['week', '7일'], ['month', '30일']]} />
       <div className="mt-3 flex gap-2" data-speed-tiles="">
-        <Tile label="중간값" value={secText(s.median)} />
-        <Tile label="느린 답" value={s.slowRatio == null ? '-' : `${Math.round(s.slowRatio * 100)}%`} sub={`${secText(SLOW_MS)} 넘은 답 ${s.slowCount}건`} />
+        <Tile label="Median" value={secText(s.median)} />
+        <Tile label="느린 답변" value={s.slowRatio == null ? '-' : `${Math.round(s.slowRatio * 100)}%`} sub={`${secText(SLOW_MS)} 넘은 답변 ${s.slowCount}건`} />
         <Tile label="질문" value={`${s.count}건`} />
       </div>
-      <h4 className="mt-5 mb-1 text-[12px] font-semibold text-fg-muted">최근 느린 질문</h4>
+      <h4 className="mt-5 mb-1 text-[12px] font-semibold text-fg-muted">최근 답변이 느렸던 질문</h4>
       {s.recentSlow.length ? (
         <ul>
           {s.recentSlow.map((q, i) => (
@@ -297,7 +297,7 @@ function SpeedTab() {
             </li>
           ))}
         </ul>
-      ) : <Empty>느린 답 0건</Empty>}
+      ) : <Empty>느린 답변 0건</Empty>}
     </div>
   );
 }
