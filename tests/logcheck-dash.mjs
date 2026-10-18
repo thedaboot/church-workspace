@@ -1153,7 +1153,8 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.deepStrictEqual(cellStyle('2026-11-01', ctx), { background: 'var(--app-canvas)', boxShadow: 'none' }, '달 밖');
   assert.deepStrictEqual(cellStyle('2026-10-07', { ...ctx, selected: '2026-10-07' }),
     { background: 'var(--app-accent-weak)', boxShadow: 'none' }, '오늘이면 고른 날이어도 테두리 없음');
-  assert.strictEqual((cal.match(/style=\{cellStyle\(iso, \{ month(: view\.m)?, todayIso, selected \}\)\}/g) || []).length, 2,
+  // 모바일 칸은 행사 일정(0112)의 길게 누르기 모양을 얹느라 `...cellStyle(…)`로 펼친다
+  assert.strictEqual((cal.match(/(style=\{|\.\.\.)cellStyle\(iso, \{ month(: view\.m)?, todayIso, selected \}\)/g) || []).length, 2,
     '두 자리 다 cellStyle(데스크톱 view.m · 모바일 month)');
   assert.ok(!/background: isToday \?/.test(cal.replace(m[0], '')), 'cellStyle 밖에 날짜 칸 삼항이 남아 있지 않다');
   // 열 폭은 useSnapCols 한 벌이고, 데스크톱은 다시 재는 조건(주 수 · 폭 갈래)을 넘긴다

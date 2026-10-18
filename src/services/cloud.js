@@ -8,6 +8,7 @@
 //   cloud/fileUrls.js  서명 URL · 썸네일 · 열기·내려받기 주소 · 첨부 삭제
 //   cloud/notify.js    푸시 구독 · 알림 · 활동 · 실시간
 //   cloud/admin.js     비밀번호 · 멤버·관리자 · 계정 합치기 · 내 달력
+//   cloud/events.js    행사 일정(0112) · 행사 내 달력
 // ============================================================================
 export * from './cloud/core.js';
 export * from './cloud/profiles.js';
@@ -16,3 +17,4 @@ export * from './cloud/drive.js';
 export * from './cloud/fileUrls.js';
 export * from './cloud/notify.js';
 export * from './cloud/admin.js';
+export * from './cloud/events.js';

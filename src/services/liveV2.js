@@ -68,6 +68,10 @@ const TABLE_CACHE = {
   // 목록(`groups:mine`)이 낡고, 손님 출석은 출석 수를 세는 자리(주보 상세·홈 예배 목록·내 순)가 낡는다.
   sun_guides:        ['groups:guide', 'groups:mine'],
   attendance_guests: ['worship:svc', 'home:services', 'groups:mine'],
+  // 0112 행사 일정 — 목록 한 벌(`events:list` · services/eventStore.js). 관련 업무 줄이 바뀌어도 같은 목록이 낡는다.
+  // 이 채널 하나가 아래 표 전부를 구독하므로 표를 더할 때는 마이그레이션이 먼저 나가야 한다(PITFALLS 65-a).
+  events:            ['events'],
+  event_tasks:       ['events'],
 };
 
 export const V2_TABLES = Object.keys(TABLE_CACHE);

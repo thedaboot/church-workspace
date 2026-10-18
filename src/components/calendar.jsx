@@ -111,13 +111,22 @@ function layoutWeek(weekStart, tasks, laneCount = CAL_LANES) {
 // 없어서 버튼을 두지 않는다(ScheduleView는 이 prop을 넘기지 않는다).
 // headerExtra: 머리 오른쪽 끝(범례 뒤)에 붙는 것 — 프로젝트 달력의 `내 달력`(components/calendarFeed.jsx)만 준다.
 // 전체 일정은 여러 프로젝트가 섞여 있어 '이 프로젝트의 구독'이 성립하지 않는다.
-export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, headerExtra = null }) => {
+//
+// 행사 일정(0112 · components/events.jsx)이 같은 띠 그리기를 쓰려고 받는 것 — 넘기지 않으면 지금 그대로다:
+//   paintOf(item) 띠 색(기본 팀색) · dotOf(item) 점 색(기본 첫 팀색) · legend 머리 범례(기본 상태 넷 · null이면 없음)
+//   renderDay({ iso, list, birthdays, tight }) 고른 날 목록을 대신 그린다 · bdayPeople 생일 재료(기본 가입한 사람)
+//   headerExtra가 함수면 (보고 있는 달 { y, m }) => 노드 — 행사의 내 달력은 그 달의 행사를 고르게 한다
+//   onDayAdd(iso) 날짜에서 바로 추가 — 데스크톱은 날짜 칸 오른쪽 클릭(그 칸에서만 브라우저 메뉴를 막는다), 폰은 길게 누르기
+export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, headerExtra = null,
+  paintOf = null, dotOf = null, legend, renderDay = null, bdayPeople = null, onDayAdd = null }) => {
   const isMobile = useIsMobile();
   // 생일도 달력에 얹는다(0019). 업무가 아니므로 건수에 세지 않고 띠 레인도 쓰지 않는다 —
   // 날짜 숫자 옆의 작은 얼굴과, 그 날 목록의 첫 줄로만 나온다. 그래야 "업무가 없는 날"이
   // 통째로 비어 보이지 않고, 띠 줄 수(CAL_LANES=2)를 생일이 잡아먹지도 않는다.
   const members = useStore(selectMembers);
-  const bdays = React.useMemo(() => birthdayMap(members), [members]);
+  const people = bdayPeople || members;
+  const bdays = React.useMemo(() => birthdayMap(people), [people]);
+  const dot = dotOf || ((t) => teamColor(t.teams?.[0]));
   const todayIso = isoOf(new Date());
   const bounds = React.useMemo(() => calendarBounds(), []);
   const [view, setView] = React.useState(() => {
@@ -225,17 +234,19 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
         <h3 className="text-[14.5px] font-extrabold text-fg tabular-nums">{view.y}년 {view.m + 1}월</h3>
         <span className="text-[11.5px] text-fg-muted tabular-nums">{monthTasks.length}건</span>
         <span className="flex-1" />
-        <span className="hidden sm:flex items-center gap-2.5">
-          {CONFIG.STATUSES.map(s => (
-            <span key={s} className="inline-flex items-center gap-1.5 text-[10.5px] text-fg-muted">
-              <span className="w-2 h-1 rounded-full" style={{ background: STATUS_BAR[s] }} />{s}
-            </span>
-          ))}
-        </span>
+        {legend !== undefined ? legend : (
+          <span className="hidden sm:flex items-center gap-2.5">
+            {CONFIG.STATUSES.map(s => (
+              <span key={s} className="inline-flex items-center gap-1.5 text-[10.5px] text-fg-muted">
+                <span className="w-2 h-1 rounded-full" style={{ background: STATUS_BAR[s] }} />{s}
+              </span>
+            ))}
+          </span>
+        )}
         {headerExtra && (
           <>
             <span className="hidden sm:block w-px h-4 shrink-0" style={{ background: 'var(--app-line)' }} />
-            {headerExtra}
+            {typeof headerExtra === 'function' ? headerExtra(view) : headerExtra}
           </>
         )}
       </div>
@@ -246,7 +257,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
           <MobileCalendar
             weekStarts={weekStarts} month={view.m} todayIso={todayIso} selected={selected} setSelected={setSelected}
             dayTasks={dayTasks} selectedList={selectedList} onTaskClick={onTaskClick}
-            bdays={bdays} onNewTask={onNewTask}
+            bdays={bdays} onNewTask={onNewTask} dot={dot} renderDay={renderDay} onDayAdd={onDayAdd}
           />
         </>
       ) : (
@@ -266,6 +277,8 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
                   const iso = addDays(ws, i);
                   return (
                     <button key={iso} onClick={() => setSelected(iso)} aria-label={mdDot(iso)}
+                      onContextMenu={onDayAdd ? (e) => { e.preventDefault(); setSelected(iso); onDayAdd(iso); } : undefined}
+                      data-cal-cell={iso}
                       className="transition-colors"
                       style={cellStyle(iso, { month: view.m, todayIso, selected })} />
                   );
@@ -309,7 +322,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
                 {Array.from({ length: laneFit }, (_, li) => (
                   <div key={li} className="grid grid-cols-7 shrink-0" style={{ gap: 1, ...colStyle }}>
                     {(lanes[li] || []).map(bar => (
-                      <CalBar key={bar.task.id} bar={bar} onClick={() => onTaskClick(bar.task)} />
+                      <CalBar key={bar.task.id} bar={bar} paint={paintOf} onClick={() => onTaskClick(bar.task)} />
                     ))}
                   </div>
                 ))}
@@ -325,7 +338,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
                           <button onClick={() => setSelected(addDays(ws, i))} title={`${n}건 더 — 눌러서 목록으로`}
                             className="pointer-events-auto flex items-center gap-[3px] text-[10px] leading-none font-semibold text-fg-muted hover:text-fg transition-colors">
                             {(overflowTasks[i] || []).slice(0, 3).map((t, k) => (
-                              <span key={k} className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: teamColor(t.teams?.[0]) }} />
+                              <span key={k} className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: dot(t) }} />
                             ))}
                             +{n}
                           </button>
@@ -344,8 +357,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
             넘치게 그려져(§6-9-d) 그대로 두면 **가로 스크롤바가 생겼다**(사용자 지적).
             모바일과 같은 처리 — 패딩만큼 상자를 키우고 음수 마진으로 자리는 그대로. */}
         <div className="w-[316px] -mx-2 px-2 shrink-0 min-h-0 overflow-y-auto overflow-x-hidden">
-          <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} tight
-            birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
+          {renderDay ? renderDay({ iso: selected, list: selectedList, birthdays: birthdaysOn(bdays, selected), tight: true }) : (
+            <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} tight
+              birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
+          )}
         </div>
         </div>
       )}
@@ -354,7 +369,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
 });
 
 // 기간 띠 한 조각. 이어지는 조각은 ↳ 를 붙이고 잘린 쪽 모서리를 각지게 한다.
-function CalBar({ bar, onClick }) {
+function CalBar({ bar, onClick, paint = null }) {
   const { task, col, span, continued, clippedRight } = bar;
   return (
     <button
@@ -362,7 +377,7 @@ function CalBar({ bar, onClick }) {
       className="pointer-events-auto min-w-0 h-[16px] px-1.5 flex items-center text-left hover:brightness-95 transition-[filter]"
       style={{
         gridColumn: `${col + 1} / span ${span}`,
-        ...teamPaint(task.teams),
+        ...(paint ? paint(task) : teamPaint(task.teams)),
         borderTopLeftRadius: continued ? 2 : 4, borderBottomLeftRadius: continued ? 2 : 4,
         borderTopRightRadius: clippedRight ? 2 : 4, borderBottomRightRadius: clippedRight ? 2 : 4,
       }}
@@ -409,9 +424,48 @@ function useSnapCols(ref, deps = []) {
   return cols ? { gridTemplateColumns: cols.map(c => `${c}px`).join(' ') } : null;
 }
 
-function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, dayTasks, selectedList, onTaskClick, bdays, onNewTask }) {
+// 폰에서 날짜를 길게 눌러 바로 추가(행사 일정) — 450ms. 손가락이 8px 넘게 움직이면(스크롤) 취소한다.
+// 누르는 동안 칸이 천천히 줄어드는 것이 '누르고 있다'는 표시다. 길게 누른 뒤 따라오는 클릭은 삼킨다.
+// 안드로이드의 길게 누르기 메뉴(contextmenu)·아이폰의 콜아웃은 이 칸에서만 막는다. onHold가 없으면 아무것도 붙이지 않는다.
+const HOLD_MS = 450;
+function useHold(onHold) {
+  const timer = React.useRef(0);
+  const from = React.useRef(null);
+  const fired = React.useRef(false);
+  const [holding, setHolding] = React.useState(null);
+  const stop = () => { clearTimeout(timer.current); timer.current = 0; from.current = null; setHolding(null); };
+  React.useEffect(() => () => clearTimeout(timer.current), []);
+  const bind = (iso) => (!onHold ? {} : {
+    onPointerDown: (e) => {
+      if (e.pointerType === 'mouse') return;
+      fired.current = false;
+      from.current = { x: e.clientX, y: e.clientY };
+      setHolding(iso);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        // 삼킬 클릭은 손을 뗀 바로 그 한 번뿐이다 — 손 아래에 시트가 서면 클릭이 칸에 안 오니 잠깐 뒤 스스로 푼다
+        timer.current = 0; fired.current = true; setHolding(null);
+        setTimeout(() => { fired.current = false; }, 700);
+        try { navigator.vibrate?.(8); } catch { /* 없는 기기 */ }
+        onHold(iso);
+      }, HOLD_MS);
+    },
+    onPointerMove: (e) => {
+      if (!timer.current || !from.current) return;
+      if (Math.hypot(e.clientX - from.current.x, e.clientY - from.current.y) > 8) stop();
+    },
+    onPointerUp: () => { if (timer.current) stop(); },
+    onPointerCancel: stop,
+    onContextMenu: (e) => e.preventDefault(),
+    onClickCapture: (e) => { if (fired.current) { fired.current = false; e.preventDefault(); e.stopPropagation(); } },
+  });
+  return { bind, holding };
+}
+
+function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, dayTasks, selectedList, onTaskClick, bdays, onNewTask, dot, renderDay = null, onDayAdd = null }) {
   const gridRef = React.useRef(null);
   const colStyle = useSnapCols(gridRef);
+  const hold = useHold(onDayAdd ? (iso) => { setSelected(iso); onDayAdd(iso); } : null);
   // 격자와 목록을 **다른 스크롤 통**에 둔다. 한 통에 같이 두었더니 목록을 읽으려고
   // 미는 순간 달력이 위로 밀려 첫 주 줄이 잘렸다(사용자 지적) — 달력은 "지금 어디를
   // 보고 있나"를 알려주는 기준이라 목록을 볼 때도 자리에 있어야 한다.
@@ -425,9 +479,13 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
           const list = dayTasks(iso);
           const bl = birthdaysOn(bdays, iso);
           return (
-            <button key={iso} onClick={() => setSelected(iso)}
-              className="flex flex-col items-center pt-1.5 gap-1 transition-colors"
-              style={cellStyle(iso, { month, todayIso, selected })}>
+            <button key={iso} onClick={() => setSelected(iso)} data-cal-cell={iso} {...hold.bind(iso)}
+              className={`flex flex-col items-center pt-1.5 gap-1 transition-[background-color,transform] ${onDayAdd ? 'select-none' : ''}`}
+              style={{
+                ...cellStyle(iso, { month, todayIso, selected }),
+                ...(onDayAdd ? { WebkitTouchCallout: 'none' } : null),
+                ...(hold.holding === iso ? { transform: 'scale(.92)', transitionDuration: `${HOLD_MS}ms` } : null),
+              }}>
               {/* 날짜 숫자 + 생일 얼굴. 52px 칸이라 한 명까지만 그리고 나머지는 +N —
                   칸을 넘기면 아래 점(업무)이 밀려 내려간다. 틈은 4px 하나다(D9 — +N을 10px로
                   키우면서 6px로는 375 칸에 안 들어가 4로 줄였다 · tests/calfit이 칸 안인지 잰다) */}
@@ -441,7 +499,7 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
               </span>
               <span className="cal-m-dots flex items-center justify-center gap-[3px] flex-wrap px-1">
                 {list.slice(0, 3).map(t => (
-                  <span key={t.id} className="w-[5px] h-[5px] rounded-full" style={{ background: teamColor(t.teams?.[0]) }} />
+                  <span key={t.id} className="w-[5px] h-[5px] rounded-full" style={{ background: dot(t) }} />
                 ))}
                 {list.length > 3 && <span className="cal-task-more text-[10px] text-fg-muted leading-none tabular-nums">+{list.length - 3}</span>}
               </span>
@@ -453,8 +511,10 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
           (누르는 자리를 넓히려는 것) 그대로 두면 가로 스크롤이 생긴다. 이 줄에서
           가로로 볼 것은 없다 — 위아래로만 민다(사용자 지적). */}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 -mx-2">
-        <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick}
-          birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
+        {renderDay ? renderDay({ iso: selected, list: selectedList, birthdays: birthdaysOn(bdays, selected), tight: false }) : (
+          <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick}
+            birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
+        )}
       </div>
     </div>
   );

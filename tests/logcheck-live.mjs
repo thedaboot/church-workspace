@@ -369,13 +369,15 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.deepStrictEqual(kindsOf('people'), ['groups', 'roster', 'worship', 'home'],
     '명단이 바뀌면 출석 명단도 바뀐다 — 주보 상세까지 같이 다시 읽는다');
   assert.deepStrictEqual(prefixesOf('cards'), [], 'v1 표는 이 채널이 손대지 않는다');
-  assert.strictEqual(V2_TABLES.length, 11, '0049가 발행에 넣은 표 아홉 + 0056의 둘(sun_guides · attendance_guests)');
+  assert.strictEqual(V2_TABLES.length, 13, '0049가 발행에 넣은 표 아홉 + 0056의 둘(sun_guides · attendance_guests) + 0112의 둘(events · event_tasks)');
+  assert.deepStrictEqual([prefixesOf('events'), prefixesOf('event_tasks')], [['events'], ['events']],
+    '행사·관련 업무가 바뀌면 행사 목록 한 벌(eventStore의 events:list)이 낡는다');
   // 모임 접두는 셋으로 나눠 적는다 — 'groups' 하나면 가이드 캐시(groups:guide:*)가 딸려 지워진다(2026-09-09)
   assert.ok(V2_TABLES.every(t => !prefixesOf(t).includes('groups')), "맨 'groups' 접두를 쓰지 않는다");
   assert.deepStrictEqual(prefixesOf('sun_guides'), ['groups:guide', 'groups:mine'], '가이드가 바뀌면 본문과 고정 id가 같이 낡는다');
   assert.ok(prefixesOf('attendance_guests').includes('home:services') && prefixesOf('attendance_guests').includes('groups:mine'),
     '손님 출석도 참석 수를 세는 자리를 낡게 한다');
-  assert.deepStrictEqual([...ALL_KINDS].sort(), ['groups', 'home', 'roster', 'word', 'worship']);
+  assert.deepStrictEqual([...ALL_KINDS].sort(), ['events', 'groups', 'home', 'roster', 'word', 'worship']);
 
   // ② 디바운스 — 연속 이벤트가 한 번의 알림으로 합쳐진다(주보 저장 한 번이 UPDATE 여러 건)
   {

@@ -253,6 +253,15 @@ function TaskLinkCard({ id }) {
     </a>
   );
 }
+// 본문 밖에서 업무 하나를 가리킬 때(행사 일정의 관련 업무 · 0112) — 보이면 위 카드, 못 보면(없음·안 보이는 프로젝트) '업무 링크' 중립 칩.
+// 판정은 카드·칩과 같은 canSeeProject 하나다.
+export function TaskRef({ id }) {
+  const task = useStore(s => s.tasks.byId[id]);
+  const project = useStore(s => (task ? s.projects.byId[task.projectId] : null));
+  if (task && canSeeProject(project)) return <TaskLinkCard id={id} />;
+  const href = `${window.location.origin}/s/t/${encodeURIComponent(id)}`;
+  return <AppMention href={href} deep={{ projectId: null, taskId: id, share: true }} />;
+}
 const TaskLinkCards = ({ text }) => {
   const ids = useMemo(() => taskIdsIn(text), [text]);
   return ids.map(id => <TaskLinkCard key={id} id={id} />);

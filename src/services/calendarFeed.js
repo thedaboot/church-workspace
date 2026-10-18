@@ -144,6 +144,7 @@ export function buildFeedIcs({ calName, events = [], now = Date.now() }) {
     lines.push('BEGIN:VEVENT', `UID:${ev.uid}`, `DTSTAMP:${stamp}`,
       `DTSTART;VALUE=DATE:${ev.start.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${ev.end}`,
       `SUMMARY:${icsText(ev.title)}`);
+    if (ev.location) lines.push(`LOCATION:${icsText(ev.location)}`);   // 행사 피드(events.eventFeedEvent)만 준다
     if (ev.description) lines.push(`DESCRIPTION:${icsText(ev.description)}`);
     if (ev.url) lines.push(`URL:${ev.url}`);
     lines.push('END:VEVENT');

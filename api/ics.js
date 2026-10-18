@@ -6,6 +6,7 @@ import { STATUS_KO, feedKeepRow, feedEvent, buildFeedIcs, feedCalName, feedUrls,
 import { isRestricted } from '../src/services/visibility.js';
 import { audienceFor } from './_leaders.js';
 import { trashedIds, goneCard } from './_trash.js';
+import { eventFeedEvent, EVENT_FEED_NAME } from '../src/services/events.js';
 
 // ============================================================================
 // /api/ics — 주보 광고 한 건 → 폰 기본 달력(.ics) (2026-09-25 · 광고 → 내 달력 방식 가)
@@ -27,6 +28,13 @@ import { trashedIds, goneCard } from './_trash.js';
 //        그 프로젝트에 남아 있는 고른 업무로 text/calendar. 만료 없음 · 서명 열쇠 접두는 `cal:`(광고 `ics:`와 다르다).
 //   재작성의 마지막 도막은 `:file`(= `<서명>.ics`)로 통째로 받아 여기서 `.ics`를 뗀다 — `:sig.ics` 모양은
 //   경로 패턴 해석기에 따라 점을 이름에 넣기도 해서 믿지 않았다.
+//
+// **행사 내 달력**(0112 · 사람마다 한 줄 `event_feeds` · services/events.js)도 같은 자리 · 같은 재작성이다:
+//   POST { eventFeed: true }              + Bearer → 내 줄이 있으면 { events, url, webcal } · 없으면 { events: null }
+//   POST { eventFeed: true, events: [] }  + Bearer → 있는 행사만 남겨 **upsert(owner)** → { events, url, webcal }
+//   GET  /cal/<줄>/<서명>.ics → 서명 열쇠 접두가 `calev:`인 서명이면 이 갈래다(프로젝트 피드 `cal:`와 같은 주소 모양 ·
+//        서명이 달라 서로의 줄을 열지 못한다) → 주인이 승인된 사람인지 → 고른 행사 중 **남아 있는 것만** 하루 종일 일정으로
+//        (DTEND = 종료일 다음 날 · events.eventFeedEvent). 행사는 승인된 누구나 읽으므로 프로젝트처럼 보이나를 따로 보지 않는다.
 //
 // **리더만 보는 프로젝트(0092)**는 주인이 리더일 때만, **직접 선택(0105)**은 주인이 고른 사람·마스터일 때만 — 등록(POST)도
 // 구독(GET)도. 서비스 키라 RLS를 안 타서 여기서 직접 본다(seeProject). 프로젝트가 나중에 좁혀지면 못 보는 사람의 구독 주소는 404로 닫힌다.
@@ -87,6 +95,41 @@ async function seeProject(supabase, projectId, owner) {
   } catch (e) {
     console.error('[ics] 보는 사람 목록 조회 실패:', e?.message || e); return null;
   }
+}
+
+// ── 행사 내 달력(0112) ───────────────────────────────────────────────────────
+export const eventSig = (id) => createHmac('sha256', `calev:${process.env.SUPABASE_SECRET_KEY || ''}`)
+  .update(String(id)).digest('base64url');
+
+async function eventFeedPost(req, res, supabase, user, body) {
+  const owner = await ownerOf(supabase, user.id);
+  const { host, proto } = hostOf(req);
+  const reply = (row) => res.status(200).json(row
+    ? { events: row.event_ids || [], ...feedUrls(host, row.id, eventSig(row.id), proto) }
+    : { events: null });
+  if (!Array.isArray(body.events)) {
+    const { data, error } = await supabase.from('event_feeds').select('id, event_ids').eq('owner', owner).maybeSingle();
+    if (error) { console.error('[ics] 행사 구독 조회 실패:', error); res.status(500).json({ error: 'feed' }); return; }
+    reply(data);
+    return;
+  }
+  const want = [...new Set(body.events.map(String))];
+  if (want.length > MAX_CARDS || !want.every(id => UUID_RE.test(id))) {
+    res.status(400).json({ error: '고른 일정을 읽지 못했어요' }); return;
+  }
+  let kept = [];
+  if (want.length) {
+    // 행사 표는 작다(한 해 수십 건) — id 목록을 주소에 싣지 않고 통째로 읽어 거른다(프로젝트 피드와 같은 이유)
+    const { data: rows, error } = await supabase.from('events').select('id');
+    if (error) { console.error('[ics] 행사 확인 실패:', error); res.status(500).json({ error: 'feed' }); return; }
+    const ok = new Set((rows || []).map(r => r.id));
+    kept = want.filter(id => ok.has(id));
+  }
+  const { data: row, error } = await supabase.from('event_feeds')
+    .upsert({ owner, event_ids: kept, updated_at: new Date().toISOString() }, { onConflict: 'owner' })
+    .select('id, event_ids').single();
+  if (error) { console.error('[ics] 행사 구독 저장 실패:', error); res.status(500).json({ error: 'feed' }); return; }
+  reply(row);
 }
 
 async function feedPost(req, res, supabase, user, body) {
@@ -155,9 +198,29 @@ async function ownerApproved(supabase, owner) {
   return isAdminEmail(supabase, data?.email);
 }
 
+async function eventFeedGet(req, res, f) {
+  const supabase = adminClient();
+  const { data: feed } = await supabase.from('event_feeds').select('id, owner, event_ids').eq('id', f).maybeSingle();
+  if (!feed || !(await ownerApproved(supabase, feed.owner))) { gone(res); return; }
+  let rows = [];
+  if (feed.event_ids?.length) {
+    const { data, error } = await supabase.from('events').select('id, title, start_date, end_date, place, memo');
+    if (error) { console.error('[ics] 행사 구독 읽기 실패:', error); res.status(500).end(); return; }
+    const picked = new Set(feed.event_ids);
+    // 지워진 행사는 표에 없어 저절로 빠진다(event_ids는 그대로 둔다)
+    rows = (data || []).filter(r => picked.has(r.id)).sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
+  }
+  const events = rows.map(r => eventFeedEvent({ id: r.id, title: r.title, start: r.start_date, end: r.end_date, place: r.place, memo: r.memo }));
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+  res.setHeader('Content-Disposition', 'inline; filename="thedaboot-events.ics"');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.status(200).end(buildFeedIcs({ calName: EVENT_FEED_NAME, events }));
+}
+
 async function feedGet(req, res) {
   const f = String(req.query?.f || '');
   const sig = String(req.query?.sig || '').replace(/\.ics$/i, '');
+  if (UUID_RE.test(f) && safeEqual(sig, eventSig(f))) { await eventFeedGet(req, res, f); return; }
   if (!UUID_RE.test(f) || !safeEqual(sig, calSig(f))) { gone(res); return; }
   const supabase = adminClient();
   const { data: feed } = await supabase.from('calendar_feeds').select('id, owner, project_id, card_ids').eq('id', f).maybeSingle();
@@ -195,8 +258,9 @@ export default async function handler(req, res) {
     const user = await requireApprovedUser(req, res, { supabase });
     if (!user) return;
     const body = await readJson(req);
-    // `project`가 있으면 내 달력 구독, 없으면 광고 한 건(아래 — 예전 그대로)
+    // `project`가 있으면 내 달력 구독, `eventFeed`면 행사 내 달력(0112), 둘 다 없으면 광고 한 건(아래 — 예전 그대로)
     if (body && body.project !== undefined) { await feedPost(req, res, supabase, user, body); return; }
+    if (body && body.eventFeed !== undefined) { await eventFeedPost(req, res, supabase, user, body); return; }
     const a = argsOf(body);
     if (!a) { res.status(400).json({ error: '어느 광고인지 알 수 없어요' }); return; }
     const hit = await load(supabase, a.s, a.n);

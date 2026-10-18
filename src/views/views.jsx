@@ -15,6 +15,11 @@ import {
 } from './dashboardParts.jsx';
 import { CalendarBoard } from '../components/calendar.jsx';
 import { teamCountsOf, teamChipsOf, TEAM_CHIP_ROW, TeamFilterBar } from './viewParts.jsx';
+import { Segmented } from '../components/segmented.jsx';
+import { EventCalendar } from '../components/events.jsx';
+import { canEditEvents, eventCalItems } from '../services/events.js';
+import { useEvents, guestBirthdays } from '../services/eventStore.js';
+import { useAuth } from '../services/auth.jsx';
 
 // 대시보드와 프로젝트 화면은 제 파일로 갈랐다(2026-10-07 19차) — App이 이 파일 하나에서 가져가므로 이어서 내보낸다.
 export { DashboardView, DASH_FILTERS, DASH_FILTER_DEFAULT } from './dashboardView.jsx';
@@ -72,10 +77,24 @@ function ProjectProgressList({ title, items, color, empty, onNavigate }) {
 // 팀 필터는 TeamFilterBar 하나로 두 폭 모두 처리한다. 프로젝트 화면처럼 데스크톱용
 // 칩 줄을 따로 두지 않는 이유: 전체 일정은 팀이 일곱 개 다 나올 수 있어서 칩 줄이
 // 길고, 이 화면의 주인공은 달력이지 필터가 아니다.
+//
+// 행사 | 업무(사용자 승인 시안 mock/b2 · 2026-10-18 · 0112): 순원에게 이 화면이 한 사람의 업무로 덮여 보인다는 피드백 —
+// 맨 위 Segmented로 '행사'(수련회·절기·체육대회 같은 큰 일 + 생일 · components/events.jsx · 기본)와
+// '업무'(지금 그대로)를 가른다. 생일은 두 칸 모두에 선다. 행사를 추가·수정할 수 있는 사람은 canEditEvents 하나(리더진 + 마스터).
+// 게스트에는 가입한 사람이 없어 생일이 안 서므로 시연 생일(eventStore.guestBirthdays)을 두 칸에 같이 준다 — **게스트만**(클라우드는 null:
+// 명단을 읽는 동안 members가 비어도 가짜 생일이 서지 않게).
+const SCHEDULE_MODES = [['events', '행사'], ['tasks', '업무']];
 export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
   const tasksList = useStore(selectTasksList);
   const projectsMap = useStore(selectProjectsMap);
   const [selectedTeams, setSelectedTeams] = useState([]);
+  const [mode, setMode] = useState('events');
+  const { isMaster } = useAuth();
+  const amLeader = useStore(s => s.amLeader);
+  const canEdit = canEditEvents({ isMaster, amLeader });
+  const bdayPeople = useMemo(() => guestBirthdays(), []);
+  const events = useEvents();
+  const eventCount = useMemo(() => eventCalItems(events).length, [events]);
 
   // 이 화면은 통째로 달력이다 — 칩 숫자도 **달력에 얹히는 것만** 센다.
   // 머리글은 이미 그 기준이었는데(`N건이 달력에 있어요`) 칩만 전부를 세고 있어서,
@@ -102,21 +121,29 @@ export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
         <div className="min-w-0">
           <h2 className="hidden md:block text-[23px] font-extrabold text-fg mb-[3px]" style={{ letterSpacing: '-0.7px' }}>전체 일정</h2>
           <p className="text-[11px] text-fg-muted tabular-nums">
-            {dated.length}건이 달력에 있어요 · {projectCount}개 프로젝트
+            {mode === 'events' ? `${eventCount}건이 달력에 있어요` : `${dated.length}건이 달력에 있어요 · ${projectCount}개 프로젝트`}
           </p>
         </div>
       </div>
 
       <div className="flex items-center gap-2.5 py-[11px] shrink-0">
+        <Segmented className="flex p-[3px] rounded-md shrink-0" data-schedule-mode=""
+          items={SCHEDULE_MODES} value={mode} onPick={setMode}
+          btnClassName="px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors" />
+        {mode === 'tasks' && (<>
+        <span className="hidden md:block w-px h-5 shrink-0" style={{ background: 'var(--app-line)' }} />
         <TeamFilterBar
           teams={teamChips} counts={teamCounts} total={datable.length}
           shownCount={dated.length} selected={selectedTeams}
           onToggle={toggleTeam} onClear={() => setSelectedTeams([])}
         />
+        </>)}
       </div>
 
       <div className="flex-1 min-h-0">
-        <CalendarBoard tasks={shown} onTaskClick={onTaskClick} />
+        {mode === 'events'
+          ? <EventCalendar canEdit={canEdit} bdayPeople={bdayPeople} />
+          : <CalendarBoard tasks={shown} onTaskClick={onTaskClick} bdayPeople={bdayPeople} />}
       </div>
     </div>
   );

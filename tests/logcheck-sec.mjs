@@ -1125,3 +1125,148 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.strictEqual(await matchSecret(async () => undefined, 'a', 'ㅁ'), undefined, '틀림(false)이 아닌 답은 그대로');
   console.log('PASS  비밀번호 칸 — type=password 없음 · SecretInput 한 벌(넷) · 관리자 무시 표시 · 누른 글쇠');
 }
+
+// ── 0112 행사 일정 — 마이그레이션 모양(읽기 승인 전원 · 쓰기 리더진 + 마스터 · 내 달력 줄은 서버만) · 행사 내 달력 .ics ──────────
+// 라이브 경계는 psql 리허설(ROLLBACK)로 봤다(순원 insert·save_event 42501 · 순원 delete/update 0행 · 리더·마스터 save_event · 익명 42501 ·
+// 서버 키 upsert · 본인 줄만 읽힘). 여기는 파일 모양과 api/ics.js의 행사 갈래를 가짜 DB로 끝까지 돌린다.
+// **되돌리기**(§3-5): save_event의 `if not (public.is_leader() or public.is_master())` 줄을 지우면 ②가, api/ics.js feedGet의 eventSig 갈래를
+// 지우면 ⑥이, events.eventFeedEvent의 다음 날을 종료일 그대로 두면 ⑦이, POST의 '있는 행사만 남기기'를 빼면 ⑨가 깨진다.
+{
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { pathToFileURL, fileURLToPath } = await import('node:url');
+  const m = readFileSync(new URL('../supabase/migrations/0112_events.sql', import.meta.url), 'utf8');
+  const sql = m.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  let n = 0;
+  const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
+  const pols = sql.match(/create policy [\s\S]*?;/g) || [];
+  const W = '(select public.is_leader()) or (select public.is_master())';
+  ok(pols.length === 9 && pols.every(p => / to authenticated\b/.test(p)), '① 정책 아홉 · 전부 to authenticated');
+  ok(['events', 'event_tasks'].every(t => pols.some(p => p.startsWith(`create policy ${t}_select on public.${t} for select`) && p.includes('using ((select public.is_approved()))'))),
+    '① 읽기는 승인된 사람 모두(events · event_tasks)');
+  ok(['events', 'event_tasks'].every(t => ['insert', 'update', 'delete'].every(c => pols.some(p => p.startsWith(`create policy ${t}_${c} on public.${t} for ${c}`) && p.includes(W)))),
+    '① 쓰기 셋은 리더진 + 마스터');
+  ok(pols.filter(p => p.includes('public.event_feeds')).length === 1 && /event_feeds_select[\s\S]*owner = \(select public\.effective_uid\(\)\)/.test(sql)
+    && /revoke insert, update, delete on public\.event_feeds from authenticated;/.test(sql), '① 내 달력 줄은 본인 읽기 하나 · 쓰기는 서버만(권한부터 닫음)');
+  const fn = sql.match(/create or replace function public\.save_event\([\s\S]*?end \$\$;/)?.[0] || '';
+  ok(/security definer set search_path = public, pg_temp/.test(fn) && /if not \(public\.is_leader\(\) or public\.is_master\(\)\) then\s+raise exception [^;]*errcode = '42501'/.test(fn),
+    '② save_event는 definer이고 첫 줄에서 리더진 + 마스터를 본다');
+  ok(/delete from public\.event_tasks where event_id = r\.id;/.test(fn) && /where exists \(select 1 from public\.cards c where c\.id = x\.id\)/.test(fn),
+    '② 관련 업무는 통째로 갈아 끼우고 있는 업무만');
+  ok(/revoke all on function public\.save_event\([^)]*\) from public, anon;/.test(sql), '② save_event 익명 회수');
+  ok(/on delete cascade,\s+card_id\s+uuid not null references public\.cards\(id\) on delete cascade/.test(sql), '③ 관련 업무는 행사·업무 어느 쪽이 지워져도 따라간다');
+  const E = await import(new URL('../src/services/events.js', import.meta.url).href);
+  const kinds = (sql.match(/kind in \(([^)]*)\)/)?.[1].match(/'(\w+)'/g) || []).map(s => s.slice(1, -1));
+  ok(JSON.stringify(kinds) === JSON.stringify(E.EVENT_KINDS.map(k => k.key)), '④ DB 종류 CHECK = 앱 종류(예배 · 행사 · 수련회 차례)');
+  ok(/array\['events', 'event_tasks'\]/.test(sql) && !/event_feeds'\]/.test(sql), '⑤ 실시간 발행은 events · event_tasks(내 달력 줄은 밖)');
+  const live = readFileSync(new URL('../src/services/liveV2.js', import.meta.url), 'utf8');
+  const store = readFileSync(new URL('../src/services/eventStore.js', import.meta.url), 'utf8');
+  ok(/events:\s+\['events'\],\s+event_tasks:\s+\['events'\],/.test(live) && /const CACHE_KEY = 'events:list';/.test(store) && /useLiveRefresh\('events',/.test(store),
+    '⑤ 앱은 liveV2의 events 신호로 목록 한 벌을 다시 읽는다');
+  ok(/rpc\('save_event', saveEventArgs\(ev\)\)/.test(readSplit('src/services/cloud.js')), '⑤ 저장은 save_event 한 번(행사 + 관련 업무)');
+
+  // ── api/ics.js 행사 갈래 — 가짜 DB(_lib의 adminClient만 바꿔 끼운다)로 끝까지 ──
+  process.env.SUPABASE_SECRET_KEY ||= 'test-secret';
+  const dir = mkdtempSync(join(tmpdir(), 'lc-ics-'));
+  const real = (rel) => pathToFileURL(fileURLToPath(new URL(`../${rel}`, import.meta.url))).href;
+  writeFileSync(join(dir, 'fake_lib.mjs'), `export * from '${real('api/_lib.js')}';
+export const adminClient = () => globalThis.__fakeDb;
+export const requireApprovedUser = async () => globalThis.__fakeUser;
+export const readJson = async (req) => req.body;
+`);
+  const icsRaw = readFileSync(new URL('../api/ics.js', import.meta.url), 'utf8');
+  const icsSrc = icsRaw
+    .replace("from './_lib.js'", `from '${pathToFileURL(join(dir, 'fake_lib.mjs')).href}'`)
+    .replace(/from '\.\/(_\w+\.js)'/g, (_, f) => `from '${real(`api/${f}`)}'`)
+    .replace(/from '\.\.\/src\/([^']+)'/g, (_, f) => `from '${real(`src/${f}`)}'`);
+  writeFileSync(join(dir, 'ics.mjs'), icsSrc);
+  const ics = await import(pathToFileURL(join(dir, 'ics.mjs')).href);
+  const fakeDb = (tables) => ({
+    from(table) {
+      const filters = []; let one = false; let up = null;
+      const b = {
+        select: () => b, order: () => b,
+        eq: (c, v) => { filters.push(r => r[c] === v); return b; },
+        in: (c, vs) => { filters.push(r => vs.includes(r[c])); return b; },
+        ilike: (c, v) => { filters.push(r => String(r[c] || '').toLowerCase() === String(v).toLowerCase()); return b; },
+        maybeSingle: () => { one = true; return b; }, single: () => { one = true; return b; },
+        upsert: (row, { onConflict }) => { up = { row, key: onConflict }; return b; },
+        then(res, rej) {
+          const t = (tables[table] ||= []);
+          let data;
+          if (up) {
+            let ex = t.find(r => r[up.key] === up.row[up.key]);
+            if (ex) Object.assign(ex, up.row); else { ex = { id: '00000000-0000-4000-8000-00000000f00d', ...up.row }; t.push(ex); }
+            data = ex;
+          } else {
+            const out = t.filter(r => filters.every(f => f(r)));
+            data = one ? (out[0] ?? null) : out;
+          }
+          return Promise.resolve({ data, error: null }).then(res, rej);
+        },
+      };
+      return b;
+    },
+  });
+  const fakeRes = () => {
+    const r = { code: 0, headers: {}, body: undefined };
+    r.status = (c) => { r.code = c; return r; };
+    r.setHeader = (k, v) => { r.headers[k.toLowerCase()] = v; return r; };
+    r.json = (o) => { r.body = o; return r; };
+    r.end = (b) => { r.body = b; return r; };
+    return r;
+  };
+  const OWNER = '11111111-1111-4111-8111-111111111111';
+  const FEED = '22222222-2222-4222-8222-222222222222';
+  const [E1, E2, E3, GONE] = ['a', 'b', 'c', 'd'].map(c => `${c.repeat(8)}-${c.repeat(4)}-4${c.repeat(3)}-8${c.repeat(3)}-${c.repeat(12)}`);
+  const tables = () => ({
+    profiles: [{ id: OWNER, approved: true, merged_into: null, email: 'o@x' }],
+    admins: [],
+    events: [
+      { id: E1, title: '2026 겨울 수련회', start_date: '2026-12-28', end_date: '2026-12-30', place: '양평 수양관', memo: '신청은 12월 13일까지' },
+      { id: E2, title: '성탄 예배', start_date: '2026-12-25', end_date: '2026-12-25', place: '', memo: '' },
+      { id: E3, title: '고르지 않은 행사', start_date: '2026-12-31', end_date: '2026-12-31', place: '', memo: '' },
+    ],
+    event_feeds: [{ id: FEED, owner: OWNER, event_ids: [E1, E2, GONE] }],
+    calendar_feeds: [],
+  });
+  const get = async (db, f, sig) => {
+    globalThis.__fakeDb = fakeDb(db);
+    const res = fakeRes();
+    await ics.default({ method: 'GET', query: { f, sig: `${sig}.ics` }, headers: { host: 'x.app' } }, res);
+    return res;
+  };
+  ok(ics.eventSig(FEED) !== ics.calSig(FEED) && /`calev:\$\{process\.env\.SUPABASE_SECRET_KEY/.test(icsRaw), '⑥ 행사 피드 서명은 calev: 접두(프로젝트 cal:와 다른 열쇠)');
+  const r1 = await get(tables(), FEED, ics.eventSig(FEED));
+  ok(r1.code === 200 && /^text\/calendar/.test(r1.headers['content-type'] || ''), '⑥ 서명이 맞으면 text/calendar');
+  const body = String(r1.body).replace(/\r\n /g, '');
+  const vevents = body.split('BEGIN:VEVENT').slice(1);
+  ok(vevents.length === 2 && body.includes('SUMMARY:2026 겨울 수련회') && body.includes('SUMMARY:성탄 예배') && !body.includes('고르지 않은 행사'),
+    '⑥ 고른 것 중 남아 있는 것만(지운 행사 id는 저절로 빠진다)');
+  ok(body.includes('DTSTART;VALUE=DATE:20261228') && body.includes('DTEND;VALUE=DATE:20261231')
+    && body.includes('DTSTART;VALUE=DATE:20261225') && body.includes('DTEND;VALUE=DATE:20261226'), '⑦ 하루 종일 · DTEND = 종료일 다음 날');
+  ok(body.includes('LOCATION:양평 수양관') && body.includes('UID:event-') && body.includes(`X-WR-CALNAME:${E.EVENT_FEED_NAME}`), '⑦ 장소 · 고유 id · 달력 이름');
+  ok((await get(tables(), FEED, ics.calSig(FEED))).code === 404, '⑥ 프로젝트 서명으로는 행사 줄이 안 열린다');
+  ok((await get(tables(), FEED, ics.eventSig(E1))).code === 404, '⑥ 다른 id의 서명은 404');
+  const off = tables(); off.profiles[0].approved = false;
+  ok((await get(off, FEED, ics.eventSig(FEED))).code === 404, '⑧ 주인이 승인에서 빠지면 주소가 닫힌다');
+  // POST — 있는 행사만 남겨 owner 한 줄 upsert → 주소
+  const post = async (db, b) => {
+    globalThis.__fakeDb = fakeDb(db); globalThis.__fakeUser = { id: OWNER };
+    const res = fakeRes();
+    await ics.default({ method: 'POST', body: b, headers: { host: 'x.app', 'x-forwarded-proto': 'https' } }, res);
+    return res;
+  };
+  const db2 = tables(); db2.event_feeds = [];
+  const p1 = await post(db2, { eventFeed: true });
+  ok(p1.code === 200 && p1.body.events === null, '⑨ 줄이 없으면 { events: null }');
+  const p2 = await post(db2, { eventFeed: true, events: [E1, GONE, E1, E3] });
+  ok(p2.code === 200 && JSON.stringify(p2.body.events) === JSON.stringify([E1, E3]) && db2.event_feeds.length === 1
+    && p2.body.url === `https://x.app/cal/${db2.event_feeds[0].id}/${ics.eventSig(db2.event_feeds[0].id)}.ics` && p2.body.webcal.startsWith('webcal://x.app/cal/'),
+    '⑨ 있는 행사만 · 겹침 없이 · owner 한 줄 · 행사 서명 주소');
+  const p3 = await post(db2, { eventFeed: true, events: [E2] });
+  ok(db2.event_feeds.length === 1 && JSON.stringify(p3.body.events) === JSON.stringify([E2]), '⑨ 다시 보내면 같은 줄을 고른 것 전체로 덮는다(다른 달 것도 화면이 같이 보낸다)');
+  ok((await post(db2, { eventFeed: true, events: ['x'] })).code === 400, '⑨ id가 아닌 값은 400');
+  console.log(`PASS  0112 행사 일정 — 정책(읽기 승인 · 쓰기 리더진 + 마스터) · save_event · 실시간 · 행사 내 달력 서명·.ics·저장 ${n}가지`);
+}

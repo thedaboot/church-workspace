@@ -655,6 +655,156 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   console.log('PASS  내 달력 구독(문장 · 날짜 · .ics · 기기별 버튼 · 저장 줄 세우기 · 서버 배선)');
 }
 
+// ── 행사 일정(시안 · mock/b2 · services/events.js) — 누가 추가하나 · 띠 자리 ──
+// 되돌리기 검사: canEditEvents를 `() => true`로 바꾸면 첫 단정이, eventSpan의 뒤집기를 빼면 기간 단정이,
+// eventCalItem의 dueDate를 s.start로 두면 대림절 띠 단정이 깨진다.
+{
+  const E = await import(new URL('../src/services/events.js', import.meta.url).href);
+  assert.strictEqual(E.EVENT_EDITORS, 'leaders', '사용자 결정 2026-10-18 — 리더진 + 마스터');
+  assert.strictEqual(E.canEditEvents({ isMaster: false, amLeader: false }), false, '순원은 추가·수정하지 못한다');
+  assert.strictEqual(E.canEditEvents({ isMaster: false }), false, '리더 여부를 모르면(스토어 칸 없음) 닫힌 쪽');
+  assert.strictEqual(E.canEditEvents({ isMaster: false, amLeader: true }), true, '리더');
+  assert.strictEqual(E.canEditEvents({ isMaster: true, amLeader: false }), true, '마스터(게스트도 마스터)');
+  assert.strictEqual(E.canEditEvents({ isMaster: false, amLeader: false }, 'everyone'), true, '규칙 한 줄로 모두에게 열린다');
+  assert.deepStrictEqual(E.eventSpan({ start: '2026-12-30', end: '2026-12-28' }), { start: '2026-12-28', end: '2026-12-30' }, '거꾸로 적힌 기간은 뒤집는다');
+  assert.deepStrictEqual(E.eventSpan({ start: '2026-11-07', end: '' }), { start: '2026-11-07', end: '2026-11-07' }, '종료일이 없으면 하루');
+  assert.strictEqual(E.eventSpan({ start: '', end: '' }), null, '날짜가 없으면 달력에 얹지 않는다');
+  assert.deepStrictEqual(E.EVENT_KINDS.map(k => k.label), ['예배', '행사', '수련회'], '종류는 예배 · 행사 · 수련회 차례(사용자 결정) — 절기는 없다');
+  const list = [
+    { id: 'a', title: '대림절', start: '2026-11-29', end: '2026-12-24', kind: 'event' },
+    { id: 'b', title: '성탄 예배', start: '2026-12-25', end: '2026-12-25', kind: 'event' },
+    { id: 'c', title: '날짜 없음', start: '', kind: 'event' },
+  ];
+  const items = E.eventCalItems(list);
+  assert.deepStrictEqual(items.map(i => [i.id, i.startDate, i.dueDate]), [['a', '2026-11-29', '2026-12-24'], ['b', '2026-12-25', '2026-12-25']],
+    '달력 띠는 업무 모양(startDate~dueDate)으로 — 여러 날 띠(대림절)가 시작일부터 종료일까지');
+  assert.deepStrictEqual(E.eventsOn(list, '2026-12-10').map(e => e.id), ['a'], '기간 가운데 날에도 대림절이 선다');
+  assert.deepStrictEqual(E.eventsOn(list, '2026-12-25').map(e => e.id), ['b'], '대림절은 24일까지');
+  assert.strictEqual(E.eventRangeLabel(list[0]), '11월 29일 ~ 12월 24일');
+  assert.strictEqual(E.normalizeEvent({ title: '  ', start: '2026-11-07' }), null, '제목이 비면 저장하지 않는다');
+  const n = E.normalizeEvent({ title: ' 체육대회 ', start: '2026-11-07', end: '2026-11-01', kind: '없는 종류' });
+  assert.ok(n.title === '체육대회' && n.end === '2026-11-07' && n.kind === 'event', '종료일이 앞이면 시작일로 · 모르는 종류는 행사');
+  assert.strictEqual(E.normalizeEvent({ title: '대림절', start: '2026-11-29', kind: 'season' }).kind, 'event', '1차 시안의 절기는 행사로 읽힌다');
+  assert.deepStrictEqual(E.normalizeEvent({ title: 'x', start: '2026-11-07', taskIds: ['t1', 't1', '', 't2'] }).taskIds, ['t1', 't2'], '관련 업무는 겹치지 않게');
+  // 내 달력 — 보고 있는 달의 일정만 고르기 목록에 · 고른 것은 한 피드(다른 달 것도 남는다)
+  assert.deepStrictEqual(E.monthEvents(list, 2026, 11).map(e => e.id), ['a', 'b'], '12월: 11월에 시작한 일정도 걸친다');
+  assert.deepStrictEqual(E.monthEvents(list, 2026, 10).map(e => e.id), ['a'], '11월: 성탄 예배는 없다');
+  assert.deepStrictEqual(E.monthEvents(list, 2027, 0), [], '1월: 비었다');
+  assert.deepStrictEqual(E.togglePick(['a'], 'b'), ['a', 'b'], '고르면 더한다(다른 달 것은 그대로)');
+  assert.deepStrictEqual(E.togglePick(['a', 'b'], 'a'), ['b'], '다시 누르면 푼다');
+  assert.deepStrictEqual(E.livePicks(['a', 'gone', 'b'], list), ['a', 'b'], '지워진 일정은 피드에서 빠진다');
+  assert.strictEqual(E.eventFeedSentence([]), '내 달력에 추가할 일정을 선택해 주세요.');
+  assert.strictEqual(E.eventFeedSentence(['대림절 예배', '대림절 예배', '성탄 예배', '송구영신 예배']), '대림절 예배, 성탄 예배 외 1건이 내 달력에 추가돼요.', '같은 제목은 한 번만 부르고 나머지를 센다');
+  assert.strictEqual(E.eventFeedSentence(['성탄 예배']), '성탄 예배 일정이 내 달력에 추가돼요.');
+  // 화면 배선 — 추가 길(오른쪽 클릭·길게 누르기·+ 새 일정)은 canEdit일 때만
+  const evUi = readFileSync(new URL('../src/components/events.jsx', import.meta.url), 'utf8');
+  const viewsUi = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  assert.ok(evUi.includes('onDayAdd={canEdit ? openNew : null}') && /\{canEdit && \(\s*<button type="button" onClick=\{\(\) => openNew\(localDate/.test(evUi), '추가 길(날짜 · 새 일정)은 canEdit일 때만');
+  assert.ok(/\{canEdit && \(\s*<button type="button" onClick=\{startEdit\}/.test(evUi) && /const startEdit = \(\) => \{ if \(canEdit/.test(evUi), '수정은 canEdit일 때만 · 아니면 읽기 상태뿐');
+  assert.ok(!evUi.includes('data-event-add'), '고른 날 목록의 + 새 일정은 뺐다(2차)');
+  assert.ok(viewsUi.includes('canEditEvents({ isMaster, amLeader })'), '전체 일정이 판정 한 곳을 쓴다');
+  console.log('PASS  행사 일정 — 추가·수정 권한 · 종류 차례 · 기간 · 띠 자리 · 다듬기 · 관련 업무 · 내 달력 고르기 · 배선');
+}
+
+// ── 행사 일정 클라우드 저장 자리(services/eventStore.js · 0112) — 게스트 스위트가 못 타는 길 ──
+// 먼저 그리고(새 행사는 uuid를 여기서 만든다) · 실패하면 그 행사만 되돌리고 onFail · 저장이 도는 동안 끝난 재조회가 먼저 그린 것을
+// 덮지 않는다 · 내 달력 고른 것은 물어본 뒤에만 바뀌고 고른 것 전체를 보낸다 · 클라우드에서는 시연 생일이 없다.
+// 되돌리기 검사: recompute에서 pending을 얹지 않으면 '재조회가 덮지 않는다'가, saveEvent catch의 pending.delete를 빼면
+// '실패하면 새 행사가 빠진다'가, setEventPicks의 `if (!feed.picks) return;`을 빼면 '묻기 전에는 안 바뀐다'가 깨진다.
+{
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { pathToFileURL, fileURLToPath } = await import('node:url');
+  const real = (rel) => pathToFileURL(fileURLToPath(new URL(`../${rel}`, import.meta.url))).href;
+  const src = readFileSync(new URL('../src/services/eventStore.js', import.meta.url), 'utf8')
+    .replace("import { useEffect, useSyncExternalStore } from 'react';", 'const { useEffect, useSyncExternalStore } = globalThis.__ES.react;')
+    .replace("import { supabase } from './supabaseClient.js';", 'const { supabase } = globalThis.__ES;')
+    .replace("import { readCache, writeCache } from './cache.js';", 'const { readCache, writeCache } = globalThis.__ES.cache;')
+    .replace("import { useLiveRefresh } from './liveV2.js';", 'const { useLiveRefresh } = globalThis.__ES.live;')
+    .replace("import { listEvents, saveEventCloud, deleteEventCloud, eventCalendarFeed } from './cloud/events.js';",
+      'const { listEvents, saveEventCloud, deleteEventCloud, eventCalendarFeed } = globalThis.__ES.cloud;')
+    .replace("from './events.js'", `from '${real('src/services/events.js')}'`)
+    .replace("from './calendarFeed.js'", `from '${real('src/services/calendarFeed.js')}'`);
+  assert.ok(!/^import .* from '\.\//m.test(src), '가짜로 바꿔 끼울 import가 그대로다(eventStore의 import 줄이 바뀌었다)');
+  const defer = () => { let res, rej; const p = new Promise((a, b) => { res = a; rej = b; }); return { p, res, rej }; };
+  const calls = { save: [], del: [], feed: [] };
+  let listRows = [];
+  let saveNext = null, delNext = null, feedNext = null;
+  let live = null;
+  globalThis.__ES = {
+    supabase: {},
+    react: { useEffect: (fn) => { fn(); }, useSyncExternalStore: (sub, get) => get() },
+    cache: { readCache: () => undefined, writeCache: () => {} },
+    live: { useLiveRefresh: (kind, fn) => { live = { kind, fn }; } },
+    cloud: {
+      listEvents: async () => listRows.map(r => ({ ...r })),
+      saveEventCloud: (ev) => { calls.save.push(ev); return saveNext.p; },
+      deleteEventCloud: (id) => { calls.del.push(id); return delNext.p; },
+      eventCalendarFeed: (ids) => { calls.feed.push(ids); return feedNext.p; },
+    },
+  };
+  const dir = mkdtempSync(join(tmpdir(), 'lc-es-'));
+  writeFileSync(join(dir, 'eventStore.mjs'), src);
+  const S = await import(pathToFileURL(join(dir, 'eventStore.mjs')).href);
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const quiet = console.error; console.error = () => {};   // 실패 길의 콘솔 기록은 일부러 낸 것
+  const A = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', title: '가을 야유회', start: '2026-10-24', end: '2026-10-24', place: '', memo: '', kind: 'event', taskIds: [] };
+  assert.strictEqual(S.guestBirthdays(), null, '클라우드에서는 시연 생일이 없다(명단을 읽는 동안 가짜 생일이 서지 않게)');
+  listRows = [A];
+  const fails = [];
+  S.useEventsSync((e) => fails.push(['load', e]));
+  await tick(); await tick();
+  assert.deepStrictEqual(S.useEvents().map(e => e.title), ['가을 야유회'], '들어오면 한 번 읽는다');
+  assert.strictEqual(live?.kind, 'events', "liveV2의 'events' 신호로 다시 읽는다");
+  // ① 새 행사 — 먼저 그린다 · uuid · 저장 중 재조회가 덮지 않는다 · 실패하면 빠지고 onFail
+  saveNext = defer();
+  const made = S.saveEvent({ title: ' 체육대회 ', start: '2026-11-07', kind: 'event', taskIds: ['t1', 't1'] }, { onFail: (e) => fails.push(['save', e]) });
+  assert.ok(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(made.id), '새 행사의 id는 uuid(save_event가 그 id로 넣는다)');
+  assert.deepStrictEqual(calls.save[0].taskIds, ['t1'], '다듬은 행을 보낸다');
+  assert.deepStrictEqual(S.useEvents().map(e => e.title).sort(), ['가을 야유회', '체육대회'], '저장 전에 먼저 그린다');
+  live.fn(); await tick(); await tick();
+  assert.ok(S.useEvents().some(e => e.id === made.id), '저장이 도는 동안 끝난 재조회가 먼저 그린 것을 덮지 않는다');
+  saveNext.rej(new Error('42501')); await tick(); await tick();
+  assert.ok(!S.useEvents().some(e => e.id === made.id) && fails.some(f => f[0] === 'save'), '실패하면 새 행사가 빠지고 onFail');
+  // ② 고치기 실패 — 이전 값으로
+  saveNext = defer();
+  S.saveEvent({ ...A, title: '봄 야유회' }, { onFail: () => {} });
+  assert.strictEqual(S.useEvents().find(e => e.id === A.id).title, '봄 야유회', '고친 값을 먼저 그린다');
+  saveNext.rej(new Error('x')); await tick(); await tick();
+  assert.strictEqual(S.useEvents().find(e => e.id === A.id).title, '가을 야유회', '실패하면 이전 값으로');
+  // ③ 고치기 성공 — 바탕에 들어간다
+  saveNext = defer();
+  S.saveEvent({ ...A, title: '봄 야유회' });
+  saveNext.res({}); await tick(); await tick();
+  assert.strictEqual(S.useEvents().find(e => e.id === A.id).title, '봄 야유회', '성공하면 그 값이 남는다');
+  // ④ 지우기 — 먼저 빠지고 실패하면 돌아온다
+  delNext = defer();
+  S.deleteEvent(A.id, { onFail: (e) => fails.push(['del', e]) });
+  assert.ok(!S.useEvents().some(e => e.id === A.id), '지우면 먼저 빠진다');
+  delNext.rej(new Error('x')); await tick(); await tick();
+  assert.ok(S.useEvents().some(e => e.id === A.id) && fails.some(f => f[0] === 'del'), '실패하면 돌아오고 onFail');
+  // ⑤ 내 달력 — 묻기 전에는 체크가 안 바뀐다 · 물은 뒤 고른 것 전체를 보낸다
+  assert.strictEqual(S.useEventPicks(), null, '아직 물어보지 않았다');
+  S.setEventPicks([A.id]);
+  assert.strictEqual(S.useEventPicks(), null, '묻기 전에는 안 바뀐다(체크가 막혀 있다)');
+  assert.strictEqual(calls.feed.length, 0);
+  feedNext = defer();
+  const loading = S.loadEventFeed();
+  assert.deepStrictEqual(calls.feed[0], undefined, '처음 묻기는 events 없이(저장된 것을 묻는다)');
+  feedNext.res({ events: ['old-id'], url: 'https://x/cal/f/s.ics', webcal: 'webcal://x/cal/f/s.ics' }); await loading;
+  assert.deepStrictEqual(S.useEventPicks(), ['old-id'], '저장된 것이 선다(다른 달에서 고른 것)');
+  assert.strictEqual(S.useEventFeed().urls.url, 'https://x/cal/f/s.ics');
+  feedNext = defer();
+  S.setEventPicks(['old-id', A.id]);
+  S.flushEventFeed(); await tick();
+  assert.deepStrictEqual(calls.feed[1], ['old-id', A.id], '고른 것 전체를 보낸다(차이가 아니다)');
+  feedNext.res({ events: ['old-id', A.id], url: 'https://x/cal/f/s.ics', webcal: 'webcal://x/cal/f/s.ics' }); await tick();
+  delete globalThis.__ES;
+  console.error = quiet;
+  console.log('PASS  행사 일정 클라우드 저장 자리 — 먼저 그리기 · 실패하면 그 행사만 되돌림 · 재조회가 안 덮음 · 내 달력 묻고 전체 보내기 · 클라우드엔 시연 생일 없음');
+}
+
 
 // ── 내비 부품 한 벌(19차 묶음 D — layout.jsx를 navParts·mobileNav·searchBox·notificationBell로 갈랐다) ──
 // 되돌리기 검사:
