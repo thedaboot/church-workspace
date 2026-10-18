@@ -2267,3 +2267,119 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.ok(mig.includes("check (via in ('ask', 'nightly', 'warm'))"), '0115 — via에 warm');
   console.log('PASS  v5 2묶음 다붓이 답변 속도(근거 먼저 — 안 보이는 업무·배운 것 안 흘림 · 모델 전 · 날을 넘긴 캐시 — 날 걸린 답은 그날만 · 휴지통·없어진 근거 안 줌 · 아침 미리 답하기 — 고르기·버리기·warm 행 · 크론 예산)');
 }
+
+// 다붓이가 행사 일정(0112 events)을 근거로 읽기(사용자 승인 2026-10-18 — '연말까지 예정된 행사 있어?'가 업무·회의 기록으로 답해 👎).
+// 묻는 사람 세션으로 읽은 events → [행사 일정] 기록(종류 · KST 'M월 D일(요)' · 장소 · 메모 · 보이는 관련 업무 제목만) · 검색 모드에도 늘 ·
+// 행사 날짜의 정본(FULL_SYS) · 근거 칩 t 'event' → 전체 일정 '행사' 칸 · 도장에 events · 지운 행사·지나간 행사를 가리킨 캐시는 안 준다.
+// 되돌리기 검사(실제로 깨지는지 확인함): collectAll의 eventEvidence push를 빼면 '[행사 일정] 기록'이, ALWAYS_TAGS의 'event'를 빼면 '검색 모드에도 늘'이,
+// dataStamp의 events를 빼면 '행사를 고치면 캐시 안 줌'이, liveCited의 events를 빼면 '지운 행사 캐시'가, cacheFresh의 event end 줄을 빼면 '지나간 행사'가,
+// FULL_SYS의 정본 줄을 빼면 '프롬프트 규칙'이, wikiView openCite의 event 갈래를 빼면 '칩 길'이, answerQuestion의 event wikiCards를 빼면 '관련 업무 판정'이 깨진다.
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const fakeDb = (tables) => ({
+    from: (t) => {
+      let rows = [...(tables[t] || [])];
+      const q = {
+        select: () => q, order: () => q, limit: (n) => { rows = rows.slice(0, n); return q; },
+        not: (k, op, v) => { if (op === 'is') rows = rows.filter(x => (x[k] ?? null) !== v); else if (op === 'in') { const vs = String(v).replace(/[()]/g, '').split(','); rows = rows.filter(x => !vs.includes(String(x[k]))); } return q; },
+        eq: (k, v) => { rows = rows.filter(x => x[k] === v); return q; },
+        is: (k, v) => { rows = rows.filter(x => (x[k] ?? null) === v); return q; },
+        in: (k, vs) => { rows = rows.filter(x => vs.includes(x[k])); return q; },
+        gte: (k, v) => { rows = rows.filter(x => x[k] == null || String(x[k]) >= String(v)); return q; },
+        lte: (k, v) => { rows = rows.filter(x => x[k] == null || String(x[k]) <= String(v)); return q; },
+        range: async (a, b) => ({ data: rows.slice(a, b + 1) }),
+        maybeSingle: async () => ({ data: rows[0] || null }),
+        then: (ok, no) => Promise.resolve({ data: rows, count: rows.length }).then(ok, no),
+        insert: () => ({ select: () => ({ single: async () => ({ data: { id: 'n' } }) }), then: (ok, no) => Promise.resolve({ data: {} }).then(ok, no) }),
+      };
+      return q;
+    },
+    rpc: async (fn) => ({ data: fn === 'is_leader' ? true : fn === 'locked_hidden_ids' || fn === 'hidden_ids' ? [] : null }),
+  });
+  const today = '2026-10-18';
+  const card = (id, project_id, title) => ({ id, project_id, title, description: '', status: 'todo', start_date: null, due_date: '2026-10-20', subtasks: [], updated_at: '2026-10-01T00:00:00Z', assignees: [], card_assignees: [], locked: false });
+  const evRow = (id, title, start, end, o = {}) => ({ id, title, start_date: start, end_date: end, kind: 'event', place: '', memo: '', event_tasks: [], updated_at: '2026-10-01T00:00:00Z', ...o });
+  const eventsT = [
+    evRow('e1', '송구영신 예배', '2026-12-31', '2026-12-31', { kind: 'service', place: '본당' }),
+    evRow('e2', '겨울 수련회', '2027-01-29', '2027-01-31', { kind: 'retreat', place: '양평', memo: '**회비** 미정', event_tasks: [{ card_id: 'cL', position: 0 }, { card_id: 'cA', position: 1 }] }),
+    evRow('e3', '가을 체육대회', '2026-10-31', '2026-10-31', { place: '성내 체육관' }),
+    evRow('e0', '여름 수련회', '2026-07-10', '2026-07-12', { kind: 'retreat' }),
+    evRow('eOld', '작년 성탄 예배', '2025-12-25', '2025-12-25', { kind: 'service' }),
+  ];
+  const projects = [{ id: 'pA', name: '가을 행사', year: 2026, visibility: 'all' }, { id: 'pL', name: '리더 회의', year: 2026, visibility: 'leaders' }];
+  const allCards = [card('cA', 'pA', '수련회 포스터'), card('cL', 'pL', '수련회 숙소 계약')];
+  const member = { projects: projects.filter(p => p.id === 'pA'), cards: allCards.filter(c => c.id === 'cA'), events: eventsT };   // RLS: 리더 업무 없음
+
+  // ── 1. 기록 글(eventEvidence · 순수) ──
+  const cardById = new Map(member.cards.map(c => [c.id, c]));
+  const lines = A.eventEvidence(eventsT, { today, cardById });
+  assert.deepStrictEqual(lines.map(l => l.cite.id), ['e0', 'e3', 'e1', 'e2'], `창 안(올해 1월 1일 ~ 오늘 +${A.EVENT_AHEAD_DAYS}일)만 · 날짜 차례 · 작년 것은 빠진다`);
+  const byId = Object.fromEntries(lines.map(l => [l.cite.id, l]));
+  assert.strictEqual(byId.e3.text, "[행사 일정] '가을 체육대회' · 종류 행사 · 날짜 10월 31일(토) · 다가오는 일정 · 장소 성내 체육관", byId.e3.text);
+  assert.ok(byId.e1.text.includes('종류 예배') && byId.e1.text.includes('12월 31일(목)'), byId.e1.text);
+  assert.ok(byId.e2.text.includes('종류 수련회 · 날짜 2027년 1월 29일(금)~1월 31일(일)') && byId.e2.text.includes('장소 양평') && byId.e2.text.includes('메모: 회비 미정'), `해가 다르면 해를 붙이고 · 메모는 평문: ${byId.e2.text}`);
+  assert.ok(byId.e2.text.includes("관련 업무: '수련회 포스터'") && !byId.e2.text.includes('숙소 계약'), `관련 업무는 묻는 사람이 보는 업무 제목만: ${byId.e2.text}`);
+  assert.deepStrictEqual(byId.e2.cardIds, ['cA'], '보이는 관련 업무 id를 쥔다(cardIds)');
+  assert.ok(byId.e0.text.includes('지난 일정'), '지난 행사는 지난 일정');
+  assert.deepStrictEqual(byId.e2.cite, { t: 'event', id: 'e2', label: '겨울 수련회', end: '2027-01-31' }, '근거 칩 { t: event, id, label, end }');
+  const dayOf = (i) => W.kstDate(new Date(Date.parse(`${today}T00:00:00Z`) + (i - 30) * 864e5).toISOString());
+  const many = Array.from({ length: A.EVENT_MAX + 10 }, (_, i) => evRow(`m${i}`, `주일 예배 ${i}`, dayOf(i), dayOf(i)));
+  assert.strictEqual(A.eventEvidence(many, { today }).length, A.EVENT_MAX, `넘치면 오늘에 가까운 ${A.EVENT_MAX}개`);
+
+  // ── 2. collectAll — 묻는 사람 세션 기록에 [행사 일정] · 검색 모드에도 늘 ──
+  const { evidence } = await A.collectAll(fakeDb(member), today);
+  const evs = evidence.filter(e => e.cite?.t === 'event');
+  assert.deepStrictEqual(evs.map(e => [e.tag, e.cite.id]), [['event', 'e0'], ['event', 'e3'], ['event', 'e1'], ['event', 'e2']], `[행사 일정] 기록(tag event): ${JSON.stringify(evidence.map(e => e.text))}`);
+  assert.ok(!evidence.some(e => e.text.includes('숙소 계약')), '못 보는 관련 업무 제목은 어디에도 안 실린다');
+  const picked = A.pickEvidence(evidence, { hits: [], terms: [] });
+  assert.ok(['e0', 'e3', 'e1', 'e2'].every(id => picked.some(e => e.cite?.t === 'event' && e.cite.id === id)), '검색 모드(pickEvidence)에도 행사 일정은 늘 실린다');
+
+  // ── 3. 근거 먼저(earlyEvidence) — 제목에 질문 낱말이 든 행사 · 안 보이는 업무가 걸린 행사는 빼고 ──
+  const keys = (list) => list.map(c => `${c.t}:${c.id}`);
+  assert.deepStrictEqual(keys(A.earlyEvidence(evidence, { terms: ['체육대회'], unseen: new Set() })), ['event:e3'], '제목이 맞는 행사가 근거 칩으로 먼저');
+  assert.deepStrictEqual(keys(A.earlyEvidence(evidence, { terms: ['수련회'], unseen: new Set(['cA']) })), ['event:e0'], '안 보이는 업무가 걸린 행사는 안 흘린다');
+  assert.ok(A.earlyEvidence(evidence, { terms: ['수련회'], unseen: new Set() }).every(c => Object.keys(c).join() === 't,id,label'), '칩 모양 { t, id, label }만');
+
+  // ── 4. 답 — 행사를 근거로 단 문장 · 관련 업무는 wikiCards(⑥ 판정) · 프롬프트에 정본 줄 ──
+  const realFetch = globalThis.fetch;
+  let sys = '';
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    sys = JSON.stringify(body.systemInstruction || body.system_instruction || '');
+    const p = body.contents[0].parts[0].text;
+    const rid = p.split('\n').find(l => /^R\d+ \[행사 일정\] '겨울 수련회'/.test(l))?.split(' ')[0];
+    const out = { found: true, sentences: [{ text: '겨울 수련회는 1월 29일부터 1월 31일까지 양평에서 해요.', e: [rid] }] };
+    return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(out) }] } }] }), { status: 200 });
+  };
+  try {
+    const out = await A.answerQuestion('연말까지 예정된 행사 있어?', { db: fakeDb(member), key: 'k', today, cache: false, retrieve: false });
+    assert.ok(out.status === 'answered' && out.sentences[0].cites.some(c => c.t === 'event' && c.id === 'e2'), `행사 근거 칩: ${JSON.stringify(out)}`);
+    assert.deepStrictEqual(out.wikiCards, ['cA'], '행사 근거 답은 그 행사의 (보이는) 관련 업무를 wikiCards로 — leaderCited가 본다');
+    assert.ok(sys.includes('[행사 일정] 기록이 정본') && sys.includes('업무 날짜(업무 마감·기간)는 그 업무를 하는 날이지 행사 날짜가 아니다'), `프롬프트: 행사 날짜는 [행사 일정]이 정본 · 업무 날짜 ≠ 행사 날짜\n${sys.slice(0, 400)}`);
+  } finally { globalThis.fetch = realFetch; }
+
+  // ── 5. 캐시 — 행사를 고치면 도장이 민다 · 지운 행사 · 지나간 행사 ──
+  const QE = '겨울 수련회 어디서 해?';
+  const born = new Date(Date.now() - 2 * 864e5).toISOString();
+  const evAns = { cacheable: true, sentences: [{ text: '양평에서 해요.', cites: [{ t: 'event', id: 'e2', label: '겨울 수련회', end: '2099-01-31' }] }], files: [] };
+  const crow = (o = {}) => ({ question: QE, norm: W.normQ(QE), status: 'answered', feedback: null, via: 'ask', created_at: born, answer: evAns, ...o });
+  const base = { projects, cards: allCards, wiki_pages: [{ updated_at: '2000-01-01T00:00:00Z' }], events: eventsT.map(e => ({ ...e, updated_at: '2000-01-01T00:00:00Z' })) };
+  const cache = (tables, rows) => A.cachedAnswer(fakeDb({ ...base, ...tables, dabooti_questions: rows }), QE, W.kstDate(new Date().toISOString()), fakeDb({}));
+  assert.ok((await cache({}, [crow()]))?.cached, '행사가 그대로면 이틀 전 답을 준다');
+  assert.strictEqual(await cache({ events: [{ ...base.events[2], updated_at: new Date().toISOString() }, ...base.events] }, [crow()]), null, '답 뒤에 행사 일정이 바뀌면(도장 dataStamp에 events) 안 준다');
+  assert.strictEqual(await cache({ events: base.events.filter(e => e.id !== 'e2') }, [crow()]), null, '가리킨 행사를 지웠으면(도장에 안 남는다) 안 준다');
+  const passed = { ...evAns, sentences: [{ text: 'x', cites: [{ t: 'event', id: 'e2', label: '겨울 수련회', end: '2026-10-17' }] }] };
+  const rowP = { status: 'answered', feedback: null, question: QE, created_at: '2026-10-16T03:00:00Z', answer: passed };
+  assert.ok(!W.cacheFresh(rowP, '2026-10-01T00:00:00Z', '2026-10-18', { now: Date.parse('2026-10-18T03:00:00Z') }), '답한 뒤에 끝난 행사를 가리킨 답은 다시 찾는다');
+  assert.ok(W.cacheFresh({ ...rowP, created_at: '2026-10-17T20:00:00Z' }, '2026-10-01T00:00:00Z', '2026-10-18', { now: Date.parse('2026-10-18T03:00:00Z') }), '끝난 뒤에 답한 것은 그대로(지난 일정으로 알고 답했다)');
+
+  // ── 6. 화면 — 근거 칩이 전체 일정 '행사' 칸의 그 일정을 연다 ──
+  const wv = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
+  assert.ok(wv.includes("if (c.t === 'event') { onOpenLink?.(`/?p=schedule&ev=${c.id}`); return; }"), 'wikiView openCite: event → /?p=schedule&ev=<id>');
+  const evx = readFileSync(new URL('../src/components/events.jsx', import.meta.url), 'utf8');
+  assert.ok(evx.includes("takeEntryParam('ev')") && evx.includes('setJumpTo({ iso: hit.startDate });') && evx.includes('jumpTo={jumpTo}'), 'EventCalendar가 ev를 가져가 그 달로 넘기고 창을 연다');
+  const vw = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  assert.ok(vw.includes("if (entryParam('ev')) setMode('events');"), "전체 일정이 '업무' 칸이어도 '행사' 칸으로");
+  console.log('PASS  다붓이 행사 일정(0112 — [행사 일정] 기록 · 보이는 관련 업무만 · 검색 모드에도 늘 · 근거 먼저 · 정본 프롬프트 · 칩 t event → 전체 일정 행사 · 도장 · 지운·지나간 행사 캐시)');
+}

@@ -979,6 +979,8 @@ export function cacheFresh(row, stamp, today, { now = Date.now() } = {}) {
   if (!stamp || !(at > new Date(stamp).getTime())) return false;
   // 마스터만 보는 장(자주 묻는 질문)을 근거로 한 답은 다른 사람에게 주지 않는다
   if (row.answer.sentences.some(s => (s.cites || []).some(c => c.t === 'page' && MASTER_PAGES.has(c.id)))) return false;
+  // 행사 일정(0112) 근거 칩의 end(종료일) — 답한 뒤에 끝난 행사를 가리킨 답은 다시 찾는다('다가오는 일정'이 지났다 · 도장은 그대로다)
+  if (row.answer.sentences.some(s => (s.cites || []).some(c => c.t === 'event' && c.end && c.end < today && kstDate(born) <= c.end))) return false;
   if (kstDate(born) === today) return true;
   return now - at <= CACHE_DAYS * 864e5 && crossDayOk(row.question, row.answer);
 }

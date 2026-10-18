@@ -117,8 +117,9 @@ function layoutWeek(weekStart, tasks, laneCount = CAL_LANES) {
 //   renderDay({ iso, list, birthdays, tight }) 고른 날 목록을 대신 그린다 · bdayPeople 생일 재료(기본 가입한 사람)
 //   headerExtra가 함수면 (보고 있는 달 { y, m }) => 노드 — 행사의 내 달력은 그 달의 행사를 고르게 한다
 //   onDayAdd(iso) 날짜에서 바로 추가 — 데스크톱은 날짜 칸 오른쪽 클릭(그 칸에서만 브라우저 메뉴를 막는다), 폰은 길게 누르기
+//   jumpTo { iso } 그 날의 달로 넘기고 그 날을 고른다(새 객체일 때마다 — 다붓이 근거 칩이 행사 하나를 열 때 · components/events.jsx)
 export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, headerExtra = null,
-  paintOf = null, dotOf = null, legend, renderDay = null, bdayPeople = null, onDayAdd = null }) => {
+  paintOf = null, dotOf = null, legend, renderDay = null, bdayPeople = null, onDayAdd = null, jumpTo = null }) => {
   const isMobile = useIsMobile();
   // 생일도 달력에 얹는다(0019). 업무가 아니므로 건수에 세지 않고 띠 레인도 쓰지 않는다 —
   // 날짜 숫자 옆의 작은 얼굴과, 그 날 목록의 첫 줄로만 나온다. 그래야 "업무가 없는 날"이
@@ -134,6 +135,12 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
     return clampMonth({ y: d.getFullYear(), m: d.getMonth() }, bounds);
   });
   const [selected, setSelected] = React.useState(todayIso);
+  React.useEffect(() => {
+    const iso = jumpTo?.iso;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return;
+    setView(clampMonth({ y: Number(iso.slice(0, 4)), m: Number(iso.slice(5, 7)) - 1 }, bounds));
+    setSelected(iso);
+  }, [jumpTo, bounds]);
 
   const first = new Date(view.y, view.m, 1);
   const gridStart = isoOf(new Date(view.y, view.m, 1 - first.getDay()));

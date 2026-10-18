@@ -24,6 +24,7 @@ import {
   useEvents, useEventsSync, saveEvent, deleteEvent, useEventFeed, setEventPicks, loadEventFeed, flushEventFeed, onEventFeedFail,
 } from '../services/eventStore.js';
 import { feedDevice, feedButtons, feedHref } from '../services/calendarFeed.js';
+import { takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 
 // ============================================================================
 // 행사 일정(사용자 승인 시안 mock/b2 · 2026-10-18 · 0112) — '전체 일정'의 '행사' 칸
@@ -44,6 +45,8 @@ import { feedDevice, feedButtons, feedHref } from '../services/calendarFeed.js';
 // 저장은 services/eventStore.js 한 곳(클라우드 0112 events · 게스트 브라우저 한 칸) — 먼저 그리고, 실패하면 그 행사만 되돌린 뒤
 // 여기서 토스트를 띄운다(`일정을 저장하지 못했어요` · `일정을 삭제하지 못했어요` · 첫 읽기 `일정을 불러오지 못했어요` + 이유).
 // 남이 바꾼 것은 liveV2 'events' 신호로 다시 읽는다(useEventsSync — 이 칸이 떠 있는 동안).
+// 딥링크 `/?p=schedule&ev=<행사 id>`(다붓이 근거 칩 · views/wikiView openCite): 목록에 그 행사가 서면 그 달로 넘기고 일정 창(읽기 상태)을 연다.
+// 목록을 읽기 전에 창을 열면 '읽던 일정이 사라졌다'로 바로 닫히므로 기다린다 · 지워진 행사면 아무것도 안 연다.
 // ============================================================================
 
 const LOAD_FAIL = (e) => showToast(failText('일정을 불러오지 못했어요', e));
@@ -55,6 +58,17 @@ export function EventCalendar({ canEdit, bdayPeople }) {
   const events = useEvents();
   const items = useMemo(() => eventCalItems(events), [events]);
   const [win, setWin] = useState(null);   // { id } 읽기로 열기 · { draft } 새 일정(수정 상태)
+  const entry = useEntryQuery();
+  const [want, setWant] = useState(null);   // 딥링크로 열 행사 id(목록이 서기를 기다린다)
+  const [jumpTo, setJumpTo] = useState(null);
+  useEffect(() => { const id = takeEntryParam('ev'); if (id) setWant(id); }, [entry]);
+  useEffect(() => {
+    const hit = want && items.find(e => e.id === want);
+    if (!hit) return;
+    setWant(null);
+    setJumpTo({ iso: hit.startDate });
+    setWin({ id: hit.id });
+  }, [want, items]);
 
   const openNew = useCallback((iso) => setWin({ draft: { title: '', start: iso, end: iso, place: '', memo: '', kind: 'event', taskIds: [] } }), []);
   const openView = useCallback((item) => setWin({ id: item.id }), []);
@@ -90,7 +104,7 @@ export function EventCalendar({ canEdit, bdayPeople }) {
       <CalendarBoard
         tasks={items} onTaskClick={openView} headerExtra={header}
         paintOf={eventPaint} dotOf={eventDot} legend={legend} renderDay={renderDay}
-        bdayPeople={bdayPeople} onDayAdd={canEdit ? openNew : null}
+        bdayPeople={bdayPeople} onDayAdd={canEdit ? openNew : null} jumpTo={jumpTo}
       />
       {win && (
         <EventWindow key={win.id || `new-${win.draft.start}`} initialId={win.id || null} initialDraft={win.draft || null}

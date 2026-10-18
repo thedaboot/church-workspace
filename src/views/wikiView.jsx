@@ -192,6 +192,8 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
       return;
     }
     if (c.t === 'service') { onOpenLink?.(`/?p=worship&s=${c.id}`); return; }
+    // 행사 일정(0112) → 전체 일정 '행사' 칸의 그 일정(components/events.jsx가 ev를 읽는다)
+    if (c.t === 'event') { onOpenLink?.(`/?p=schedule&ev=${c.id}`); return; }
     if (c.t === 'file') openCite({ t: c.cardId ? 'card' : 'service', id: c.cardId || c.serviceId });
   };
   // QT 본문 일정의 날 → 말씀 탭 QT의 그 날(딥링크 값 qt · services/entryQuery · WordView가 마운트되며 읽는다)

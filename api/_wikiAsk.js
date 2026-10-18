@@ -20,6 +20,7 @@ import { approvedFacts, factEvidence, saveFact, decideFact, rebuildLearned, rebu
 import { openGroups } from './_wiki/faq.js';
 import { trashedIds } from './_trash.js';
 import { dropTrashed } from '../src/services/trashItems.js';
+import { kindOf, eventSpan } from '../src/services/events.js';
 
 export { serviceLine };
 
@@ -56,6 +57,9 @@ export { serviceLine };
 // v5 2묶음 답 속도(사용자 승인 시안 mock/b3 · 2026-10-18 · 정본 docs/AI.md §5 '답 속도'): 근거 먼저(earlyEvidence → onEvidence — 모델 전 한 줄 ·
 //   안 보이는 업무·배운 것은 안 흘린다) · 답 캐시는 날을 넘겨(cachedAnswer · wikiCore.cacheFresh/crossDayOk · liveCited) ·
 //   8시 크론의 미리 답하기(warmTodo · warmCache · 0115 via 'warm' — 물음이 아니다: wikiCore.isAskRow · PITFALLS 33-y).
+// 행사 일정(0112 · 사용자 승인 2026-10-18 — '연말까지 예정된 행사 있어?'가 업무·회의 기록으로 답해 👎): 묻는 사람 세션으로 events를 읽어
+//   [행사 일정] 기록(R…)으로 싣는다(collectAll · eventEvidence — 오늘 앞뒤 창 · 관련 업무는 그 사람이 보는 업무 제목만) · 검색 모드에도 늘(ALWAYS_TAGS) ·
+//   행사 날짜의 정본(FULL_SYS) · 근거 칩 t 'event'(화면은 전체 일정 → 행사 그 일정) · 도장에 events · 지운 행사를 가리킨 캐시는 안 준다(liveCited).
 // 지키는 것(사용자 결정 2026-10-02~05):
 //   · 찾기는 **묻는 사람의 권한으로**(그 사람 세션의 클라이언트 → RLS). 비밀번호 첨부는 이름·자리만, 내용은 싣지 않는다.
 //   · 노트·묵상·비밀 값·기도제목·사람 평가는 코드가 먼저 걸러 모델을 부르지 않는다(wikiCore.prefilter).
@@ -428,7 +432,8 @@ async function birthdayReply(q, { db, today }) {
 }
 
 // ── 답 캐시 — 같은 질문을 데이터가 바뀐 뒤에 이미 답했으면 그 답(모델 없음 · wikiCore.cacheFresh) ──────────
-// 데이터 도장: 위키 장 · 고친 줄 · 업무 · 프로젝트 · 댓글 · 주보 · 파일 · 뜻 찾기 조각(댓글·첨부 글)의 마지막 변경 시각 가운데 가장 늦은 것.
+// 데이터 도장: 위키 장 · 고친 줄 · 업무 · 프로젝트 · 댓글 · 주보 · 파일 · 뜻 찾기 조각(댓글·첨부 글) · 행사 일정(0112 — 관련 업무만 바꿔도
+// save_event가 행을 고쳐 updated_at이 민다)의 마지막 변경 시각 가운데 가장 늦은 것.
 // 마스터 장(자주 묻는 질문 · 다붓이가 배운 것)은 근거에 안 실리니 도장에서 뺀다 — 아침 빌드가 날마다 다시 써서 도장을 밀었다(v5 2묶음).
 // 지운 행은 도장에 안 남는다 — 날을 넘겨 쓰게 되면서(v5 2묶음) 꺼낼 때 가리킨 업무·주보·파일이 아직 있는지 따로 본다(liveCited).
 async function dataStamp(admin) {
@@ -440,7 +445,7 @@ async function dataStamp(admin) {
   // 배운 것이 반영·고쳐진 때(decided_at · 0098)도 — 그 뒤의 같은 물음은 새로 답한다(빈 칸이 내림차순 맨 앞에 서서 승인된 것만 본다 · PITFALLS 33-w)
   const fact = admin.from('dabooti_facts').select('decided_at').eq('status', 'approved').order('decided_at', { ascending: false }).limit(5)
     .then(r => (r.error ? null : (r.data || []).map(x => x.decided_at).filter(Boolean).sort().at(-1) || null));
-  const all = await Promise.all([last('wiki_pages', 'updated_at', 'id'), last('wiki_edits', 'edited_at', 'page_id'), last('cards', 'updated_at'), last('projects', 'updated_at'), last('comments', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at'), fact]);
+  const all = await Promise.all([last('wiki_pages', 'updated_at', 'id'), last('wiki_edits', 'edited_at', 'page_id'), last('cards', 'updated_at'), last('projects', 'updated_at'), last('comments', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at'), last('events', 'updated_at'), fact]);
   return all.filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0] || null;
 }
 // 같은 질문 행과 데이터 도장은 함께 읽는다(1-d · 2026-10-12 — 차례로 두 번 오가던 것을 한 번에 · 둘 다 짧은 조회).
@@ -495,12 +500,14 @@ export function citedIds(answer) {
       ...files.map(f => f.card_id).filter(Boolean), ...(answer?.wikiCards || [])])],
     services: [...new Set(cites.filter(c => c.t === 'service').map(c => c.id))],
     files: [...new Set([...cites.filter(c => c.t === 'file').map(c => c.id), ...files.map(f => f.id)].filter(Boolean))],
+    events: [...new Set(cites.filter(c => c.t === 'event').map(c => c.id))],
   };
 }
-// 가리킨 것이 다 살아 있나 — live: { cards, services, files } 살아 있는 id Set
+// 가리킨 것이 다 살아 있나 — live: { cards, services, files, events } 살아 있는 id Set(행사는 지우면 행이 없어진다 — 도장에 안 남는다)
 export const citedAlive = (answer, live) => {
   const ids = citedIds(answer);
-  return ids.cards.every(id => live.cards.has(id)) && ids.services.every(id => live.services.has(id)) && ids.files.every(id => live.files.has(id));
+  return ids.cards.every(id => live.cards.has(id)) && ids.services.every(id => live.services.has(id)) && ids.files.every(id => live.files.has(id))
+    && ids.events.every(id => live.events?.has(id));
 };
 // 행들이 가리킨 것 가운데 지금 살아 있는 것(서버 키) — 업무는 휴지통(자기 · 프로젝트)이 아니고, 주보는 발행된 것. 읽기 오류면 던진다(부르는 쪽이 닫는다)
 async function liveCited(admin, rows) {
@@ -513,12 +520,13 @@ async function liveCited(admin, rows) {
     if (error) throw new Error(`${k}: ${error.message}`);
     return new Set((data || []).filter(keep).map(x => x.id));
   };
-  const [cards, services, files] = await Promise.all([
+  const [cards, services, files, events] = await Promise.all([
     pick('cards', (w) => admin.from('cards').select('id, deleted_at, projects(deleted_at)').in('id', w), (c) => !c.deleted_at && !c.projects?.deleted_at),
     pick('services', (w) => admin.from('services').select('id, status').in('id', w), (x) => x.status === 'published'),
     pick('files', (w) => admin.from('files').select('id').in('id', w), () => true),
+    pick('events', (w) => admin.from('events').select('id').in('id', w), () => true),
   ]);
-  return { cards, services, files };
+  return { cards, services, files, events };
 }
 
 // ── 말로 받는 것 · 이어 묻기 (사용자 결정 2026-10-04) ───────────────────────────────
@@ -580,6 +588,44 @@ const readWiki = async (db) => {
   ]);
   return { pages, edits };
 };
+// ── 행사 일정(0112 · 2026-10-18) ──────────────────────────────────────────────────
+// 전체 일정 '행사' 칸의 예배 · 행사 · 수련회 — 행사 날짜의 정본이다(업무 날짜는 그 일을 하는 날 · FULL_SYS). 승인된 사람 모두가 읽는다(0112 RLS).
+// 창: 올해 1월 1일과 오늘 −EVENT_BACK_DAYS 가운데 이른 날 ~ 오늘 +EVENT_AHEAD_DAYS · 넘치면 오늘에 가까운 EVENT_MAX개(한 줄 백 자 남짓 — 전체 근거의 몇 %).
+// 관련 업무(event_tasks)는 **묻는 사람이 보는 업무**(collectAll의 cards — RLS·휴지통을 지난 것)의 제목만 · 그 업무 id는 cardIds로 쥔다
+// (답이 이 행사를 근거로 달면 answer.wikiCards로 남아 ⑥의 판정 leaderCited가 본다 — 서버 키 아침 고리는 리더 업무 제목도 읽기 때문).
+// 근거 칩 { t: 'event', id, label: 제목, end: 종료일 } — end는 캐시 판정(wikiCore.cacheFresh: 답한 뒤 지나간 행사를 가리킨 답은 다시 찾는다)
+export const EVENT_BACK_DAYS = 60;
+export const EVENT_AHEAD_DAYS = 365;
+export const EVENT_MAX = 60;
+export const eventWindow = (today) => {
+  const back = dayAfter(today, -EVENT_BACK_DAYS);
+  const jan1 = `${today.slice(0, 4)}-01-01`;
+  return { from: jan1 < back ? jan1 : back, to: dayAfter(today, EVENT_AHEAD_DAYS) };
+};
+// 'M월 D일(요)' · 올해가 아니면 'YYYY년 M월 D일(요)' · 기간이면 '~' 뒤도 같은 꼴(해가 같으면 뒤의 해는 접는다)
+const eventDay = (iso, year) => `${iso.slice(0, 4) === String(year) ? '' : `${iso.slice(0, 4)}년 `}${mdLabel(iso, true)}`;
+// rows: events 행(+ event_tasks(card_id, position)) · cardById: 묻는 사람이 보는 업무 → [{ text, cite, cardIds }] (날짜 차례)
+export function eventEvidence(rows = [], { today, cardById = new Map(), max = EVENT_MAX } = {}) {
+  const { from, to } = eventWindow(today);
+  const y = Number(today.slice(0, 4));
+  const gap = (s) => Math.abs(new Date(`${s.start}T00:00:00Z`) - new Date(`${today}T00:00:00Z`));
+  const list = (rows || []).map(r => ({ r, s: eventSpan({ start: r.start_date, end: r.end_date }) }))
+    .filter(x => x.s && String(x.r.title || '').trim() && x.s.end >= from && x.s.start <= to);
+  const kept = list.length > max ? [...list].sort((a, b) => gap(a.s) - gap(b.s)).slice(0, max) : list;
+  return kept.sort((a, b) => a.s.start.localeCompare(b.s.start) || String(a.r.id).localeCompare(String(b.r.id))).map(({ r, s }) => {
+    const title = String(r.title).trim();
+    const when = s.start === s.end ? eventDay(s.start, y)
+      : `${eventDay(s.start, y)}~${s.start.slice(0, 4) === s.end.slice(0, 4) ? mdLabel(s.end, true) : eventDay(s.end, y)}`;
+    const state = s.end < today ? '지난 일정' : s.start > today ? '다가오는 일정' : '오늘 걸친 일정';
+    const tasks = [...(r.event_tasks || [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(t => cardById.get(t.card_id)).filter(Boolean);
+    const place = String(r.place || '').trim();
+    const memo = plain(String(r.memo || '')).trim().slice(0, 500);
+    const text = [`[행사 일정] '${title}' · 종류 ${kindOf(r.kind).label} · 날짜 ${when} · ${state}`, place && `장소 ${place}`, memo && `메모: ${memo}`,
+      tasks.length && `관련 업무: ${tasks.map(c => `'${c.title}'`).join(', ')}`].filter(Boolean).join(' · ');
+    return { text, cite: { t: 'event', id: r.id, label: title, end: s.end }, cardIds: tasks.map(c => c.id) };
+  });
+}
+
 // 자주 묻는 질문 장(faq)은 싣지 않는다(2026-10-09) — 남이 물은 질문 글이 들어 있고 마스터만 읽는 장이라, 아침 고리(서버 키)가
 // 읽으면 그 글이 묻는 사람에게 답으로 나갈 수 있었다. 그 장의 답은 어차피 다른 기록에서 왔다.
 // 조회가 실패하면 던진다(예전에는 빈 표로 삼키고 "기록 없음"으로 답했다 — 이제 화면은 '답을 받지 못했어요').
@@ -590,7 +636,8 @@ export async function collectAll(db, today, { admin = null } = {}) {
   const all = (t, cols) => readAll(() => db.from(t).select(cols).order('id'), t);
   // 한 번에 다 읽는다 — QT도 같은 묶음에(1-d · 2026-10-12 · 예전에는 나머지가 끝난 뒤 따로 한 번 더 오갔다)
   // 휴지통(0104)은 서버 키(아침 고리 — db === admin)일 때만 읽은 자리에서 걷는다. 묻는 사람 세션은 RLS가 이미 가린다(왕복을 늘리지 않는다)
-  const [{ pages, edits }, cardsRaw, projectsRaw, filesRaw, services, profiles, people, roster, cardTeams, commentsRaw, qt, facts, secrets, trashed] = await Promise.all([
+  const win = eventWindow(today);
+  const [{ pages, edits }, cardsRaw, projectsRaw, filesRaw, services, profiles, people, roster, cardTeams, commentsRaw, qt, facts, secrets, trashed, eventRows] = await Promise.all([
     readWiki(db),
     all('cards', 'id, project_id, title, status, start_date, due_date, description, subtasks, updated_at, assignees, card_assignees(profile_id)'),
     all('projects', 'id, name, year'),
@@ -605,6 +652,10 @@ export async function collectAll(db, today, { admin = null } = {}) {
     approvedFacts(admin),
     db === admin ? [] : readAll(() => db.from('card_secrets').select('card_id, description, subtasks').order('card_id'), 'card_secrets').catch(() => []),
     db === admin ? trashedIds(db) : null,
+    // 행사 일정(0112) — 못 읽으면 행사 없이 답한다(다른 기록은 그대로 · 표가 없던 때와 같다)
+    db.from('events').select('id, title, start_date, end_date, kind, place, memo, event_tasks(card_id, position)')
+      .lte('start_date', win.to).gte('end_date', win.from).order('start_date').order('id').limit(EVENT_MAX * 4)
+      .then(r => { if (r.error) { console.error('[dabooti] 행사 일정 읽기 실패:', r.error.message); return []; } return r.data || []; }, () => []),
   ]);
   const { cards, projects, files, comments } = dropTrashed({ cards: cardsRaw, projects: projectsRaw, files: filesRaw, comments: commentsRaw }, trashed);
   const secretOf = new Map(secrets.map(s => [s.card_id, s]));
@@ -646,6 +697,8 @@ export async function collectAll(db, today, { admin = null } = {}) {
   // 주보 — 설교 · 찬양 · 광고(광고는 그 주일에 모두에게 알린 정해진 소식) · 이번 주일까지 발행된 가장 늦은 주보는 'week'(검색 모드가 늘 넣는다)
   const weekSvc = services.filter(s => s.service_date <= thisSun).at(-1)?.id;
   for (const s of services) push(serviceText(s), { t: 'service', id: s.id, label: `${mdLabel(s.service_date)} 주보` }, s.id === weekSvc ? 'week' : 'service');
+  // 행사 일정(0112) — 행사 날짜의 정본 · 날짜 차례 · tag 'event'(검색 모드에도 늘 — ALWAYS_TAGS)
+  for (const e of eventEvidence(eventRows, { today, cardById })) push(e.text, e.cite, 'event', { cardIds: e.cardIds });
   // 파일 자리 — 이름과 자리만(비밀번호 첨부도 내용은 없다) · tag는 딸린 업무·주보(검색 모드가 그 업무·주보를 실으면 같이 싣는다)
   for (const f of files.filter(f => !f.service_id || svcById.has(f.service_id)).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
     const s = f.service_id ? svcById.get(f.service_id) : null;
@@ -679,7 +732,8 @@ const FULL_SYS = [
   '- 기록에 있는 것만 말해라. 문장마다 기대는 기록 번호를 e에 적어라(예: ["R12"]). 같은 일에 기록이 여럿이면 날짜가 늦은 기록을 따라라(늦은 회의 기록·주보 광고가 옛 위키 글보다 앞선다).',
   '- 기록에 없으면 지어내지 마라. found=false로 하고 무엇을 찾지 못했는지 한 문장. 일부만 있으면 아는 것만 말해라.',
   '- 묻는 사람이 쓴 말로 답만 해라. "X는 Y를 말해요"처럼 질문의 말을 풀어 주는 문장, 덧붙임, 다른 이야기는 쓰지 마라(질문이 "X 언제야?"면 "X는 11월 13일이에요"처럼).',
-  '- 업무 날짜(업무 마감·기간)는 그 업무를 하는 날이다. 업무가 준비하는 일이면 행사 날짜는 본문·회의 기록·광고에서 찾아라.',
+  '- 업무 날짜(업무 마감·기간)는 그 업무를 하는 날이지 행사 날짜가 아니다.',
+  '- 예배·행사·수련회의 날짜·장소와 앞으로 있을 행사는 [행사 일정] 기록이 정본이다. [행사 일정]을 먼저 따르고, 업무·회의 기록·광고와 어긋나도 [행사 일정]이 이긴다. [행사 일정]에 없는 행사만 본문·회의 기록·광고에서 찾아라.',
   '- 사람 이름은 기록에 적힌 그대로. 한 사람은 기록의 "한 사람을 부를 때" 꼴로, 팀 사람을 물으면 "워크스페이스 가입자로는" 문장 그대로 빠짐없이. 사람을 평가하지 마라.',
   '- 직분(부장·회장·총무·리더순장·리더팀장)이 있는 사람과 교역자는 형제·자매가 아니라 "이름 직함님"으로 불러라(예: "OOO 부장님").',
   '- 날짜·숫자·금액은 기록에 적힌 그대로. 셈해서 새 날짜나 요일을 만들지 마라.',
@@ -756,7 +810,7 @@ export const KEYWORD_DF = 6;
 export const KEYWORD_MAX = 10;
 export const SEARCH_KINDS = ['card', 'comment', 'file', 'wiki', 'service'];
 export const retrieveOn = () => process.env.DABOOTI_RETRIEVE === '1';
-const ALWAYS_TAGS = new Set(['today', 'people', 'shared', 'week', 'qt', 'fact']);   // fact: 배운 것(20차 ⑧ — 검색 모드에도 늘)
+const ALWAYS_TAGS = new Set(['today', 'people', 'shared', 'week', 'qt', 'fact', 'event']);   // fact: 배운 것(20차 ⑧ — 검색 모드에도 늘) · event: 행사 일정(0112 — 조각이 없고 창 안 몇십 줄)
 
 // 질문 → 단위 벡터(api/ai.js { embed }와 같은 모델·차원·정규화)
 export async function embedQuestion(text, key) {
@@ -814,9 +868,11 @@ export function pickEvidence(evidence, { hits = [], terms = [], pairs = [], max 
 //   · 업무·위키 장·주보만(파일·오늘 줄·사람 줄·배운 것(fact)은 아니다 · 마스터 장은 아니다)
 //   · 볼 수 있어도 리더만 · 직접 선택 · 잠긴 업무(unseen — 서버 키 _leaders.unseenCardIds)와 그런 업무를 가리키는 위키 장은 빼고
 //     (어깨 너머 화면 · 답의 검사 전이다) · unseen을 못 읽으면 아무것도 흘리지 않는다(닫힌 쪽)
-//   · 차례: 뜻 찾기 조각 순서(검색 모드) → 없으면 드문 낱말(KEYWORD_DF 이하의 기록에만 있는 말)이 든 기록 늦은 것부터 · 최대 EARLY_MAX
+//   · 차례: 제목에 질문 낱말이 든 행사 일정(0112 — 조각이 없다 · 그런 행사가 KEYWORD_DF개 이하일 때) → 뜻 찾기 조각 순서(검색 모드)
+//     → 그 둘이 없으면 드문 낱말(KEYWORD_DF 이하의 기록에만 있는 말)이 든 기록 늦은 것부터 · 최대 EARLY_MAX
+//   · 행사 일정은 승인된 사람 모두가 읽는다(0112) — 관련 업무가 안 보이는 업무면 그 행사도 빼는 것은 위키 장과 같다(cardIds)
 export const EARLY_MAX = 4;
-const EARLY_TYPES = new Set(['card', 'page', 'service']);
+const EARLY_TYPES = new Set(['card', 'page', 'service', 'event']);
 const EARLY_SKIP_TAGS = new Set(['today', 'people', 'fact']);
 export function earlyEvidence(evidence = [], { hits = null, terms = [], unseen = null, max = EARLY_MAX, df = KEYWORD_DF } = {}) {
   if (!unseen) return [];
@@ -827,8 +883,13 @@ export function earlyEvidence(evidence = [], { hits = null, terms = [], unseen =
   for (const e of evidence) if (e.cite && !at.has(`${e.cite.t}:${e.cite.id}`)) at.set(`${e.cite.t}:${e.cite.id}`, e);
   const out = [];
   const add = (e) => { if (e && ok(e) && !out.includes(e)) out.push(e); };
+  for (const t of terms) {
+    const got = evidence.filter(e => e.tag === 'event' && ok(e) && String(e.cite.label).includes(t));
+    if (got.length && got.length <= df) got.forEach(add);
+  }
+  const before = out.length;
   for (const h of hits || []) for (const k of hitKeys(h)) add(at.get(k));
-  if (!out.length) {
+  if (out.length === before) {
     const kw = new Set();
     for (const t of terms) {
       const got = evidence.filter(e => ok(e) && !ALWAYS_TAGS.has(e.tag) && e.text.includes(t));
@@ -965,7 +1026,9 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
   const fileIds = new Set(final.flatMap(s => s.cites.filter(c => c.t === 'file').map(c => c.id)));
   // 근거로 단 위키 장의 실린 블록이 가리키는 업무(20차 ⑦) — 근거 칩은 장 id뿐이라 ⑥의 판정(leaderCited)이 이것으로 장 근거를 본다
   const pageIds = new Set(final.flatMap(s => s.cites.filter(c => c.t === 'page').map(c => c.id)));
-  const wikiCards = [...new Set(evidence.filter(e => e.cite?.t === 'page' && pageIds.has(e.cite.id)).flatMap(e => e.cardIds || []))];
+  // 행사 일정(0112) 근거도 같다 — 관련 업무 제목이 그 기록에 실린다
+  const eventIds = new Set(final.flatMap(s => s.cites.filter(c => c.t === 'event').map(c => c.id)));
+  const wikiCards = [...new Set(evidence.filter(e => (e.cite?.t === 'page' && pageIds.has(e.cite.id)) || (e.cite?.t === 'event' && eventIds.has(e.cite.id))).flatMap(e => e.cardIds || []))];
   // 배운 것(fact)은 칩으로 세우지 않는다(마스터만 보는 장) · 리더 관련 사실에 기댄 답은 캐시에 안 남긴다(20차 ⑧)
   const leaderFact = final.some(s => s.cites.some(c => c.t === 'fact' && c.leader));
   return fin({ status: 'answered', sentences: final.map(s => ({ text: s.text, cites: s.cites.filter(c => c.t !== 'file' && c.t !== 'fact') })), files: fileCards(files, fileIds, evidence), dropped, cacheable: canCache && !leaderFact, ...(wikiCards.length ? { wikiCards } : {}), ...asked, ...keep });

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { CONFIG, teamColor, teamBar } from '../config.js';
 import { groupBy, projectsOfYear, datedTasks, teamChips as teamMemberChips, completedTime } from '../utils.js';
 import { isDone, isOpen, isOngoing, isOverdue, progressOf, isRecentlyDone } from '../services/taskCounts.js';
@@ -20,6 +20,7 @@ import { EventCalendar } from '../components/events.jsx';
 import { canEditEvents, eventCalItems } from '../services/events.js';
 import { useEvents, guestBirthdays } from '../services/eventStore.js';
 import { useAuth } from '../services/auth.jsx';
+import { entryParam, useEntryQuery } from '../services/entryQuery.js';
 
 // 대시보드와 프로젝트 화면은 제 파일로 갈랐다(2026-10-07 19차) — App이 이 파일 하나에서 가져가므로 이어서 내보낸다.
 export { DashboardView, DASH_FILTERS, DASH_FILTER_DEFAULT } from './dashboardView.jsx';
@@ -89,6 +90,9 @@ export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
   const projectsMap = useStore(selectProjectsMap);
   const [selectedTeams, setSelectedTeams] = useState([]);
   const [mode, setMode] = useState('events');
+  // 행사 하나를 여는 딥링크(`ev` · 다붓이 근거 칩)는 '행사' 칸으로 — 값은 EventCalendar가 가져간다
+  const entry = useEntryQuery();
+  useEffect(() => { if (entryParam('ev')) setMode('events'); }, [entry]);
   const { isMaster } = useAuth();
   const amLeader = useStore(s => s.amLeader);
   const canEdit = canEditEvents({ isMaster, amLeader });
