@@ -693,9 +693,9 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.deepStrictEqual(E.togglePick(['a'], 'b'), ['a', 'b'], '고르면 더한다(다른 달 것은 그대로)');
   assert.deepStrictEqual(E.togglePick(['a', 'b'], 'a'), ['b'], '다시 누르면 푼다');
   assert.deepStrictEqual(E.livePicks(['a', 'gone', 'b'], list), ['a', 'b'], '지워진 일정은 피드에서 빠진다');
-  assert.strictEqual(E.eventFeedSentence([]), '내 달력에 넣을 일정을 골라 주세요.');
-  assert.strictEqual(E.eventFeedSentence(['대림절 예배', '대림절 예배', '성탄 예배', '송구영신 예배']), '대림절 예배, 성탄 예배 외 1건이 내 달력에 들어가요.', '같은 제목은 한 번만 부르고 나머지를 센다');
-  assert.strictEqual(E.eventFeedSentence(['성탄 예배']), '성탄 예배 일정이 내 달력에 들어가요.');
+  assert.strictEqual(E.eventFeedSentence([]), '내 달력에 추가할 일정을 선택해 주세요.');
+  assert.strictEqual(E.eventFeedSentence(['대림절 예배', '대림절 예배', '성탄 예배', '송구영신 예배']), '대림절 예배, 성탄 예배 외 1건이 내 달력에 추가돼요.', '같은 제목은 한 번만 부르고 나머지를 센다');
+  assert.strictEqual(E.eventFeedSentence(['성탄 예배']), '성탄 예배 일정이 내 달력에 추가돼요.');
   // 화면 배선 — 추가 길(오른쪽 클릭·길게 누르기·+ 새 일정)은 canEdit일 때만
   const evUi = readFileSync(new URL('../src/components/events.jsx', import.meta.url), 'utf8');
   const viewsUi = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');

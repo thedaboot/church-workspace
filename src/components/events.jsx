@@ -345,7 +345,7 @@ function RelatedTasksPicker({ value, onChange, big }) {
       {value.map(id => (
         <span key={id} className={`inline-flex items-center gap-1 pl-2.5 pr-1.5 ${size} rounded-full font-semibold bg-surface-hover text-fg max-w-[240px]`}>
           <span className="truncate">{tasksState.byId[id]?.title || '업무 링크'}</span>
-          <button type="button" onClick={() => remove(id)} title="관련 업무 빼기" aria-label="관련 업무 빼기"
+          <button type="button" onClick={() => remove(id)} title="관련 업무 삭제" aria-label="관련 업무 삭제"
             className="text-fg-faint hover:text-tag-red-fg transition-colors shrink-0"><X size={big ? 13 : 11} /></button>
         </span>
       ))}
@@ -446,8 +446,7 @@ function EventFeedButton({ view, events }) {
       </div>
       <div className="h-px bg-line" />
       <div className={`flex flex-col gap-1 leading-[1.55] text-fg-muted ${big ? 'text-[12px]' : 'text-[11.5px]'}`}>
-        <span>이 주소를 아는 사람도 고른 일정을 똑같이 볼 수 있어요.</span>
-        <span>일정을 고르거나 바꾸면 내 달력에는 몇 시간 뒤에 반영돼요.</span>
+        <span>여기서 일정을 변경하면 내 달력에는 몇 시간 뒤에 반영돼요.</span>
       </div>
     </>
   );

@@ -101,8 +101,8 @@ export const livePicks = (picks = [], list = []) => {
 // 판 위 설명 한 줄(고른 것 전체 — 이 달만이 아니다). 같은 제목(대림절 예배 넷)은 한 번만 부르고 나머지는 '외 N건'에 센다.
 export function eventFeedSentence(titles) {
   const all = titles || [];
-  if (!all.length) return '내 달력에 넣을 일정을 골라 주세요.';
+  if (!all.length) return '내 달력에 추가할 일정을 선택해 주세요.';
   const named = [...new Set(all)].slice(0, 2);
   const rest = all.filter(t => !named.includes(t)).length;
-  return rest ? `${named.join(', ')} 외 ${rest}건이 내 달력에 들어가요.` : `${named.join(', ')} 일정이 내 달력에 들어가요.`;
+  return rest ? `${named.join(', ')} 외 ${rest}건이 내 달력에 추가돼요.` : `${named.join(', ')} 일정이 내 달력에 추가돼요.`;
 }
