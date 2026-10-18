@@ -108,19 +108,13 @@ function PushRow() {
   );
 }
 
-// 카카오 인앱 — 같은 주소를 기본 브라우저로(kakaotalk://web/openExternal · 아이폰·안드로이드 둘 다). 문구는 자리표(시안 문구 표).
+// 카카오 인앱 — 같은 주소를 기본 브라우저로(kakaotalk://web/openExternal · 아이폰·안드로이드 둘 다).
+// 한 문구로(사용자 결정 2026-10-18) — openExternal은 아이폰·안드로이드 모두 **기기의 기본 브라우저**로 연다(사파리·크롬으로 가르지 않는다).
+// demo는 게스트 시연 토스트에만(진짜 인앱이 아닐 때).
 export const KAKAO_OUT_COPY = {
-  ios: '사파리로 열기',
-  android: '크롬으로 열기',
-  other: '브라우저로 열기',
-  sub: '알림 받기와 홈 화면 추가는 브라우저에서 할 수 있어요',
+  title: '브라우저로 열기',
+  sub: '알림 받기와 홈 화면에 추가하는 건 브라우저에서 할 수 있어요',
   demo: '시연: 카카오톡 안이라면 여기서 브라우저로 넘어가요',
-};
-const outLabel = () => {
-  const ua = navigator.userAgent;
-  if (/iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return KAKAO_OUT_COPY.ios;
-  if (/Android/i.test(ua)) return KAKAO_OUT_COPY.android;
-  return KAKAO_OUT_COPY.other;
 };
 function KakaoOutRow() {
   const go = () => {
@@ -133,7 +127,7 @@ function KakaoOutRow() {
       className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-line text-left hover:bg-surface-hover transition-colors">
       <Compass size={13} strokeWidth={1.75} className="shrink-0 text-accent-text" />
       <span className="flex-1 min-w-0">
-        <span className="block text-[11px] text-fg">{outLabel()}</span>
+        <span className="block text-[11px] text-fg">{KAKAO_OUT_COPY.title}</span>
         <span className="block text-[10px] text-fg-muted mt-0.5">{KAKAO_OUT_COPY.sub}</span>
       </span>
     </button>

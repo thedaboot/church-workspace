@@ -39,7 +39,7 @@ import { getMemberNames, loadCardDetail, loadCardPatch, cardWritePromise, lockCa
 import { isCardClosed, allowTry } from '../services/cardLock.js';
 import { makeViewPw, verifyViewPw } from '../services/viewPw.js';
 import { failText } from '../services/errorText.js';
-import { CardLockButton, LockedPanel, LockGate, LockResetNotice, BioOffer, useBioUnlock } from '../components/cardLock.jsx';
+import { CardLockButton, LockedPanel, LockGate, LockResetNotice } from '../components/cardLock.jsx';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useLeave } from '../hooks/useExit.js';
@@ -429,7 +429,6 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       const lockPw = store.getState().tasks.byId[cardId]?.lockPw;
       if (!lockPw?.view_pw || !(await verifyViewPw(lockPw, pw))) return false;
       sync({ id: cardId, lockedOpen: true });
-      if (bio.mode && !bio.registered) setBioAsk(true);   // 생체 인증 등록 한 줄(시안 · 등록 안 한 기기만)
       return true;
     } catch (e) { console.error('[cloud] 잠긴 업무 열기 실패:', e); showToast(failText('업무를 열지 못했어요', e)); throw e; }
   };
@@ -461,23 +460,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       showToast('새 비밀번호를 설정했어요');
     } catch (e) { console.error('[cloud] 새 비밀번호 설정 실패:', e); showToast(failText('새 비밀번호를 설정하지 못했어요', e)); throw e; }
   };
-  // 생체 인증으로 열기(v5 2묶음 시안 · cardLock.useBioUnlock — 게스트만 · 카카오 인앱은 비밀번호만 · 클라우드는 서버 검증 전이라 없다)
-  const bio = useBioUnlock({ who: currentUser.name || '', cloud: cloudMode });
-  const [bioAsk, setBioAsk] = useState(false);
-  useEffect(() => { setBioAsk(false); }, [cardId]);
-  const bioOpen = bio.registered && !cloudMode ? async () => {
-    const ok = await bio.verify();
-    if (ok) sync({ id: cardId, lockedOpen: true });
-    return ok;
-  } : null;
-  // 게스트 시연 업무(phoneDemo · demoLock)는 창을 닫으면 다시 잠긴다 — '다음에 열 때'를 보이려고(여는 권한의 수명 모델 · bioUnlock 머리말)
-  const demoLockRef = useRef(false);
-  demoLockRef.current = !cloudMode && !!source.demoLock;
-  useEffect(() => () => { if (demoLockRef.current) store.dispatch({ type: 'SYNC_TASK', payload: { id: cardId, lockedOpen: false } }); }, [cardId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const lockNotice = (lockAsk && isMaster) || (bioAsk && !closed) ? <>
-    {lockAsk && isMaster && <LockResetNotice by={lockAsk.by} onReset={resetPw} />}
-    {bioAsk && !closed && <BioOffer onSet={bio.register} onClose={() => setBioAsk(false)} />}
-  </> : null;
+  const lockNotice = lockAsk && isMaster ? <LockResetNotice by={lockAsk.by} onReset={resetPw} /> : null;
 
   // ── 보기 ↔ 수정 ───────────────────────────────────────────────────────
   const enterEdit = () => { setMode('edit'); if (isMobile) setMobileTab('detail'); };
@@ -658,7 +641,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
           cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />
       : <TaskView key={task.id} task={source} commit={commit} co={co} coPending={cloudMode && !co && !coFailed && !closed}
-          liveMd={liveMd} editors={editors} closed={closed} onUnlock={tryUnlock} onBio={bioOpen}
+          liveMd={liveMd} editors={editors} closed={closed} onUnlock={tryUnlock}
           lockNotice={lockNotice} onForgot={askReset} asked={asked}
           cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />;
@@ -948,7 +931,7 @@ function moveStatus(cardId, status, commit, cloudMode) {
 // editors(나 말고 수정 화면에 있는 사람)가 있으면 본문 위 알약과 그 사람이 있는 줄 표시(coedit.jsx)가 선다.
 // **본문 통은 오른쪽 28px(pr-7)을 늘 비워 둔다** — 줄 표시 얼굴이 그 안에 서서 잘리지 않고, 누가 들어와도 글줄이 다시 흐르지 않는다.
 // closed(업무 잠금 · 0099)면 위 줄들(상태·팀·제목·담당자·날짜·선행 업무) 아래가 **잠금 판 하나**다(LockGate — 잠길 때·열릴 때만 움직인다).
-function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = false, onUnlock, onBio = null, lockNotice = null, onForgot = null, asked = false, cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
+function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = false, onUnlock, lockNotice = null, onForgot = null, asked = false, cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
   const summary = useTaskSummary(task, cloudMode);
   const md = liveMd ?? task.content ?? '';
   const [bodyEl, setBodyEl] = useState(null);   // 줄 표시가 재는 통(coedit.jsx PresenceMarks)
@@ -1009,7 +992,7 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
       </div>
 
       {lockNotice}
-      <LockGate closed={closed} panel={(stir) => <div className="mt-5 flex-1 flex flex-col"><LockedPanel onUnlock={onUnlock} stir={stir} onForgot={onForgot} asked={asked} onBio={onBio} /></div>}>
+      <LockGate closed={closed} panel={(stir) => <div className="mt-5 flex-1 flex flex-col"><LockedPanel onUnlock={onUnlock} stir={stir} onForgot={onForgot} asked={asked} /></div>}>
       <div>
       {summary.block && <div className="mt-4">{summary.block}</div>}
       {/* 본문 위 한 줄 — 왼쪽은 '○○○님이 수정 중'(남이 수정 화면일 때만), 오른쪽은 3줄 요약 버튼(hover로 숨기지 않는다) */}
