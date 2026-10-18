@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { reportError } from '../services/errorReport.js';
 
 // ============================================================================
 // 7. Error Boundary (장애 격리 계층)
@@ -7,7 +8,8 @@ import { AlertTriangle } from 'lucide-react';
 export class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
-  componentDidCatch(error, errorInfo) { console.error("Error caught by boundary:", error, errorInfo); }
+  // 관리자 메뉴 '앱 내 오류'로도 보낸다(0113 · 클라우드만 · 스택이 없으면 컴포넌트 줄기라도)
+  componentDidCatch(error, errorInfo) { console.error("Error caught by boundary:", error, errorInfo); reportError(error, errorInfo?.componentStack); }
   render() {
     if (this.state.hasError) {
       return (

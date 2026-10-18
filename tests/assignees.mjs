@@ -15,6 +15,7 @@ const patched = readFileSync(SRC, 'utf8')
   // 팀장 줄(0107 · C 묶음)은 supabase를 직접 읽는다 — 가짜에서는 없음(null → 읽지 않는다) · 탭 차례(0108)는 할 일 없음
   .replace(/import \{ setWriteObserver(, supabase)? \} from '\.\/supabaseClient\.js';/, 'const setWriteObserver = () => {}; const supabase = null;')
   .replace(/import \{ primeTabOrder \} from '\.\/tabOrder\.js';/, 'const primeTabOrder = () => {};')
+  .replace(/import \{ primeNotifOff \} from '\.\/notifOff\.js';/, 'const primeNotifOff = () => {};')
   // 팀장 원본 거치기(aiPeople.withTeamLead) · 설정(CONFIG)은 순수 모듈 — 진짜 파일을 절대 경로로
   .replace(/from '\.\/aiPeople\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'aiPeople.js')).href}';`)
   .replace(/from '\.\.\/config\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'config.js')).href}';`)

@@ -71,6 +71,7 @@ const patched = readFileSync(SRC, 'utf8')
   // 팀장 줄(0107 · C 묶음)은 supabase를 직접 읽는다 — 가짜에서는 없음(null → 읽지 않는다) · 탭 차례(0108)는 할 일 없음
   .replace(/import \{ setWriteObserver(, supabase)? \} from '\.\/supabaseClient\.js';/, 'const setWriteObserver = () => {}; const supabase = null;')
   .replace(/import \{ primeTabOrder \} from '\.\/tabOrder\.js';/, 'const primeTabOrder = () => {};')
+  .replace(/import \{ primeNotifOff \} from '\.\/notifOff\.js';/, 'const primeNotifOff = () => {};')
   // 팀장 원본 거치기(aiPeople.withTeamLead) · 설정(CONFIG)은 순수 모듈 — 진짜 파일을 절대 경로로
   .replace(/from '\.\/aiPeople\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'aiPeople.js')).href}';`)
   .replace(/from '\.\.\/config\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'config.js')).href}';`)
@@ -1237,6 +1238,52 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
     globalThis.fetch = realFetch;
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
+}
+
+// ── 알림 종류별 설정이 **푸시**도 막는다(0113 · profiles.notif_off) ─────────────────────────────
+// 앱 안 알림 행은 DB 트리거(trg_notifications_off)가 막고, 푸시는 모든 발송이 지나는 loadTargets 한 곳이 같은 표(notifyPrefs)로 거른다.
+// **되돌리기**(§3-5): loadTargets의 `ids = allowedByPrefs(ids, prefs, kind)` 줄을 지우면 ③이, 배치 하나의 kind 인자를 빼면 ④가,
+// notifyPrefs.notifAllowed의 표 밖 통과(`if (!s) return true;`)를 빼면 ①의 feedback_fixed 줄이 깨진다.
+{
+  const ids = ['a', 'b', 'c', 'd'];
+  const rows = [{ id: 'a', notif_off: ['task'] }, { id: 'b', notif_off: ['task.due'] }, { id: 'c', notif_off: ['task.mention'] }, { id: 'd', notif_off: [] }];
+  // ① 순수 판정 — 갈래 · 항목 · 표 밖 · 칸 없음
+  assert.deepEqual(api.allowedByPrefs(ids, rows, 'due_soon'), ['c', 'd'], '① 업무 갈래·마감 임박을 끈 사람은 마감 푸시를 안 받는다');
+  assert.deepEqual(api.allowedByPrefs(ids, rows, 'mention'), ['b', 'd'], '① 멘션만 끈 사람');
+  assert.deepEqual(api.allowedByPrefs(ids, rows, 'lock_reset'), ['b', 'c', 'd'], '① 항목 칩이 없는 lock_reset은 갈래로만');
+  assert.deepEqual(api.allowedByPrefs(ids, [{ id: 'a', notif_off: ['task', 'worship', 'group', 'join'] }], 'feedback_fixed'), ids, '① 해결 알림은 다 꺼도 간다(표 밖)');
+  assert.deepEqual(api.allowedByPrefs(ids, [{ id: 'a' }], 'reply'), ids, '① 칸이 없으면(0113 전) 다 통과');
+  assert.deepEqual(api.allowedByPrefs(ids, rows, null), ids, '① kind가 없으면(다붓이 마스터 알림) 그대로');
+  // ② 가짜 DB로 loadTargets — 끈 사람의 구독은 손에 들지 않는다
+  const fakeDb = (tables, fail = {}) => ({
+    from: (t) => {
+      let keep = () => true;
+      const q = { select: () => q, eq: () => q, in: (col, vals) => { const k0 = keep; keep = (r) => k0(r) && vals.includes(r[col]); return q; },
+        then: (ok, ko) => Promise.resolve(fail[t] ? { data: null, error: fail[t] } : { data: (tables[t] || []).filter(keep), error: null }).then(ok, ko) };
+      return q;
+    },
+  });
+  const tables = {
+    profiles: rows,
+    push_subscriptions: ids.map(id => ({ profile_id: id, endpoint: `https://push/${id}`, p256dh: 'k', auth: 'a' })),
+    notifications: [],
+  };
+  const t1 = await api.loadTargets(fakeDb(tables), ids, 'worship_today');
+  assert.deepEqual([...t1.byProfile.keys()].sort(), ids, '② 아무도 안 끈 갈래는 모두');
+  const t2 = await api.loadTargets(fakeDb(tables), ids, 'due_soon');
+  // ③
+  assert.deepEqual([...t2.byProfile.keys()].sort(), ['c', 'd'], '③ 끈 사람의 기기로는 보내지 않는다');
+  const t3 = await api.loadTargets(fakeDb(tables, { profiles: { code: '42703', message: 'column does not exist' } }), ids, 'due_soon');
+  assert.equal(t3.byProfile.size, 4, '③ 칸이 없으면(0113 전 · 42703) 거르지 않는다');
+  const t4 = await api.loadTargets(fakeDb(tables, { profiles: { code: '500', message: 'boom' } }), ids, 'due_soon');
+  assert.equal(t4.byProfile.size, 0, '③ 설정을 못 읽으면 보내지 않는다(닫힌 쪽)');
+  // ④ 배선 — 앱이 부탁하는 POST와 배치 셋이 모두 kind와 함께 loadTargets를 지난다
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  assert.ok(/loadTargets\(db, fresh\.map\(w => w\.recipientId\), 'due_soon'\)/.test(src), '④ 마감 임박 배치');
+  assert.ok(/loadTargets\(db, wanted\.map\(w => w\.recipientId\), 'meeting_tomorrow'\)/.test(src), '④ 모임 전날 배치');
+  assert.ok(/loadTargets\(db, wanted\.map\(w => w\.recipientId\), 'worship_today'\)/.test(src), '④ 예배 당일 배치');
+  assert.ok(/\}, typeof kind === 'string' \? kind : null\);\n\s+res\.status\(200\)\.json\(result\);/.test(src) && /const targets = await loadTargets\(db, ids, kind\);/.test(src), '④ 앱이 부탁하는 POST');
+  console.log('PASS push — 알림 종류별 설정(0113): 끈 사람에게는 푸시 없음 · 표 밖 해결 알림은 간다 · 칸 없으면 통과 · 못 읽으면 닫힘 · 배선 넷');
 }
 
 console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음 · 8시 뒤 문서 임베딩·job=embed)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)·동아리 모임 전날(0078 · 내일 KST·대상·중복 방지·문구)');

@@ -5,6 +5,10 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import ChurchApp from './App.jsx';
+import { installErrorCapture } from './services/errorReport.js';
+
+// 앱 내 오류를 관리자 메뉴로 보낸다(0113 · 클라우드만 · 세션에 지문 하나는 한 번 — services/errorReport.js)
+installErrorCapture();
 
 // 배포 뒤에 열려 있던 탭은 옛 조각 이름을 찾다가 404가 난다(늦게 싣는 화면 · 2026-10-09). Vite가 알려 주면 한 번만
 // 새로 불러 새 판을 받는다 — 10초 안에 또 나면 그대로 둔다(계속 새로 고치는 고리를 막는다).

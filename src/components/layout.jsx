@@ -1,5 +1,6 @@
-import React, { useState, useRef, useMemo } from 'react';
-import { ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Pencil, Users } from 'lucide-react';
+import React, { useState, useRef, useMemo, useEffect, lazy, Suspense } from 'react';
+import { ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Pencil, Users, Wrench, MessageSquareWarning, UserRound } from 'lucide-react';
+import { demoOn, useDemoRole, setDemoRole, captureErrors } from '../services/opsDemo.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectMyTasks, selectMembers } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
@@ -25,6 +26,10 @@ import { NotificationBell, bellOn } from './notificationBell.jsx';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
 
+// 관리자 메뉴 · 피드백 전송은 누를 때 받는다(첫 화면 조각에 싣지 않는다 — 여는 사람이 드물고 창이 크다)
+const OpsDesk = lazy(() => import('./opsDesk.jsx').then(m => ({ default: m.OpsDesk })));
+const FeedbackSend = lazy(() => import('./feedbackSend.jsx').then(m => ({ default: m.FeedbackSend })));
+
 // 다른 화면이 이 파일에서 들이던 부품 — 옮긴 뒤에도 그쪽 import 줄은 그대로 둔다
 // (대시보드·모임·프로젝트 진행의 YearPicker · 성경 검색 칸의 SearchHint)
 export { YearPicker } from './navParts.jsx';
@@ -44,6 +49,7 @@ export { SearchHint } from './searchBox.jsx';
 //   mobileNav.jsx         폰 상단바 · 프로젝트 탭 줄(길게 눌러 끌기) · 하단 바 두 층 · 화면 이름
 //   searchBox.jsx         통합 검색(인라인 · 폰 전체 판) · 돌아가는 안내 문구 · 관련된 업무 내용
 //   notificationBell.jsx  알림 종 · 알림 받기 줄 · 안드로이드 설치 줄
+//   opsDesk.jsx · feedbackSend.jsx  관리자 메뉴 창(마스터만) · 피드백 전송(모두) — v5 2묶음 · 0113 · 입구는 프로필 메뉴
 
 // 교회 생활 축의 화면들 — **차례가 곧 화면에 서는 순서**다(하단 바 · 데스크톱 첫 묶음).
 // 세 곳이 이 목록을 본다: 하단 바의 모드 판정 · 데스크톱 탭 줄 접기 · App의 전환 방향
@@ -106,7 +112,18 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
   const currentUser = useStore(selectCurrentUser);
   // 한 번만 부른다 — 같은 컨텍스트를 두 번 읽던 자리였다(값이 갈릴 수는 없지만 읽는 곳이
   // 둘이면 나중에 조건이 붙을 때 한쪽만 고쳐진다)
-  const { enabled, session, signOut, isAdmin } = useAuth();
+  const { enabled, session, signOut, isAdmin, isMaster } = useAuth();
+  // v5 2묶음(사용자 승인 시안 mock/b3 · 0113): 피드백 전송(로그인한 모두) · 관리자 메뉴(**마스터만** — 표 읽기도 RLS가 마스터만 준다).
+  // 게스트 시연(services/opsDemo.demoOn — 미리보기 빌드)에도 서고, 시연에만 화면 전환 줄이 있다(게스트는 마스터라 순원 쪽 화면을 보려면
+  // 여기서 바꾼다 · 클라우드에는 없다). 게스트 개발 서버(검증 스위트)에는 셋 다 없다.
+  const demo = !enabled && demoOn();
+  const demoRole = useDemoRole();
+  const cloudIn = enabled && !!session;
+  const opsOn = (cloudIn && isMaster) || (demo && isMaster && demoRole === 'master');
+  const feedbackOn = cloudIn || demo;
+  const [opsOpen, setOpsOpen] = useState(false);
+  const [fbOpen, setFbOpen] = useState(false);
+  useEffect(() => { if (demo) captureErrors(import.meta.env.MODE); }, [demo]);
   // measure: 판의 실제 높이로 위치를 다시 잡는다 — 추정 높이로만 잡으면
   // 아래에서 위로 뜨는 모바일 탭바 메뉴가 탭바에서 한참 떨어져 떠 보였다
   const pop = usePopover(224, 200, { gap: 8, measure: true });
@@ -139,11 +156,21 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
           {isAdmin && enabled && session && onOpenMembers && (
             <button className={item} onClick={go(onOpenMembers)}><Users size={15} /> 멤버 관리</button>
           )}
+          {opsOn && <button className={item} onClick={go(() => setOpsOpen(true))} data-ops-entry=""><Wrench size={15} /> 관리자 메뉴</button>}
+          {feedbackOn && <button className={item} onClick={go(() => setFbOpen(true))} data-feedback-entry=""><MessageSquareWarning size={15} /> 피드백 전송</button>}
           <ThemeMenuItem className={item} />
+          {demo && isMaster && (
+            <button className={`${item} mt-1 border-t border-line rounded-t-none`} data-demo-role={demoRole}
+              onClick={go(() => setDemoRole(demoRole === 'master' ? 'member' : 'master'))}>
+              <UserRound size={15} /> {demoRole === 'master' ? '순원 화면으로 전환' : '관리자 화면으로 전환'}
+            </button>
+          )}
           {enabled && session && (
             <button className={`${item} hover:text-tag-red-fg`} onClick={go(signOut)}><LogOut size={15} /> 로그아웃</button>
           )}
         </>)}
+      {opsOpen && <Suspense fallback={null}><OpsDesk onClose={() => setOpsOpen(false)} /></Suspense>}
+      {fbOpen && <Suspense fallback={null}><FeedbackSend onClose={() => setFbOpen(false)} /></Suspense>}
     </span>
   );
 }
@@ -257,7 +284,7 @@ export const TopNav = React.memo(({
             ? <DaboutiFace active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />
             : <DaboutiPill active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />}
           <SearchBox onSearchSelect={onSearchSelect} variant={narrow ? 'icon' : 'inline'} />
-          {bellOn(cloudMode) && <NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
+          {(bellOn(cloudMode) || demoOn()) && <NotificationBell guest={!cloudMode && demoOn()} onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
           <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
         </div>
       </div>

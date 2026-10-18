@@ -1371,3 +1371,88 @@ export const readJson = async (req) => req.body;
   ok(g2.code === 200 && (String(g2.body).match(/BEGIN:VEVENT/g) || []).length === 1 && g2.headers['content-disposition'] === 'inline; filename="event.ics"', '⑥ 한 건 갈래는 그대로');
   console.log(`PASS  0114 댓글 고정·해결 — 함수 판정(고정 쓴 사람·담당자·마스터·관리자 · 해결 댓글 쓸 수 있는 사람 · 잠금 · 답글) · 칸 가드 · 배선 · api/ics 모두 갈래 ${n}가지`);
 }
+
+// ── 0113 관리자 메뉴 · 피드백 전송 · 알림 종류별 설정 — 마이그레이션 모양 · 알림 표 두 벌 · 답 시간에 사람 칸 없음 ──────────
+// 라이브 경계는 psql 리허설(begin … ROLLBACK · 실데이터 마스터·회원·리더 계정)로 봤다: 남의 notif_off 42501 · 끈 종류 알림은 안 들어감 ·
+// 남의 칸·남의 폴더·상태 바꿔 넣기 거절 · 회원은 남의 피드백·오류·답 시간·관리 기록 0줄 · 회원 set_feedback_status 42501 · 첫 해결만 알림 ·
+// 오류 upsert count · 10분 20줄 · 관리 기록 차례(잠금·풀기·삭제·복원·보는 사람 둘·직분 둘·승인) · psql 변경은 안 남김. 여기는 파일 모양.
+// **되돌리기**(§3-5): notif_slot에서 한 줄(예: 'due_soon')을 지우면 ①이, client_errors_select를 is_approved로 바꾸면 ②가,
+// set_feedback_status의 `if not public.is_master()` 줄을 지우면 ④가, audit_change의 `auth.uid() is null` 줄을 지우면 ⑤가,
+// api/ai.js timingRow에 묻는 사람 칸을 넣으면 ⑥이 깨진다.
+{
+  const m = readFileSync(new URL('../supabase/migrations/0113_ops_desk.sql', import.meta.url), 'utf8');
+  const sql = m.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  let n = 0;
+  const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
+  // ① DB의 알림 표(notif_slot)가 화면·푸시의 표(notifyPrefs.NOTIF_GROUPS)와 같다
+  const P = await loadSource('src/services/notifyPrefs.js');
+  const slotBody = sql.slice(sql.indexOf('function public.notif_slot'), sql.indexOf('function public.notif_allowed'));
+  const dbSlot = new Map([...slotBody.matchAll(/when '(\w+)'\s+then array\[([^\]]*)\]/g)].map(x => [x[1], x[2].replace(/'/g, '').split(',').map(s => s.trim()).join('.')]));
+  const jsSlot = new Map();
+  for (const g of P.NOTIF_GROUPS) {
+    for (const k of g.kinds || []) jsSlot.set(k, g.key);
+    for (const it of g.items) for (const k of it.kinds) jsSlot.set(k, `${g.key}.${it.key}`);
+  }
+  const diff = [...jsSlot].filter(([k, v]) => dbSlot.get(k) !== v).map(([k]) => k).concat([...dbSlot.keys()].filter(k => !jsSlot.has(k)));
+  ok(dbSlot.size === jsSlot.size && !diff.length, `① notif_slot(DB) = NOTIF_GROUPS(앱) — 다른 줄: ${diff.join(', ')}`);
+  ok(!dbSlot.has('feedback_fixed') && /'feedback_fixed'\)\);/.test(sql.slice(sql.indexOf('add constraint notifications_kind_check'))), '① 해결 알림은 CHECK에만 · 표 밖(언제나 간다)');
+  ok(/create trigger trg_notifications_off before insert on public\.notifications/.test(sql) && /if not public\.notif_allowed\(new\.kind, off\) then return null/.test(sql),
+    '① 끈 종류는 넣는 자리에서 막는다(BEFORE INSERT · return null)');
+  ok(!/notifications_insert_authenticated/.test(sql), '① 알림 INSERT 정책은 그대로(feedback_fixed는 함수만 넣는다)');
+  const checkOf = (s) => s.match(/add constraint notifications_kind_check\s+check \(kind in \(([\s\S]*?)\)\);/)[1];
+  const kindsOf = (s) => (s.match(/'(\w+)'/g) || []).map(x => x.slice(1, -1));
+  const prevKinds = kindsOf(checkOf(readFileSync(new URL('../supabase/migrations/0106_lock_reset_request.sql', import.meta.url), 'utf8')));
+  const nowKinds = kindsOf(checkOf(sql));
+  ok(prevKinds.every(k => nowKinds.includes(k)) && nowKinds.length === prevKinds.length + 1, '① 0106의 종류를 다 안고 하나(feedback_fixed)만 더한다');
+  // ② 정책 — 전부 to authenticated · 읽기는 마스터만(피드백은 본인 행도) · 쓰기 정책은 피드백 넣기·사진 올리기 둘뿐
+  const pols = sql.match(/create policy [\s\S]*?;/g) || [];
+  ok(pols.length === 7 && pols.every(p => / to authenticated\b/.test(p)), '② 정책 일곱 · 전부 to authenticated');
+  ok(['client_errors', 'ai_timings', 'admin_audit'].every(t => pols.some(p => p.startsWith(`create policy ${t}_select on public.${t} for select`) && p.includes('using ((select public.is_master()))'))),
+    '② 오류 · 답 시간 · 관리 기록 읽기는 마스터만');
+  ok(pols.some(p => p.startsWith('create policy feedback_select') && /sender_id = any \(array\[\(select auth\.uid\(\)\), \(select public\.effective_uid\(\)\)\]\) or \(select public\.is_master\(\)\)/.test(p)),
+    '② 피드백 읽기는 본인 + 마스터');
+  const fbIns = pols.find(p => p.startsWith('create policy feedback_insert')) || '';
+  ok(/is_approved/.test(fbIns) && /sender_id = \(select public\.effective_uid\(\)\)/.test(fbIns) && /status = 'new'/.test(fbIns) && /notified_at is null/.test(fbIns) && /split_part\(shot_path, '\/', 1\) = sender_id::text/.test(fbIns),
+    '② 피드백 넣기 — 승인된 본인 · 상태 new · 사진은 본인 폴더');
+  ok(!pols.some(p => / for (update|delete|all) /.test(p)), '② 고치기·지우기 정책 없음(상태는 함수만)');
+  ok(pols.some(p => p.startsWith('create policy feedback_shots_select_master on storage.objects for select') && /bucket_id = 'feedback' and \(select public\.is_master\(\)\)/.test(p))
+    && pols.some(p => p.startsWith('create policy feedback_shots_insert_own on storage.objects for insert') && /\(storage\.foldername\(name\)\)\[1\] = any/.test(p)),
+    '② 사진 버킷 — 올리기 본인 폴더 · 읽기 마스터');
+  ok(/values \('feedback', 'feedback', false, 5242880, array\['image\/webp', 'image\/jpeg'\]\)/.test(sql), '② 버킷은 비공개 · 5MB · webp/jpeg');
+  ok(['feedback', 'client_errors', 'ai_timings', 'admin_audit'].every(t => sql.includes(`alter table public.${t} enable row level security;`) && sql.includes(`revoke all on public.${t} from anon, authenticated;`)),
+    '② 네 표 RLS 켜고 기본 권한 회수');
+  // ③ 함수 — definer는 search_path 고정 · RPC 둘만 authenticated · 트리거 함수는 회수
+  const fns = sql.match(/create or replace function [\s\S]*?\$\$;/g) || [];
+  ok(fns.length >= 8 && fns.filter(f => /security definer/.test(f)).every(f => /set search_path = public, pg_temp/.test(f)), '③ security definer는 search_path 고정');
+  ok(/grant execute on function public\.set_feedback_status\(uuid, text\) to authenticated/.test(sql) && /grant execute on function public\.report_client_error\(text, text, text, text, text, text, text\) to authenticated/.test(sql)
+    && /revoke all on function public\.set_feedback_status\(uuid, text\) from public, anon/.test(sql), '③ RPC 둘 — 익명 회수 · 로그인만');
+  ok(['guard_notif_off', 'notifications_respect_off', 'feedback_rate', 'audit_change'].every(f => sql.includes(`revoke execute on function public.${f}() from public, anon, authenticated;`)), '③ 트리거 함수는 RPC로 못 부른다');
+  // ④ 마스터만 상태를 바꾸고 · 첫 해결만 알린다 · 오류 보고는 승인된 사람 + 상한
+  const sfs = fns.find(f => f.includes('function public.set_feedback_status')) || '';
+  ok(/if not public\.is_master\(\) then raise exception 'not master' using errcode = '42501'/.test(sfs) && /if s = 'resolved' and r\.notified_at is null then/.test(sfs) && /'feedback_fixed'/.test(sfs),
+    '④ set_feedback_status — 마스터만 · 처음 해결만 알림');
+  const rce = fns.find(f => f.includes('function public.report_client_error')) || '';
+  ok(/not public\.is_approved\(\)/.test(rce) && /interval '10 minutes'\) >= 20/.test(rce) && /e\.day = d\) >= 3000/.test(rce) && /on conflict \(k\) do update set count = public\.client_errors\.count \+ 1/.test(rce),
+    '④ report_client_error — 승인된 사람 · 10분 20줄 · 하루 3000줄 · 같은 줄은 count');
+  ok(/guard_notif_off[\s\S]*not \(new\.id = any \(array\[auth\.uid\(\), public\.effective_uid\(\)\]\)\)/.test(sql), '④ notif_off는 본인만');
+  // ⑤ 관리 기록 — 로그인한 사람이 한 일만 · 다섯 종류의 트리거
+  const aud = fns.find(f => f.includes('function public.audit_change')) || '';
+  ok(/if auth\.uid\(\) is null then return null; end if;/.test(aud), '⑤ 크론·psql·서버 키 변경은 남기지 않는다');
+  ok(['trg_cards_audit after update of locked, deleted_at on public.cards', 'trg_projects_audit after update of visibility, deleted_at on public.projects',
+    'trg_profiles_audit after update of approved on public.profiles', 'trg_people_roles_audit after insert or update or delete on public.people_roles'].every(t => sql.includes(`create trigger ${t}`)),
+    '⑤ 잠금·삭제/복원 · 보는 사람 · 가입 승인 · 직분 트리거');
+  ok(/if tg_op = 'UPDATE' and new\.team is not distinct from old\.team then return null/.test(aud), '⑤ 같은 직분 upsert는 남기지 않는다');
+  // ⑥ 다붓이 답 시간 — 묻는 사람 칸이 없다(표 · 서버가 넣는 줄)
+  const ai = await import(new URL('../api/ai.js', import.meta.url).href);
+  const row = ai.timingRow('질문', { cached: false }, 0, 1500, 5000);
+  ok(JSON.stringify(Object.keys(row).sort()) === JSON.stringify(['answer_ms', 'cached', 'gather_ms', 'question', 'total_ms']) && row.gather_ms === 1500 && row.answer_ms === 3500,
+    '⑥ 답 시간 줄 — 질문 · 근거 찾기 · 답 쓰기 · 전체 · 캐시(사람 칸 없음)');
+  const tbl = sql.slice(sql.indexOf('create table if not exists public.ai_timings'), sql.indexOf('create index if not exists ai_timings_at_idx'));
+  ok(!/profile|asker|user|uid/i.test(tbl) && !/ai_timings_insert/.test(sql), '⑥ ai_timings에 사람 칸 · 넣기 정책 없음(서버 키만)');
+  ok(/recordTiming\(admin, timingRow\(q, out, t0, tAnswer, Date\.now\(\)\)\)/.test(readSplit('api/ai.js')), '⑥ handleAsk가 답을 저장할 때 시간도 남긴다');
+  // ⑦ 되돌리기 SQL이 파일 끝에 있다(만든 것 전부)
+  const rb = m.slice(m.indexOf('── 되돌리기'));
+  ok(['purge-ops-logs', 'audit_change', 'admin_audit', 'ai_timings', 'report_client_error', 'client_errors', 'feedback_shots_select_master', 'set_feedback_status', 'public.feedback',
+    'notifications_respect_off', 'notif_allowed', 'notif_slot', 'guard_notif_off', 'notif_off'].every(w => rb.includes(w)), '⑦ 되돌리기 SQL');
+  console.log(`PASS  0113 관리자 메뉴 — 알림 표 두 벌 · 정책(마스터 읽기 · 본인 넣기) · 함수 · 관리 기록 트리거 · 답 시간에 사람 칸 없음 ${n}가지`);
+}

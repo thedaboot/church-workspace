@@ -2,6 +2,7 @@ import * as cloud from './cloud.js';
 import { statusToDb, statusFromDb } from './cloud.js';
 import { setWriteObserver, supabase } from './supabaseClient.js';
 import { primeTabOrder } from './tabOrder.js';
+import { primeNotifOff } from './notifOff.js';
 import { withTeamLead } from './aiPeople.js';
 import { CONFIG } from '../config.js';
 import { reconnectWatcher } from './realtimeStatus.js';
@@ -569,6 +570,8 @@ export async function loadCloudState() {
   const shownProfile = (myProfile?.merged_into && profiles.find(p => p.id === myProfile.merged_into)) || myProfile;
   // 내 탭 차례(0108 · 남긴 계정 행) — 칸이 없으면 브라우저 값 그대로
   primeTabOrder(shownProfile?.tab_order);
+  // 끈 알림(0113 · 남긴 계정 행) — 칸이 없으면 브라우저 값 그대로
+  primeNotifOff(shownProfile?.notif_off);
   const leads = await teamLeads;
   // 소속 팀 여럿 (profile_teams). 테이블이 없으면 빈 배열이라 대표 팀만 남는다.
   // team(대표) = 아바타 색·기본 팀 보드, teams(전체) = '내 팀 업무' 집계

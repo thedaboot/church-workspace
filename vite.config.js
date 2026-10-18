@@ -199,6 +199,11 @@ export default defineConfig(({ mode }) => ({
     pdfjsAssets(),
     ...(mode === 'guest' ? [] : [devApiFunctions(mode)]),
   ],
+  // 빌드 표식(0113 · 앱 내 오류·피드백에 싣는다 — 어느 배포에서 난 일인지) — Vercel이 빌드 때 주는 커밋 해시 앞 일곱 자 ·
+  // 없으면(로컬) 'dev' · 게스트 빌드는 'guest'. 읽는 자리는 services/errorReport.js buildId 한 곳.
+  define: {
+    __BUILD_ID__: JSON.stringify((process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || (mode === 'guest' ? 'guest' : 'dev')),
+  },
   build: {
     rollupOptions: {
       // 입구 둘 — 앱(index.html)과 주보 공개 보기(service-view.html · api/service-view.js가 받아 데이터를 끼운다).

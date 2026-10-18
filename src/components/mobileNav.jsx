@@ -23,6 +23,7 @@ import { useTrashItems } from '../services/trash.js';
 import { TrashEntry, TrashDialog } from './trash.jsx';
 import { SearchBox } from './searchBox.jsx';
 import { NotificationBell, bellOn } from './notificationBell.jsx';
+import { demoOn } from '../services/opsDemo.js';
 import { LeaderTitleLock, TabLock, useSetVisibility } from './leaderOnly.jsx';
 import { prefetchView } from '../services/viewChunks.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
@@ -114,7 +115,8 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
             ><CalendarDays size={19} strokeWidth={1.75} /></button>
           </span>
           <span className="w-9 h-9 flex items-center justify-center"><SearchBox onSearchSelect={onSearchSelect} variant="icon" /></span>
-          {bellOn(cloudMode) && <span className="w-9 h-9 flex items-center justify-center"><NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} /></span>}
+          {/* 게스트 시연(미리보기 빌드 · services/opsDemo.demoOn)에도 종이 선다 — 알림 설정을 보려고 · 카톡 시연(bellOn)은 클라우드 종 그대로 */}
+          {(bellOn(cloudMode) || demoOn()) && <span className="w-9 h-9 flex items-center justify-center"><NotificationBell guest={!cloudMode && demoOn()} onOpenTask={onOpenTask} onOpenLink={onOpenLink} /></span>}
           {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
           <span className="w-9 h-9 flex items-center justify-center"><ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} /></span>
         </div>

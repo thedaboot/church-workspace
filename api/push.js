@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import { notifLine } from '../src/services/notifyText.js';
+import { notifAllowed, notifSlot } from '../src/services/notifyPrefs.js';
 import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOriginPath, serviceKindLabel } from './_lib.js';
 import { syncDocVectors } from './_docsync.js';
 import { buildWiki } from './_wikiBuild.js';
@@ -31,6 +32,9 @@ import { trashedIds, goneCard, purgeTrash } from './_trash.js';
 //
 // 구독을 읽고 쓰는 일은 service key로 한다 — push_subscriptions의 RLS는 본인 행만
 // 허용하므로, 남에게 보내려면 서버가 우회해야 한다.
+//
+// **알림 종류별 설정(0113)**: 받는 사람이 끈 종류면 푸시를 보내지 않는다 — 모든 발송이 지나는 loadTargets 한 곳(allowedByPrefs ·
+// 표는 src/services/notifyPrefs.js). 앱 안 알림 행은 DB 트리거가 같은 표의 SQL 사본(notif_slot)으로 막는다.
 // ============================================================================
 
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY;
@@ -83,11 +87,31 @@ export const deepLink = (projectId, cardId) => {
 // (알림 N건 → 왕복 2N번, 그것도 순차 await). 지금은 받는 사람 전부를 한 번에 읽어
 // 사람별 Map으로 들고, 카드별 발송은 그 Map만 본다.
 
-// 구독 · 안 읽은 알림 수를 한 번에 읽어 사람별로 묶는다.
-async function loadTargets(db, profileIds) {
-  const ids = [...new Set((profileIds || []).filter(Boolean))];
+// 알림 종류별 설정(0113 · profiles.notif_off) — 끈 사람에게는 푸시를 보내지 않는다(순수 · tests/push가 직접 부른다).
+// 앱 안 알림 행은 DB 트리거(trg_notifications_off)가 이미 막았고, 이건 **푸시** 쪽이다 — 앱이 넣은 뒤 부탁하는 푸시 · DB 함수가
+// 돌려준 id로 부탁하는 푸시(lock_reset) · 배치 셋이 모두 아래 loadTargets를 지난다. 표 밖 종류(feedback_fixed)나 kind가 없으면 그대로.
+//   rows: [{ id, notif_off }] — 칸이 없으면(0113 전) undefined라 모두 통과
+export function allowedByPrefs(ids, rows, kind) {
+  if (!kind) return ids;
+  const off = new Map((rows || []).map(r => [r.id, Array.isArray(r.notif_off) ? r.notif_off : []]));
+  return ids.filter(id => notifAllowed(kind, off.get(id) || []));
+}
+
+// 구독 · 안 읽은 알림 수를 한 번에 읽어 사람별로 묶는다. kind가 있으면 그 종류를 끈 사람을 먼저 뺀다(위).
+// 끈 값을 못 읽으면 보내지 않는다(닫힌 쪽 — 앱 안 알림은 트리거가 이미 걸렀다).
+export async function loadTargets(db, profileIds, kind = null) {
+  let ids = [...new Set((profileIds || []).filter(Boolean))];
   const byProfile = new Map();
   const unread = new Map();
+  if (ids.length && kind && notifSlot(kind)) {
+    const { data: prefs, error: prefErr } = await db.from('profiles').select('id, notif_off').in('id', ids);
+    if (prefErr) {
+      // 칸이 없으면(0113 전 · 42703) 거를 것이 없다 — 그 밖의 오류는 닫힌 쪽
+      if (prefErr.code !== '42703') { console.error('[push] 알림 설정 조회 실패 — 보내지 않는다:', prefErr); return { byProfile, unread }; }
+    } else {
+      ids = allowedByPrefs(ids, prefs, kind);
+    }
+  }
   if (!ids.length) return { byProfile, unread };
 
   const { data: subs, error } = await db
@@ -150,12 +174,12 @@ async function dropDead(db, dead) {
 }
 
 // 한 건짜리 입구(POST)용 — 준비와 발송을 한 번에.
-async function sendToProfiles(db, profileIds, payload) {
+async function sendToProfiles(db, profileIds, payload, kind = null) {
   if (!pushReady()) return { sent: 0, dropped: 0 };
   const ids = [...new Set((profileIds || []).filter(Boolean))];
   if (!ids.length) return { sent: 0, dropped: 0 };
 
-  const targets = await loadTargets(db, ids);
+  const targets = await loadTargets(db, ids, kind);
   const dead = [];
   const sent = await pushWith(targets, ids, payload, dead);
   return { sent, dropped: await dropDead(db, dead) };
@@ -201,7 +225,7 @@ async function handleSend(req, res) {
     body: await pushPreview(db, cardId, preview),
     url: safeLink || deepLink(projectId, cardId),
     tag: cardId ? `card:${cardId}` : (safeLink ? `link:${safeLink}` : 'thedaboot'),
-  });
+  }, typeof kind === 'string' ? kind : null);
   res.status(200).json(result);
 }
 
@@ -309,7 +333,7 @@ async function handleDueSoon(req, res) {
   // 된다(N+1). 안 읽은 수는 위 insert가 끝난 뒤의 값이라 루프 도중에 바뀌지 않는다.
   let sent = 0;
   if (pushReady()) {
-    const targets = await loadTargets(db, fresh.map(w => w.recipientId));
+    const targets = await loadTargets(db, fresh.map(w => w.recipientId), 'due_soon');
     const dead = [];
     for (const w of fresh) {
       sent += await pushWith(targets, [w.recipientId], {
@@ -420,7 +444,7 @@ async function handleMeetingEve(req, res) {
   // 구독·안 읽은 수는 루프 밖에서 한 번만(N+1 없음) · 동아리 단위로 보낸다(문구가 동아리마다 다르다)
   let sent = 0;
   if (pushReady()) {
-    const targets = await loadTargets(db, wanted.map(w => w.recipientId));
+    const targets = await loadTargets(db, wanted.map(w => w.recipientId), 'meeting_tomorrow');
     const dead = [];
     for (const link of new Set(wanted.map(w => w.link))) {
       const group = wanted.filter(w => w.link === link);
@@ -501,7 +525,7 @@ async function handleWorshipToday(req, res) {
   // 여기서는 주보마다 문구가 달라 주보 단위로 보낸다(대개 한 건이다).
   let sent = 0;
   if (pushReady()) {
-    const targets = await loadTargets(db, wanted.map(w => w.recipientId));
+    const targets = await loadTargets(db, wanted.map(w => w.recipientId), 'worship_today');
     const dead = [];
     for (const s of services) {
       const link = `/?p=worship&s=${s.id}`;

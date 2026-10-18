@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Bell, BellRing, BellOff, Users, CalendarClock, Smartphone, Church, Compass } from 'lucide-react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { X, Bell, BellRing, BellOff, Users, CalendarClock, Smartphone, Church, Compass, Settings2, ChevronLeft, Check, Wrench } from 'lucide-react';
 import { inKakao, openExternal, kakaoDemo } from '../services/inApp.js';
 import { store } from '../store/workspaceStore.js';
 import { useAuth } from '../services/auth.jsx';
@@ -15,9 +15,17 @@ import { failText } from '../services/errorText.js';
 import { usePopover } from '../hooks/usePopover.js';
 import { markCardNotificationsRead } from '../services/cloud.js';
 import { setTaskFocus, notifFocusHint, onTaskOpen, openTaskId, notifArrival } from '../modals/taskFocus.js';
+import { NOTIF_GROUPS, filterNotifs, flipOff } from '../services/notifyPrefs.js';
+import { useGuestNotifs, setGuestNotifs } from '../services/opsDemo.js';
+import { useNotifOff, setNotifOff } from '../services/notifOff.js';
+import { ShareSwitch } from './bibleParts.jsx';
 
 // ============================================================================
 // 알림 종(클라우드 모드에서만 선다 · 데스크톱 TopNav와 폰 상단바가 같은 것을 쓴다).
+// 판 머리의 톱니 → 같은 판 안에서 **알림 설정**(갈래 넷 + 항목 · services/notifyPrefs.js · v5 2묶음 사용자 승인 시안 · 0113)으로 바뀐다(뒤로 → 목록).
+//   끈 값은 services/notifOff.js(profiles.notif_off) — 서버가 끈 종류의 행을 넣지 않고 푸시도 거른다. 이 판은 끄기 전에 받은 줄도 가린다
+//   (끈 것은 줄도 안 서고 빨간 숫자에도 안 든다). 목록 ↔ 설정은 판 높이가 quint로 따라가고 내용이 옆에서 들어온다(PITFALLS 57).
+// 게스트 시연(opsDemo.demoOn — 미리보기 빌드)에도 서서 브라우저에 심은 알림으로 같은 판을 그린다 — 아래 GuestBell.
 // 19차 묶음 D에서 layout.jsx에서 갈라 왔다(동작·모양은 그대로).
 //   · 알림은 **남긴 계정 앞으로** 온다(0063) — 구독 필터는 myUid()로 물은 값(세션 uid가 아니다)
 //   · 판 안: 머리(모두 읽음) · 안드로이드 설치 줄 · '이 기기로 알림 받기'(권한은 여기서 묻는다) · 알림 줄(열기 · 지우기)
@@ -135,6 +143,7 @@ export const bellOn = (cloudMode) => cloudMode || kakaoDemo();
 const AREA_ICON = {
   worship: [Church, 'bg-accent-weak text-accent-text'],
   group: [Users, 'bg-tag-green text-tag-green-fg'],
+  ops: [Wrench, 'bg-accent-weak text-accent-text'],
 };
 const AREA_ICON_DEFAULT = [CalendarClock, 'bg-tag-yellow text-tag-yellow-fg'];
 const SystemIcon = ({ kind }) => {
@@ -146,7 +155,12 @@ const SystemIcon = ({ kind }) => {
   );
 };
 
-export function NotificationBell({ onOpenTask, onOpenLink }) {
+// 게스트 시연(guest · 시안 v5 2묶음)은 브라우저에 심은 알림으로 같은 판을 그리고 '알림 설정'을 연다 — 클라우드 갈래는 그대로다.
+export function NotificationBell(props) {
+  return props.guest ? <GuestBell {...props} /> : <CloudBell {...props} />;
+}
+
+function CloudBell({ onOpenTask, onOpenLink }) {
   const { session } = useAuth();
   // 알림은 **남긴 계정 앞으로** 온다(0063) — 구독 필터(`recipient_id=eq.…`)가 세션 uid면
   // 합친 계정에게는 새 알림이 한 줄도 안 들어와 벨이 비어 보인다. 물어 오기 전까지는
@@ -161,12 +175,14 @@ export function NotificationBell({ onOpenTask, onOpenLink }) {
     return () => { alive = false; };
   }, [sessionUid]);
   const [items, setItems] = useState([]);
+  const off = useNotifOff();
+  const shown = useMemo(() => filterNotifs(items, off), [items, off]);
   // 바깥 클릭 / Esc 닫기는 프로필 메뉴·검색과 같은 훅 한 벌(usePopover 안의 useDismiss) — 이 판은
   // rootRef 안에 그려진다(포털이 아니다 · portal: false)
   // 좁은 폰(640 미만)은 판이 화면 폭 - 32px로 서고 좌우 16px 여백(앱 거터)에 맞춘다 — 320px 판을 종 오른쪽 끝에 맞추면
   // 왼쪽 9px · 오른쪽 25~48px로 어긋났다(2026-10-14 점검 · PITFALLS 49-f). 폭은 아래 판 클래스(!)가 정하고, measure로 그 실제 폭을 재서 가둔다.
   const pop = usePopover(320, 240, { portal: false, gap: 16, measure: true });
-  const unread = items.filter(n => !n.read).length;
+  const unread = shown.filter(n => !n.read).length;
 
   // 앱 아이콘 뱃지. **아이폰 홈 화면 웹앱에서만 보인다** — 안드로이드 크롬은 이 API가
   // 아예 없고(대신 알림이 와 있으면 OS가 알아서 점을 붙인다), 데스크톱은 설치한 창에서만
@@ -261,76 +277,226 @@ export function NotificationBell({ onOpenTask, onOpenLink }) {
 
   return (
     <span className="inline-flex shrink-0" ref={pop.rootRef}>
-      <span ref={pop.btnRef} className="inline-flex">
-        <button
-          // 열기 전에 위치 확정(pop.toggle) — 첫 프레임이 {0,0}에 그려지면 좌상단에서
-          // 날아오는 것처럼 보인다(첫 오픈에서만 나던 증상)
-          onClick={pop.toggle}
-          className="relative p-2 min-w-11 min-h-11 flex items-center justify-center rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"
-          title="알림"
-        >
-          <Bell size={18} strokeWidth={1.75} />
-          {unread > 0 && (
-            <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-white text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
-              {unread > 9 ? '9+' : unread}
-            </span>
+      <BellTrigger pop={pop} unread={unread} />
+      <BellPanel pop={pop} items={shown} unread={unread} readAll={readAll} openItem={openItem} dismiss={dismiss} off={off} />
+    </span>
+  );
+}
+
+const PANEL = 'z-[90] max-w-[calc(100vw-2rem)] max-sm:w-[calc(100vw-2rem)]! max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated';
+// 알림 설정은 갈래 넷이 한 판에 다 서게 더 길다 — 낮은 창에서는 판 안에서 구른다(상단바 아래 · 아래 5rem 여백)
+const PANEL_PREFS = PANEL.replace('max-h-96', 'max-h-[min(36rem,calc(100dvh-5.5rem))]');
+
+// 판 높이가 내용을 따라 quint로 자란다(목록 ↔ 알림 설정 · PITFALLS 57) — 안쪽 실제 높이를 재서 겉 높이로 준다.
+// 겉은 overflow: clip(스크롤 통이 되지 않는다 — 머리 줄의 sticky가 판을 기준으로 그대로 붙는다). 첫 높이는 전이 없이.
+function useSmoothHeight() {
+  const inner = useRef(null);
+  const [h, setH] = useState(null);
+  const [ready, setReady] = useState(false);
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!el) return undefined;
+    const read = () => setH(el.offsetHeight);
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    const t = requestAnimationFrame(() => setReady(true));
+    return () => { ro.disconnect(); cancelAnimationFrame(t); };
+  }, []);
+  return [inner, { height: h == null ? 'auto' : h }, ready];
+}
+
+// 판 안 — 목록(머리 · 설치 줄 · 알림 받기 줄 · 알림 줄) ↔ 알림 설정. 두 종(클라우드 · 게스트 시연)이 같이 쓴다.
+function BellPanel({ pop, items, unread, readAll, openItem, dismiss, off }) {
+  const [view, setView] = useState('list');
+  const [dir, setDir] = useState(null);   // null = 처음 열림(판 자체의 등장만)
+  useEffect(() => { if (!pop.open) { setView('list'); setDir(null); } }, [pop.open]);
+  const go = (next) => { setDir(next === 'prefs' ? 'fwd' : 'back'); setView(next); };
+  return pop.panel(view === 'prefs' ? PANEL_PREFS : PANEL,
+    <SmoothBox>
+      <div key={view} className={dir ? `dc-nav-${dir}` : undefined} data-bell-view={view}>
+        <div className={dir ? 'dc-fade' : undefined}>
+          {view === 'prefs' ? (
+            <>
+              <PanelHead title="알림 설정" onBack={() => go('list')} />
+              <NotifPrefs off={off} />
+            </>
+          ) : (
+            <>
+              <PanelHead title="알림">
+                {unread > 0 && <ReadAllButton onClick={readAll} />}
+                <button type="button" onClick={() => go('prefs')} aria-label="알림 설정" title="알림 설정" data-notif-prefs-open=""
+                  className="-mr-1.5 p-1 rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95"><Settings2 size={14} /></button>
+              </PanelHead>
+              {inKakao() ? <KakaoOutRow /> : <><InstallRow /><PushRow /></>}
+              <NotifRows items={items} openItem={openItem} dismiss={dismiss} />
+            </>
           )}
-        </button>
-      </span>
-      {pop.panel('z-[90] max-w-[calc(100vw-2rem)] max-sm:w-[calc(100vw-2rem)]! max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated', <>
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-line sticky top-0 bg-surface">
-            <span className="text-xs font-bold text-fg">알림</span>
-            {unread > 0 && (
-              <button onClick={readAll} className="text-[10px] text-accent-text hover:bg-surface-hover rounded-md px-1.5 py-1 transition active:scale-95">모두 읽음</button>
+        </div>
+      </div>
+    </SmoothBox>);
+}
+
+function SmoothBox({ children }) {
+  const [inner, style, ready] = useSmoothHeight();
+  return (
+    <div style={style} className={`[overflow:clip] ${ready ? 'bell-smooth-h' : ''}`}>
+      <div ref={inner}>{children}</div>
+    </div>
+  );
+}
+
+function BellTrigger({ pop, unread }) {
+  return (
+    <span ref={pop.btnRef} className="inline-flex">
+      <button
+        // 열기 전에 위치 확정(pop.toggle) — 첫 프레임이 {0,0}에 그려지면 좌상단에서
+        // 날아오는 것처럼 보인다(첫 오픈에서만 나던 증상)
+        onClick={pop.toggle}
+        className="relative p-2 min-w-11 min-h-11 flex items-center justify-center rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"
+        title="알림"
+      >
+        <Bell size={18} strokeWidth={1.75} />
+        {unread > 0 && (
+          <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-white text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
+      </button>
+    </span>
+  );
+}
+
+const PanelHead = ({ title, children, onBack }) => (
+  <div className="flex items-center gap-1 px-3 py-2.5 border-b border-line sticky top-0 z-[1] bg-surface min-h-[41px]">
+    {onBack && (
+      <button type="button" onClick={onBack} aria-label="뒤로" title="뒤로"
+        className="-ml-1.5 p-1 rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95"><ChevronLeft size={15} /></button>
+    )}
+    <span className="flex-1 text-xs font-bold text-fg">{title}</span>
+    {children}
+  </div>
+);
+
+const ReadAllButton = ({ onClick }) => (
+  <button onClick={onClick} className="text-[10px] text-accent-text hover:bg-surface-hover rounded-md px-1.5 py-1 transition active:scale-95">모두 읽음</button>
+);
+
+function NotifRows({ items, openItem, dismiss }) {
+  if (items.length === 0) {
+    return (
+      <div className="text-center py-8 px-3">
+        <span className="inline-flex w-8 h-8 rounded-full bg-tag-yellow text-tag-yellow-fg items-center justify-center mb-2"><Bell size={13} strokeWidth={1.75} /></span>
+        <p className="text-xs text-fg-faint">새로운 알림이 없어요</p>
+      </div>
+    );
+  }
+  return (
+    <div className="divide-y divide-line/60">
+      {/* 줄 전체가 button이었는데 지우기 버튼이 그 안에 들어가야 해서 div로 바꿨다
+          (button 안의 button은 유효하지 않다). 여는 영역만 button으로 남긴다. */}
+      {items.map(n => (
+        <div
+          key={n.id}
+          className={`flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
+        >
+          <button onClick={() => openItem(n)} className="flex-1 min-w-0 flex items-start gap-2.5 text-left">
+            {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
+            {/* 시스템 알림은 아이콘 — 마감은 시계, 예배는 교회, 모임은 사람들(0053). 사람이 만든 것은 아바타 */}
+            {isSystemNotif(n.kind) ? (
+              <SystemIcon kind={n.kind} />
+            ) : (
+              <Avatar name={n.actor_name || ''} className="flex w-6 h-6 text-[10px]" />
+            )}
+            <span className="flex-1 min-w-0">
+              <span className="block text-[11px] text-fg-secondary leading-snug">
+                {isSystemNotif(n.kind)
+                  ? notifLine(n.kind, n.actor_name)
+                  : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
+              </span>
+              {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
+              <span className="block text-[10px] text-fg-muted mt-0.5">{formatRelative(n.created_at)}</span>
+            </span>
+          </button>
+          {/* hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 이 기능이 아예
+              없는 것처럼 보인다(§7) */}
+          <button
+            onClick={() => dismiss(n)} title="이 알림 지우기" aria-label="이 알림 지우기"
+            className="shrink-0 -mr-1 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── 게스트 시연 종(미리보기 빌드 · opsDemo.demoOn) ─────────────────────────────
+// 알림은 services/opsDemo.js의 브라우저 목록(씨앗 + 관리자 메뉴 '해결'이 넣는 것) · 판은 클라우드 종과 같은 BellPanel.
+// '알림 설정'을 종 판에 둔 까닭: 알림을 받는 일('이 기기로 알림 받기')이 이미 이 판에 있고, 설정 창(내 정보)은 '저장'으로 모아 쓰는 폼이라
+// 누르는 즉시 바뀌는 토글과 결이 다르다(시안 결정).
+function GuestBell({ onOpenLink }) {
+  const all = useGuestNotifs();
+  const off = useNotifOff();
+  const items = useMemo(() => filterNotifs(all, off), [all, off]);
+  const unread = items.filter(n => !n.read).length;
+  const pop = usePopover(320, 240, { portal: false, gap: 16, measure: true });
+  const openItem = (n) => {
+    setGuestNotifs(list => list.map(x => (x.id === n.id ? { ...x, read: true } : x)));
+    pop.close();
+    if (isAppLink(n.link)) onOpenLink?.(n.link);
+  };
+  const dismiss = (n) => setGuestNotifs(list => list.filter(x => x.id !== n.id));
+  const readAll = () => setGuestNotifs(list => list.map(x => ({ ...x, read: true })));
+  return (
+    <span className="inline-flex shrink-0" ref={pop.rootRef}>
+      <BellTrigger pop={pop} unread={unread} />
+      <BellPanel pop={pop} items={items} unread={unread} readAll={readAll} openItem={openItem} dismiss={dismiss} off={off} />
+    </span>
+  );
+}
+
+// 갈래 넷 — 머리 줄(갈래 이름 + 스위치) 아래 항목 칸(사용자 문구 2026-10-18).
+// 항목 칸은 **두 칸 격자**(같은 폭 · 같은 높이 32px · 왼쪽 맞춤 · 앞에 체크 상자) — 글자 길이가 다른 칩을 흘려 놓으면
+// 줄 끝이 들쭉날쭉하고 혼자 남은 칩이 떠 보였다(사용자 지적 2026-10-18). 폰 판(화면 폭 - 32)·데스크톱 판(320) 둘 다 두 칸.
+// 갈래가 꺼지면 칸은 흐리고(.4) 못 누른다 — 체크 상자는 저장된 항목 값을 그대로 보인다(갈래를 켜면 그대로 살아난다).
+// 누르는 즉시 바뀌고 저장된다(notifOff) — 저장이 실패하면 값이 되돌아가고 토스트. 흐려짐·색·체크는 quint로 바뀐다(.ops-ease · .ops-pop).
+function NotifPrefs({ off }) {
+  const flip = (key) => setNotifOff(flipOff(off, key)).then(e => { if (e) showToast(failText('저장하지 못했어요', e)); });
+  return (
+    <div className="divide-y divide-line/60" data-notif-prefs="">
+      {NOTIF_GROUPS.map(g => {
+        const on = !off.includes(g.key);
+        return (
+          <div key={g.key} className="px-3 py-3" data-notif-group={g.key}>
+            <button type="button" role="switch" aria-checked={on} onClick={() => flip(g.key)}
+              className="w-full min-h-6 flex items-center gap-3 text-left">
+              <span className="flex-1 text-[12.5px] font-semibold text-fg">{g.label}</span>
+              <ShareSwitch on={on} />
+            </button>
+            {g.items.length > 0 && (
+              <div className={`grid grid-cols-2 gap-1.5 mt-2.5 ops-ease ${on ? '' : 'opacity-40'}`}>
+                {g.items.map(it => {
+                  const key = `${g.key}.${it.key}`;
+                  const itOn = !off.includes(key);
+                  return (
+                    <button key={it.key} type="button" aria-pressed={itOn} disabled={!on} onClick={() => flip(key)} data-notif-item={key}
+                      className={`h-8 min-w-0 flex items-center gap-2 px-2.5 rounded-md text-left text-[11.5px] font-semibold ops-ease disabled:pointer-events-none ${
+                        itOn ? 'bg-accent-weak text-accent-text' : 'bg-surface-hover text-fg-muted hover:text-fg'}`}>
+                      <span aria-hidden="true" className={`shrink-0 w-3.5 h-3.5 rounded-[4px] flex items-center justify-center ops-ease ${
+                        itOn ? 'bg-accent text-white' : 'border border-line bg-surface'}`}>
+                        {itOn && <Check size={10} strokeWidth={3} className="ops-pop" />}
+                      </span>
+                      <span className="min-w-0 truncate">{it.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
-          {inKakao() ? <KakaoOutRow /> : <><InstallRow /><PushRow /></>}
-          {items.length === 0 ? (
-            <div className="text-center py-8 px-3">
-              <span className="inline-flex w-8 h-8 rounded-full bg-tag-yellow text-tag-yellow-fg items-center justify-center mb-2"><Bell size={13} strokeWidth={1.75} /></span>
-              <p className="text-xs text-fg-faint">새로운 알림이 없어요</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-line/60">
-              {/* 줄 전체가 button이었는데 지우기 버튼이 그 안에 들어가야 해서 div로 바꿨다
-                  (button 안의 button은 유효하지 않다). 여는 영역만 button으로 남긴다. */}
-              {items.map(n => (
-                <div
-                  key={n.id}
-                  className={`flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
-                >
-                  <button onClick={() => openItem(n)} className="flex-1 min-w-0 flex items-start gap-2.5 text-left">
-                    {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
-                    {/* 마감 알림은 사람이 만든 게 아니라 배치가 만든다 — 아바타 대신 시계 */}
-                    {/* 시스템 알림은 아이콘 — 마감은 시계, 예배는 교회, 모임은 사람들(0053). 사람이 만든 것은 아바타 */}
-                    {isSystemNotif(n.kind) ? (
-                      <SystemIcon kind={n.kind} />
-                    ) : (
-                      <Avatar name={n.actor_name || ''} className="flex w-6 h-6 text-[10px]" />
-                    )}
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[11px] text-fg-secondary leading-snug">
-                        {isSystemNotif(n.kind)
-                          ? notifLine(n.kind, n.actor_name)
-                          : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
-                      </span>
-                      {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
-                      <span className="block text-[10px] text-fg-muted mt-0.5">{formatRelative(n.created_at)}</span>
-                    </span>
-                  </button>
-                  {/* hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 이 기능이 아예
-                      없는 것처럼 보인다(§7) */}
-                  <button
-                    onClick={() => dismiss(n)} title="이 알림 지우기" aria-label="이 알림 지우기"
-                    className="shrink-0 -mr-1 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </>)}
-    </span>
+        );
+      })}
+    </div>
   );
 }

@@ -176,11 +176,15 @@ async function handleAsk(req, body, res) {
     .then(r => (r.count || 0) >= ASK_PER_MINUTE, () => false);
   const reply = askReply(res, !!body.stream);
   const tooMany = () => reply(429, { error: '지금 물어보는 사람이 많아요\n잠시 후 다시 물어봐 주세요' });
+  // 답 시간(0113 ai_timings · 관리자 메뉴 '다붓이 답변 속도') — 모델을 부른 순간('answer' 단계)으로 근거 찾기 | 답 쓰기를 가른다
+  const t0 = Date.now();
+  let tAnswer = 0;
+  const onStage = (s) => { if (s === 'answer' && !tAnswer) tAnswer = Date.now(); reply.stage?.(s); };
   try {
     const db = userClient(bearer(req));
-    const out = await answerQuestion(q, { db, admin, prev, gate: busy, onStage: reply.stage, onEvidence: reply.evidence });
+    const out = await answerQuestion(q, { db, admin, prev, gate: busy, onStage, onEvidence: reply.evidence });
     if (await busy) { tooMany(); return; }
-    const id = await saveAnswer(admin, q, out);
+    const [id] = await Promise.all([saveAnswer(admin, q, out), recordTiming(admin, timingRow(q, out, t0, tAnswer, Date.now()))]);
     // 알려 주는 말(talkKind statement)도 배운 것 저장소로(20차 ⑧ — 마스터 말이면 바로 반영) · 이미 아는 말(save: false)은 남기지 않는다
     if (out.kind === 'statement' && out.save !== false) {
       await whoAsks(db).then(who => tellOp(admin, { text: q, question: statementQuestion(q, prev), who })).catch(e => console.error('[ai] 알려 준 말 저장 실패:', e?.message || e));
@@ -197,6 +201,21 @@ async function handleAsk(req, body, res) {
     await saveAnswer(admin, q, { status: 'failed', sentences: [], dropped: [] }).catch(() => {});
     reply(isTimeout(e) ? 504 : 502, { error: '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요' });
   }
+}
+
+// 답 시간 한 줄(순수 · tests/logcheck-sec가 부른다) — **묻는 사람은 싣지 않는다**(누가 물었는지 견주지 않는다 · HANDOFF §8).
+// 모델을 안 부른 답(캐시 · 인사 · 출석 같은 바로 오는 답)은 답 쓰기 0 · 전부 근거 찾기 칸. 캐시로 준 답은 cached.
+export function timingRow(q, out, t0, tAnswer, tEnd) {
+  const total = Math.max(0, Math.round(tEnd - t0));
+  const answer = tAnswer ? Math.max(0, Math.round(tEnd - tAnswer)) : 0;
+  return { question: String(q || '').slice(0, 300), gather_ms: Math.max(0, total - answer), answer_ms: answer, total_ms: total, cached: !!out?.cached };
+}
+// 넣기는 서버 키(정책 없음 · 0113) — 실패해도 답은 간다(표가 없으면(0113 전) 콘솔에만)
+async function recordTiming(admin, row) {
+  try {
+    const { error } = await admin.from('ai_timings').insert(row);
+    if (error) throw error;
+  } catch (e) { console.error('[ai] 답 시간 저장 실패:', e?.message || e); }
 }
 
 // 배운 것(20차 ⑧ · 0098) — { tell }은 승인된 누구나(👎 뒤 대화 · 저장은 서버 키 · 알려 준 사람은 세션의 effective_uid),

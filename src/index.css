@@ -1016,3 +1016,29 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
 @media (prefers-reduced-motion: reduce) { .wiki-qt-cell, .wiki-qt-cell:hover, .wiki-qt-cell:active { transition: none; transform: none; } }
 /* 고치기 칸(.wiki-draft 위 3px 여백) 옆의 점은 그만큼 내린다 */
 .wiki-dot:has(.wiki-draft)::before { top: calc(0.9em + 0.5px); }
+
+/* ── 관리자 메뉴 · 피드백 전송 · 알림 설정 모션(v5 2묶음 · 0113 · 사용자 요청 — 펴고 접기·칸 바꾸기·거르기·상태 바꾸기가 뚝 바뀌지 않게) ──
+   이징은 앱 quint 하나(PITFALLS 57) · 움직임 줄이기면 아래 블록이 모두 끈다.
+   .ops-ease      색·흐려짐·크기가 바뀌는 칸(알림 설정 항목 · 상태 칩)
+   .ops-pop       새로 서는 작은 것(체크 · 바뀐 상태 칩)
+   .ops-fold      펴고 접는 묶음 — grid-template-rows 0fr↔1fr(max-height 추정이 없다 · 활동 피드 .dc-feed-fold와 같은 판단) · [data-open]
+   .ops-seg-thumb 회색 토글의 흰 칸이 고른 칸으로 미끄러진다(opsDesk SlideSeg) — 첫 자리는 전이 없이(.ops-seg-live는 잰 뒤에 붙는다)
+   .bell-smooth-h 알림 판 높이가 목록 ↔ 알림 설정을 따라 자란다(notificationBell SmoothBox)
+   .ops-chev      펼침 화살표
+   .ops-shot      피드백 시트의 화면 스크린샷 — 지우면 줄어들며 걷힌다(.ops-shot-out) */
+.ops-ease { transition-property: opacity, background-color, color, border-color, transform; transition-duration: .24s; transition-timing-function: var(--ease-out-quint); }
+@keyframes ops-pop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+.ops-pop { animation: ops-pop .26s var(--ease-out-quint) backwards; }
+.ops-fold { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s var(--ease-out-quint), opacity .3s var(--ease-out-quint); }
+.ops-fold[data-open='true'] { grid-template-rows: 1fr; opacity: 1; }
+.ops-fold > * { min-height: 0; overflow: hidden; }
+.ops-seg-thumb { left: 0; top: 0; background: var(--app-surface); pointer-events: none; }
+.ops-seg-thumb.ops-seg-live { transition: transform .3s var(--ease-out-quint), width .3s var(--ease-out-quint), height .3s var(--ease-out-quint); }
+.bell-smooth-h { transition: height .26s var(--ease-out-quint); }
+.ops-chev { transition: transform .3s var(--ease-out-quint); }
+.ops-shot { transition: opacity .24s var(--ease-out-quint), transform .24s var(--ease-out-quint), width .24s var(--ease-out-quint), margin .24s var(--ease-out-quint); }
+.ops-shot-out { opacity: 0; transform: scale(.8); width: 0 !important; margin-right: -.75rem; }
+@media (prefers-reduced-motion: reduce) {
+  .ops-ease, .ops-fold, .ops-seg-thumb.ops-seg-live, .bell-smooth-h, .ops-chev, .ops-shot { transition: none !important; }
+  .ops-pop { animation: none !important; }
+}

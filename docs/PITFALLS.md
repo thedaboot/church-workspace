@@ -1472,3 +1472,8 @@ t가 붙은 주소가 방금 돌아온 자리를 덮는다). 열기 전 화면�
 그리고 '담당자'·'쓴 사람' 자리를 실데이터에서 고를 때 **관리자 계정을 빼고** 고른다 — 0114 리허설의 첫 담당자가 마스터 계정이어서 '담당자 고정 통과'가 마스터 갈래로 지나갔다.
 **66-b.** **댓글 행을 고치면 업무의 '마지막으로 고친 사람'이 바뀐다** — comments update → `trg_recount_card_comments`(0016)가 cards를 update → `set_card_updated_meta`가 updated_at·updated_by를 찍는다.
 고정·해결도 댓글 고치기·달기와 같이 업무를 '방금 고친 업무'로 만든다(지금은 그대로 · 바꾸려면 recount가 값이 같을 때 update하지 않게).
+
+### 관리자 메뉴 · 피드백 · 알림 설정 (2026-10-18 · 0113)
+**67-a.** **알림 설정 표는 두 벌이다** — 화면·푸시는 `services/notifyPrefs.js` NOTIF_GROUPS, 넣는 자리(BEFORE INSERT 트리거)는 DB `notif_slot()`(그 SQL 사본). 한쪽만 고치면 화면에서는 꺼졌는데 행이 들어오거나(또는 반대) 푸시만 간다 — 표를 고치면 `notif_slot`을 다시 쓰는 마이그레이션을 같이 낸다(`tests/logcheck-sec` 0113 ①이 둘을 견준다). 표 밖 종류(`feedback_fixed`)는 늘 간다.
+**67-b.** **끈 알림은 트리거가 `return null`로 조용히 버린다** — insert는 성공으로 끝나고 행만 없다. 앱·배치는 그 사실을 모르므로 푸시는 `api/push.js loadTargets`가 따로 거른다(DB 함수가 돌려준 id로 부탁하는 `lock_reset` 푸시도 여기를 지난다). 배치의 '같은 날 두 번 안 보내기'는 행으로 세서, 끈 사람은 다음 실행에도 다시 골라졌다가 또 버려진다(무해).
+**67-c.** **관리 기록(admin_audit)은 `auth.uid()`가 있을 때만 남는다** — 크론(1월 1일 인수인계의 직분 줄)·psql·서버 키 변경은 안 남는다. psql 리허설에서 기록을 보려면 `request.jwt.claims`를 넣어야 하고, 리허설 도중 postgres로 돌아올 때는 claims를 비워야 한다(안 비우면 본인만 고치는 칸 가드 — `notif_off`·`tab_order` — 가 42501). 같은 직분 upsert(팀이 그대로)는 남기지 않는다.
