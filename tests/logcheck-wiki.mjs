@@ -1163,7 +1163,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     assert.ok(/const \[\{ evidence: everything, hasName, files, roster, teamItems \}, pairs, hits, unseen\] = await Promise\.all\(\[\n\s+collectAll\(db, today, \{ admin \}\),\n\s+hint \|\| \(admin \? pairedCites\(admin, question\)/.test(ask), '기록과 짝(과 검색 모드의 찾기)은 함께');
     assert.ok(/comments'\),\n\s+db\.from\('qt_schedule'\)/.test(ask) && !ask.includes('const { data: qt } = await'), 'QT도 같은 묶음');
     const aiSrc = readFileSync(new URL('../api/ai.js', import.meta.url), 'utf8');
-    assert.ok(aiSrc.includes('gate: busy, onStage: reply.stage, onEvidence: reply.evidence });') &&aiSrc.indexOf('if (await busy) { tooMany(); return; }') < aiSrc.indexOf('const id = await saveAnswer(admin, q, out);'), '상한은 답 찾기와 같이 · 넘으면 저장 없이 429');
+    assert.ok(aiSrc.includes('gate: busy, onStage, onEvidence: reply.evidence });') && aiSrc.indexOf('if (await busy) { tooMany(); return; }') < aiSrc.indexOf('saveAnswer(admin, q, out)'), '상한은 답 찾기와 같이 · 넘으면 저장 없이 429');
   } finally { globalThis.fetch = realFetch; }
   console.log('PASS  다붓이 2026-10-12(👎는 찾기부터 · disputed · 알려 준 말 told · 짝에서 👎 뺌 · 응답 시간·모델 저장 · 직분 호칭 · 자주 묻는 질문 · 마스터 푸시 · 왕복)');
 }
