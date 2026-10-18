@@ -3,7 +3,7 @@ import { notifLine } from '../src/services/notifyText.js';
 import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOriginPath, serviceKindLabel } from './_lib.js';
 import { syncDocVectors } from './_docsync.js';
 import { buildWiki } from './_wikiBuild.js';
-import { reaskUnknown } from './_wikiAsk.js';
+import { reaskUnknown, warmCache } from './_wikiAsk.js';
 import { isLeaderOnly, isCustomOnly, visibleRecipients, leaderAudience } from '../src/services/visibility.js';
 import { leaderIdSet, audienceFor, audienceMap, lockedOf } from './_leaders.js';
 import { trashedIds, goneCard, purgeTrash } from './_trash.js';
@@ -20,7 +20,7 @@ import { trashedIds, goneCard, purgeTrash } from './_trash.js';
 //                           → 휴지통 30일 정리(0104 · api/_trash.js purgeTrash — 던지지 않는다)
 //                           → 인수인계 적용(0109 · apply_handovers — 1월 1일 아침에 처음 돈다 · 적용 안 된 올해까지의 줄만 · 멱등)
 //                           → 그 **뒤에** 업무·댓글·첨부 임베딩 증분(doc_vec · 0074 · 시간 예산 안에서만)
-//                           → 위키(0088) → 다붓이가 모르는 질문이 있으면 마스터에게 푸시 한 통(notifyMasterUnknown)
+//                           → 위키(0088) → 다붓이 미리 답하기(v5 2묶음 · 0115 warm) → 다붓이가 모르는 질문이 있으면 마스터에게 푸시 한 통(notifyMasterUnknown)
 //           job=worship     오늘(KST) 발행된 주보가 있으면 승인 멤버 전원에게 worship_today
 //                           → 이어서 내일(KST) 동아리 모임이 있으면 그 구성원에게 meeting_tomorrow(0078)
 //           job=embed       임베딩 증분만(손으로 부르는 길 · 크론에는 없다 — 자리가 둘뿐이다)
@@ -616,10 +616,26 @@ export async function runWiki(started, now = Date.now()) {
     const db = admin();
     const reask = await reaskUnknown(db, { budgetMs: Math.min(60 * 1000, left / 4) });
     const built = await buildWiki(db, { budgetMs: PUSH_MAX_MS - WIKI_MARGIN_MS - (Date.now() - started) - 20 * 1000 });
+    const warm = await runWarm(db, started);
     const master = await notifyMasterUnknown(db).catch(e => { console.error('[push] 마스터 알림 실패:', e); return { error: '실패' }; });
-    return { reask, built: built.built.length, skipped: built.skipped, pending: built.pending.length, faq: built.faq, usage: built.usage, master };
+    return { reask, built: built.built.length, skipped: built.skipped, pending: built.pending.length, faq: built.faq, usage: built.usage, warm, master };
   } catch (e) {
     console.error('[push] 위키 갈래 실패:', e);
+    return { error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+// 다붓이 미리 답하기(v5 2묶음 · api/_wikiAsk.js warmCache) — 위키 빌드 **뒤에**(빌드가 데이터 도장을 민다 · 앞에 두면 만든 답이 바로 낡는다).
+// 남은 시간에서 한 답의 최장 시간(3.8 Flash 25초 + flash-lite 20초 + 기록 읽기)만큼 빼고, 그 안에서만 새 답을 시작한다 — 함수 상한을 넘지 않는다.
+// 하루 WARM_MAX개 · 시간이 모자라면 건너뛴다(다음 날) · **던지지 않는다**.
+export const WARM_BUDGET_MS = 45 * 1000;
+export const WARM_ANSWER_MAX_MS = 55 * 1000;
+export const warmBudget = (started, now = Date.now()) => Math.min(WARM_BUDGET_MS, PUSH_MAX_MS - WIKI_MARGIN_MS - WARM_ANSWER_MAX_MS - (now - started));
+async function runWarm(db, started) {
+  const budgetMs = warmBudget(started);
+  if (!(budgetMs > 0)) return { skipped: '시간 없음' };
+  try { return await warmCache(db, { budgetMs }); } catch (e) {
+    console.error('[push] 미리 답하기 실패:', e);
     return { error: String(e?.message || e).slice(0, 200) };
   }
 }

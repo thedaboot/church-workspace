@@ -5,6 +5,7 @@ import {
   bibleRefIn, bibleAnswer, BIBLE_MAX, isAttendanceQuestion, asksAbsent, attendanceAnswer, isBirthdayQuestion, birthdayMonths, birthdayAnswer, birthdayOf,
   cacheEligible, cacheFresh, looksFollowUp, followUpRule, knownStatement, looksCompound, splitGuard, mergeParts, termWeights,
   rephrased, talkRoute, acceptTalk, taskMake, forgetKind, FORGET_EXAMPLE, talkIssues, firstSentences, PREFILTER_ANSWERS,
+  isAskRow, MASTER_PAGES, CACHE_DAYS,
 } from '../src/services/wikiCore.js';
 import { teamPart, inTeam } from '../src/services/wikiLive.js';
 import BOOKS from '../public/bible/index.json' with { type: 'json' };
@@ -52,6 +53,9 @@ export { serviceLine };
 // v5 B(보는 사람 직접 선택 0105 뒤): 직접 선택 프로젝트도 서버 키에는 '안 보이는 업무'다 — ⑥⑩의 자리는 unseenCardIds(리더 ∪ 직접 선택 ∪ 잠긴)로
 //   가르고 · 캐시 꺼내기는 그 업무 근거 답을 그 프로젝트를 보는 사람에게만(hiddenFor — 묻는 사람 세션의 hidden_ids · 리더라도 안 고르면 못 본다) ·
 //   알려 준 말의 리더 표시(tellOp)는 리더 ∪ 직접 선택 업무로 본다. 묻는 사람의 기록은 세션이라 RLS가 이미 거른다.
+// v5 2묶음 답 속도(사용자 승인 시안 mock/b3 · 2026-10-18 · 정본 docs/AI.md §5 '답 속도'): 근거 먼저(earlyEvidence → onEvidence — 모델 전 한 줄 ·
+//   안 보이는 업무·배운 것은 안 흘린다) · 답 캐시는 날을 넘겨(cachedAnswer · wikiCore.cacheFresh/crossDayOk · liveCited) ·
+//   8시 크론의 미리 답하기(warmTodo · warmCache · 0115 via 'warm' — 물음이 아니다: wikiCore.isAskRow · PITFALLS 33-y).
 // 지키는 것(사용자 결정 2026-10-02~05):
 //   · 찾기는 **묻는 사람의 권한으로**(그 사람 세션의 클라이언트 → RLS). 비밀번호 첨부는 이름·자리만, 내용은 싣지 않는다.
 //   · 노트·묵상·비밀 값·기도제목·사람 평가는 코드가 먼저 걸러 모델을 부르지 않는다(wikiCore.prefilter).
@@ -423,15 +427,20 @@ async function birthdayReply(q, { db, today }) {
   return coded('answered', birthdayMonths(q, today).map(m => birthdayAnswer(m, list)).join(' '), { kind: 'birthday' });
 }
 
-// ── 답 캐시 — 오늘 같은 질문을 데이터가 바뀐 뒤에 이미 답했으면 그 답(모델 없음 · wikiCore.cacheFresh) ──────────
-// 데이터 도장: 위키 장 · 고친 줄 · 업무 · 주보 · 파일 · 뜻 찾기 조각(댓글·첨부 글)의 마지막 변경 시각 가운데 가장 늦은 것.
-// 지운 행은 도장에 안 남는다(드문 경우 — 그날 하루만 옛 답이 갈 수 있다).
+// ── 답 캐시 — 같은 질문을 데이터가 바뀐 뒤에 이미 답했으면 그 답(모델 없음 · wikiCore.cacheFresh) ──────────
+// 데이터 도장: 위키 장 · 고친 줄 · 업무 · 프로젝트 · 댓글 · 주보 · 파일 · 뜻 찾기 조각(댓글·첨부 글)의 마지막 변경 시각 가운데 가장 늦은 것.
+// 마스터 장(자주 묻는 질문 · 다붓이가 배운 것)은 근거에 안 실리니 도장에서 뺀다 — 아침 빌드가 날마다 다시 써서 도장을 밀었다(v5 2묶음).
+// 지운 행은 도장에 안 남는다 — 날을 넘겨 쓰게 되면서(v5 2묶음) 꺼낼 때 가리킨 업무·주보·파일이 아직 있는지 따로 본다(liveCited).
 async function dataStamp(admin) {
-  const last = (t, col) => admin.from(t).select(col).order(col, { ascending: false }).limit(1).then(r => (r.error ? null : r.data?.[0]?.[col] || null));
+  const last = (t, col, skip = null) => Promise.resolve().then(() => {
+    let q = admin.from(t).select(col);
+    if (skip) q = q.not(skip, 'in', `(${[...MASTER_PAGES].join(',')})`);
+    return q.order(col, { ascending: false }).limit(1);
+  }).then(r => (r.error ? null : r.data?.[0]?.[col] || null), () => null);
   // 배운 것이 반영·고쳐진 때(decided_at · 0098)도 — 그 뒤의 같은 물음은 새로 답한다(빈 칸이 내림차순 맨 앞에 서서 승인된 것만 본다 · PITFALLS 33-w)
   const fact = admin.from('dabooti_facts').select('decided_at').eq('status', 'approved').order('decided_at', { ascending: false }).limit(5)
     .then(r => (r.error ? null : (r.data || []).map(x => x.decided_at).filter(Boolean).sort().at(-1) || null));
-  const all = await Promise.all([last('wiki_pages', 'updated_at'), last('wiki_edits', 'edited_at'), last('cards', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at'), fact]);
+  const all = await Promise.all([last('wiki_pages', 'updated_at', 'id'), last('wiki_edits', 'edited_at', 'page_id'), last('cards', 'updated_at'), last('projects', 'updated_at'), last('comments', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at'), fact]);
   return all.filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0] || null;
 }
 // 같은 질문 행과 데이터 도장은 함께 읽는다(1-d · 2026-10-12 — 차례로 두 번 오가던 것을 한 번에 · 둘 다 짧은 조회).
@@ -442,19 +451,25 @@ async function dataStamp(admin) {
 // 직접 선택(0105) 프로젝트 기록에 기댄 답은 묻는 사람이 그 프로젝트를 볼 때만(그 사람 세션의 hidden_ids에 안 들 때 — 고른 사람·마스터) —
 // 그 업무 id를 못 읽거나 그 사람 몫을 못 받으면 주지 않는다(리더라도 고르지 않았으면 못 본다 — is_leader로 가르지 않는다).
 // 지난해 리더(0110 · 합치기 2026-10-17): 올해 리더가 아니어도 그 사람 세션의 hidden_ids에 안 든 리더 업무에 기댄 답은 준다.
+// v5 2묶음(2026-10-18): 같은 날 조건을 걷었다 — CACHE_DAYS 안의 행(아침 미리 답하기 warm 행 포함)을 보고, 날에 기대는 답은 그날만(wikiCore.cacheFresh · crossDayOk).
+// 그 기간에 👎가 하나라도 있으면 쓰지 않는다 · 가리킨 업무(휴지통 포함)·주보·파일이 없어졌으면 그 행은 건너뛴다(liveCited — 못 읽으면 닫힌 쪽).
 export async function cachedAnswer(admin, question, today, db = null) {
-  const since = new Date(`${today}T00:00:00+09:00`).toISOString();
+  const since = new Date(Date.now() - CACHE_DAYS * 864e5).toISOString();
   const [{ data }, stamp, leaders, custom, locked] = await Promise.all([
-    admin.from('dabooti_questions').select('status, feedback, answer, created_at').eq('norm', normQ(question)).gte('created_at', since).order('created_at', { ascending: false }).limit(10),
+    admin.from('dabooti_questions').select('question, status, feedback, answer, created_at').eq('norm', normQ(question)).gte('created_at', since).order('created_at', { ascending: false }).limit(20),
     dataStamp(admin),
     leaderCardIds(admin).catch(() => null),
     customCardIds(admin).catch(() => null),
     lockedCardIds(admin).catch(() => null),
   ]);
-  // 오늘 같은 질문에 '도움이 안 됐어요'가 하나라도 있으면 캐시를 쓰지 않는다(다시 찾는다)
+  // 그 기간 같은 질문에 '도움이 안 됐어요'가 하나라도 있으면 캐시를 쓰지 않는다(다시 찾는다)
   if (!data?.length || data.some(r => r.feedback === 'bad')) return null;
-  const fresh = data.filter(r => cacheFresh(r, stamp, today));
-  if (!fresh.length || !leaders || !custom || !locked) return null;
+  const candidates = data.filter(r => cacheFresh(r, stamp, today));
+  if (!candidates.length || !leaders || !custom || !locked) return null;
+  const live = await liveCited(admin, candidates).catch(() => null);
+  if (!live) return null;
+  const fresh = candidates.filter(r => citedAlive(r.answer, live));
+  if (!fresh.length) return null;
   const needs = (set) => !!db && fresh.some(r => leaderCited(r.answer, set));
   const [amLeader, shut, mine] = await Promise.all([
     needs(leaders) ? db.rpc('is_leader').then(r => r.data === true, () => false) : false,
@@ -467,7 +482,43 @@ export async function cachedAnswer(admin, question, today, db = null) {
   const leaderShut = amLeader ? new Set() : (mine ? new Set([...leaders].filter(id => mine.has(id))) : leaders);
   const row = fresh.find(r => !leaderCited(r.answer, leaderShut) && !leaderCited(r.answer, shut) && !leaderCited(r.answer, unseenMine));
   if (!row) return null;
-  return { status: 'answered', sentences: row.answer.sentences, files: row.answer.files || [], dropped: [], model: WIKI_MODEL, cached: true, cacheable: true };
+  // from: 처음 답한 때 — 캐시로 준 답이 다시 저장돼도 나이(CACHE_DAYS)를 처음부터 다시 세지 않는다(wikiCore.cacheFresh)
+  return { status: 'answered', sentences: row.answer.sentences, files: row.answer.files || [], dropped: [], model: WIKI_MODEL, cached: true, cacheable: true, from: row.answer.from || row.created_at };
+}
+
+// 답이 가리킨 업무(문장 칩 · 파일 카드의 업무 · 위키 장이 기댄 업무) · 주보 · 파일 id
+export function citedIds(answer) {
+  const cites = (answer?.sentences || []).flatMap(s => s.cites || []);
+  const files = answer?.files || [];
+  return {
+    cards: [...new Set([...cites.filter(c => c.t === 'card').map(c => c.id), ...cites.filter(c => c.t === 'file' && c.cardId).map(c => c.cardId),
+      ...files.map(f => f.card_id).filter(Boolean), ...(answer?.wikiCards || [])])],
+    services: [...new Set(cites.filter(c => c.t === 'service').map(c => c.id))],
+    files: [...new Set([...cites.filter(c => c.t === 'file').map(c => c.id), ...files.map(f => f.id)].filter(Boolean))],
+  };
+}
+// 가리킨 것이 다 살아 있나 — live: { cards, services, files } 살아 있는 id Set
+export const citedAlive = (answer, live) => {
+  const ids = citedIds(answer);
+  return ids.cards.every(id => live.cards.has(id)) && ids.services.every(id => live.services.has(id)) && ids.files.every(id => live.files.has(id));
+};
+// 행들이 가리킨 것 가운데 지금 살아 있는 것(서버 키) — 업무는 휴지통(자기 · 프로젝트)이 아니고, 주보는 발행된 것. 읽기 오류면 던진다(부르는 쪽이 닫는다)
+async function liveCited(admin, rows) {
+  const all = rows.map(r => citedIds(r.answer));
+  const ids = (k) => [...new Set(all.flatMap(x => x[k]))];
+  const pick = async (k, q, keep) => {
+    const want = ids(k);
+    if (!want.length) return new Set();
+    const { data, error } = await q(want);
+    if (error) throw new Error(`${k}: ${error.message}`);
+    return new Set((data || []).filter(keep).map(x => x.id));
+  };
+  const [cards, services, files] = await Promise.all([
+    pick('cards', (w) => admin.from('cards').select('id, deleted_at, projects(deleted_at)').in('id', w), (c) => !c.deleted_at && !c.projects?.deleted_at),
+    pick('services', (w) => admin.from('services').select('id, status').in('id', w), (x) => x.status === 'published'),
+    pick('files', (w) => admin.from('files').select('id').in('id', w), () => true),
+  ]);
+  return { cards, services, files };
 }
 
 // ── 말로 받는 것 · 이어 묻기 (사용자 결정 2026-10-04) ───────────────────────────────
@@ -757,6 +808,37 @@ export function pickEvidence(evidence, { hits = [], terms = [], pairs = [], max 
   return evidence.filter((_, i) => keep.has(i));
 }
 
+// 근거 먼저(v5 2묶음 · 사용자 승인 시안 mock/b3 '근거 먼저 · 한 문장씩') — 모델을 부르기 전에 '찾은 기록' 칩 몇 개를 스트림에 흘린다
+// (api/ai.js reply.evidence → services/wiki.askDabooti onEvidence → 기다리는 말풍선). 검사 전이라 **보수적으로** 고른다:
+//   · 묻는 사람 세션으로 모은 기록(collectAll — RLS가 리더·직접 선택·휴지통·잠긴 업무 가운데 못 보는 것을 이미 뺐다)에서
+//   · 업무·위키 장·주보만(파일·오늘 줄·사람 줄·배운 것(fact)은 아니다 · 마스터 장은 아니다)
+//   · 볼 수 있어도 리더만 · 직접 선택 · 잠긴 업무(unseen — 서버 키 _leaders.unseenCardIds)와 그런 업무를 가리키는 위키 장은 빼고
+//     (어깨 너머 화면 · 답의 검사 전이다) · unseen을 못 읽으면 아무것도 흘리지 않는다(닫힌 쪽)
+//   · 차례: 뜻 찾기 조각 순서(검색 모드) → 없으면 드문 낱말(KEYWORD_DF 이하의 기록에만 있는 말)이 든 기록 늦은 것부터 · 최대 EARLY_MAX
+export const EARLY_MAX = 4;
+const EARLY_TYPES = new Set(['card', 'page', 'service']);
+const EARLY_SKIP_TAGS = new Set(['today', 'people', 'fact']);
+export function earlyEvidence(evidence = [], { hits = null, terms = [], unseen = null, max = EARLY_MAX, df = KEYWORD_DF } = {}) {
+  if (!unseen) return [];
+  const ok = (e) => !!e?.cite && EARLY_TYPES.has(e.cite.t) && !EARLY_SKIP_TAGS.has(e.tag)
+    && !(e.cite.t === 'card' && unseen.has(e.cite.id)) && !(e.cite.t === 'page' && MASTER_PAGES.has(e.cite.id))
+    && !(e.cardIds || []).some(id => unseen.has(id));
+  const at = new Map();
+  for (const e of evidence) if (e.cite && !at.has(`${e.cite.t}:${e.cite.id}`)) at.set(`${e.cite.t}:${e.cite.id}`, e);
+  const out = [];
+  const add = (e) => { if (e && ok(e) && !out.includes(e)) out.push(e); };
+  for (const h of hits || []) for (const k of hitKeys(h)) add(at.get(k));
+  if (!out.length) {
+    const kw = new Set();
+    for (const t of terms) {
+      const got = evidence.filter(e => ok(e) && !ALWAYS_TAGS.has(e.tag) && e.text.includes(t));
+      if (got.length && got.length <= df) got.forEach(e => kw.add(e));
+    }
+    [...kw].sort((a, b) => evidence.indexOf(b) - evidence.indexOf(a)).forEach(add);
+  }
+  return out.slice(0, max).map(e => ({ t: e.cite.t, id: e.cite.id, label: e.cite.label }));
+}
+
 // ── 한 번 답하기 ──────────────────────────────────────────────────────────────
 // → { status: answered|unknown|refused, sentences:[{text, cites}], files:[…], dropped:[…], model, ms, fallback?, prev? }
 // 답 모델은 gemini-3.8-flash(사용자 결정 2026-10-05 · 회귀 묶음 49/49 · 지어냄 0). 25초 넘거나 실패하면 flash-lite로 한 번 더(같은 기록 · 같은 검사).
@@ -770,7 +852,8 @@ const ASK_BUDGET_MS = 25 * 1000;
 //   search: (벡터, k) → match_docs 모양 행(회귀 묶음의 --local-index가 바꿔 끼운다 · 기본은 묻는 사람 세션의 match_docs)
 // onStage: 단계 신호 — 'gather'(기록을 모으기 시작) · 'answer'(모델을 부름) · 'fallback'(flash-lite로 넘어감). 모델 없는 갈래
 //   (거르기 · 인사 · 알려 주는 말 · 성경 · 출석 · 생일 · 캐시)는 부르지 않는다 — 화면은 문구 없이 점만(api/ai.js 스트리밍 · 1-c)
-export async function answerQuestion(q, { db, admin = null, prev = '', key = process.env.GEMINI_API_KEY, today = kstDate(new Date().toISOString()), log = null, cache = true, part = false, model = ASK_MODEL, hint = null, wrong = '', gate = null, retrieve = retrieveOn(), search = null, onStage = null } = {}) {
+// onEvidence: 근거 먼저(v5 2묶음 · 위 earlyEvidence) — 기록을 모은 뒤 모델을 부르기 전에 한 번. 서버 키(admin)가 없으면 안 부른다.
+export async function answerQuestion(q, { db, admin = null, prev = '', key = process.env.GEMINI_API_KEY, today = kstDate(new Date().toISOString()), log = null, cache = true, part = false, model = ASK_MODEL, hint = null, wrong = '', gate = null, retrieve = retrieveOn(), search = null, onStage = null, onEvidence = null } = {}) {
   const t0 = Date.now();
   const stage = (s) => { try { onStage?.(s); } catch { /* 신호가 실패해도 답은 간다 */ } };
   const beforeModel = async () => { if (gate && await gate) throw Object.assign(new Error('상한'), { busy: true }); };
@@ -812,13 +895,18 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
   // (임베딩·찾기가 실패하면 통째로 — 답이 느려질 뿐 틀리지 않는다)
   stage('gather');
   const askText = [raw, ...prevLines.slice(-2)].join('\n');
-  const [{ evidence: everything, hasName, files, roster, teamItems }, pairs, hits] = await Promise.all([
+  const [{ evidence: everything, hasName, files, roster, teamItems }, pairs, hits, unseen] = await Promise.all([
     collectAll(db, today, { admin }),
     hint || (admin ? pairedCites(admin, question).catch(() => []) : []),
     retrieve && key ? embedQuestion(askText, key).then(v => (search || matchDocs(db))(v, RETRIEVE_K))
       .catch(e => { console.error('[dabooti] 검색 실패 — 통째로:', e?.message || e); return null; }) : null,
+    onEvidence && admin ? unseenCardIds(admin).catch(() => null) : null,
   ]);
   const evidence = hits ? pickEvidence(everything, { hits, terms: keyTerms(askText), pairs }) : everything;
+  if (onEvidence) {
+    const early = earlyEvidence(everything, { hits, terms: keyTerms(askText), unseen });
+    if (early.length) { try { onEvidence(early); } catch { /* 신호가 실패해도 답은 간다 */ } }
+  }
   const keep = lines.length ? { prev: lines.join('\n') } : {};
   const unknown = (missing, dropped) => {
     const h = teamHint(question, teamItems, roster);
@@ -896,7 +984,8 @@ export const sameAnswer = (a, b) => !!normQ(answerText(a)) && normQ(answerText(a
 export function pairFrom(rows = [], hidden = new Set()) {
   let lastAsk = null; let pick = null;
   for (const r of [...rows].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
-    if (r.via !== 'nightly') { lastAsk = r; continue; }
+    if (r.via === 'warm') continue;   // 아침 미리 답하기(0115)는 물음도 아침 고리 답도 아니다
+    if (isAskRow(r)) { lastAsk = r; continue; }
     if (r.status === 'answered') pick = { r, bad: lastAsk?.feedback === 'bad' };
   }
   const a = pick?.r.answer;
@@ -945,7 +1034,7 @@ export async function saveAnswer(admin, question, out, via = 'ask', { hidden = n
     answer: {
       sentences: out.sentences, files: out.files || [], ...(out.cacheable ? { cacheable: true } : {}), ...(out.prev ? { prev: out.prev } : {}), ...(out.cause ? { cause: out.cause } : {}),
       ...(Number.isFinite(out.ms) ? { ms: out.ms } : {}), ...(out.cached ? { cached: true } : out.model ? { model: out.model } : {}), ...(out.fallback ? { fallback: true } : {}),
-      ...(out.kind === 'statement' ? { told: true } : {}), ...(out.fromBad ? { fromBad: true } : {}),
+      ...(out.kind === 'statement' ? { told: true } : {}), ...(out.fromBad ? { fromBad: true } : {}), ...(out.from ? { from: out.from } : {}),
       // 모델이 다붓이 말투로 받아친 말(2026-10-17) — 👎가 붙어도 열린 질문 · 아침 고리에 서지 않는다(faq.openGroups · reaskTodo)
       ...(out.talk ? { talk: true } : {}),
       // 위키 장 근거가 기댄 업무(20차 ⑦) — 저장된 답도 짝·자주 묻는 질문·캐시 꺼내기에서 leaderCited가 본다
@@ -966,6 +1055,64 @@ export async function setFeedback(admin, id, v) {
   return !error;
 }
 
+// ── 아침 미리 답하기(v5 2묶음 · 0115 via 'warm') ───────────────────────────────────────────
+// 8시 크론(api/push.js runWiki)이 위키 빌드 **뒤에**(빌드가 도장을 밀기 때문) 최근 WARM_DAYS일에 여러 번 물은 질문을 서버 키로 다시 답해
+// 캐시 행(via 'warm' · answer.cause 'warm')으로 남긴다 — 아침 첫 물음도 모델 없이 바로 간다. 사람이 물은 행이 아니라
+// 묶음 세기 · 열린 질문 · 짝 · 아침 고리에 서지 않는다(wikiCore.isAskRow). 고르는 규칙(warmTodo · 순수):
+//   · 사람이 WARM_MIN_ASKS번 넘게 물었고 마지막 물음이 캐시해도 되는 답(answer.cacheable — 그때 리더·직접 선택·잠긴 근거가 없었다)
+//   · 앞 대화 없음 · 캐시 대상 질문(cacheEligible) · 거르기·코드가 받는 말·받아친 말·학습하지 마·업무 만들기 아님
+//   · 그 기간 👎가 하나도 없음 · 지금 안 보이는 업무(unseen — 리더 ∪ 직접 선택 ∪ 잠긴)에 기댄 답이 그 묶음에 없음
+//   · 이미 쓸 수 있는 캐시 행이 있으면 건너뛴다 · 물은 횟수 많은 것부터 WARM_MAX개
+// 새 답도 저장 전에 다시 본다(warmCache): 답했고 · 캐시해도 되고 · unseen에 기대지 않을 때만 — 아니면 남기지 않는다.
+export const WARM_MAX = 8;
+export const WARM_DAYS = 14;
+export const WARM_MIN_ASKS = 2;
+export function warmTodo(rows = [], { stamp = null, today, now = Date.now(), unseen = null, max = WARM_MAX, minAsks = WARM_MIN_ASKS } = {}) {
+  if (!unseen) return [];
+  const out = [];
+  const sorted = [...rows].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  for (const [norm, list] of Map.groupBy(sorted, r => r.norm)) {
+    const asks = list.filter(isAskRow);
+    const last = asks.at(-1);
+    if (asks.length < minAsks || !last) continue;
+    if (last.status !== 'answered' || !last.answer?.cacheable || last.answer?.prev || last.answer?.talk) continue;
+    const q = last.question;
+    if (!cacheEligible(q) || prefilter(q) || talkKind(q, []) || forgetKind(q) || taskMake(q)) continue;
+    if (list.some(r => r.feedback === 'bad')) continue;
+    if (list.some(r => r.status === 'answered' && leaderCited(r.answer, unseen))) continue;
+    if (list.some(r => cacheFresh(r, stamp, today, { now }))) continue;
+    out.push({ norm, q, n: asks.length, at: last.created_at });
+  }
+  return out.sort((a, b) => (b.n - a.n) || String(b.at).localeCompare(String(a.at))).slice(0, max);
+}
+// 새 답을 캐시 행으로 남겨도 되나(warmCache — 서버 키로 답했으니 다시 본다)
+export const warmKeep = (out, unseen) => !!out && !!unseen && out.status === 'answered' && !!out.cacheable && !out.kind && !out.asked && !leaderCited(out, unseen);
+// budgetMs 안에서만 새 답을 시작한다(시작한 답은 끝까지 — 부르는 쪽이 한 답 최장 시간만큼 여유를 뺀 예산을 준다) · 둘씩 함께
+export async function warmCache(admin, { budgetMs = 45 * 1000, max = WARM_MAX, key = process.env.GEMINI_API_KEY, today = kstDate(new Date().toISOString()), ways = 2 } = {}) {
+  const started = Date.now();
+  const since = new Date(started - WARM_DAYS * 864e5).toISOString();
+  const [rows, stamp, unseen] = await Promise.all([
+    readAll(() => admin.from('dabooti_questions').select('id, question, norm, status, feedback, answer, via, created_at').gte('created_at', since).order('created_at').order('id'), 'dabooti_questions'),
+    dataStamp(admin),
+    unseenCardIds(admin).catch(() => null),
+  ]);
+  if (!unseen) return { skipped: '안 보이는 업무를 못 읽음' };
+  const todo = warmTodo(rows, { stamp, today, unseen, max });
+  let next = 0; let warmed = 0; let dropped = 0; let failed = 0;
+  const lane = async () => {
+    while (next < todo.length && Date.now() - started < budgetMs) {
+      const t = todo[next++];
+      try {
+        const out = await answerQuestion(t.q, { db: admin, admin, cache: false, key, today });
+        if (!warmKeep(out, unseen)) { dropped++; continue; }
+        if (await saveAnswer(admin, t.q, { ...out, cause: 'warm' }, 'warm', { hidden: unseen })) warmed++; else failed++;
+      } catch (e) { failed++; console.error('[dabooti] 미리 답하기 실패:', e?.message || e); }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, ways) }, lane));
+  return { todo: todo.length, warmed, dropped, failed, waiting: Math.max(0, todo.length - next) };
+}
+
 // 아침에 다시 볼 질문 — 최근 7일, 묶음(norm)마다 마지막으로 물은 것 가운데 몰랐거나 · 👎 · 바꿔 다시 물은 것.
 // 바꿔 다시 물음: 답한 질문 바로 뒤 2분 안에 내용 낱말이 반 넘게 겹치는 다른 질문이 왔다(첫 답이 모자랐다).
 // 그 뒤로 이미 아침 고리가 본 묶음은 뺀다(같은 질문을 날마다 다시 보지 않는다 — 새로 물으면 다시 본다).
@@ -973,7 +1120,7 @@ export async function setFeedback(admin, id, v) {
 // 배운 것 반영 포함) 다시 본다. 닫힌 물음은 빼고 · 하루 REASK_MAX개(시간 예산이 먼저 끊을 수 있다).
 export const REASK_MAX = 30;
 export function reaskTodo(rows = [], max = REASK_MAX, { stamp = null } = {}) {
-  const asks = rows.filter(r => r.via !== 'nightly');
+  const asks = rows.filter(isAskRow);
   const again = new Set();
   for (let i = 0; i + 1 < asks.length; i++) {
     const a = asks[i]; const b = asks[i + 1];
@@ -981,7 +1128,7 @@ export function reaskTodo(rows = [], max = REASK_MAX, { stamp = null } = {}) {
     if (rephrased(a.question, b.question)) again.add(a.norm);   // 낮의 권유 줄(askNudge)과 같은 어림
   }
   const lastAsk = new Map(); const lastNight = new Map();
-  for (const r of rows) (r.via === 'nightly' ? lastNight : lastAsk).set(r.norm, r);
+  for (const r of rows) if (r.via === 'nightly' || isAskRow(r)) (r.via === 'nightly' ? lastNight : lastAsk).set(r.norm, r);
   const open = (r) => r.status === 'unknown' || r.feedback === 'bad';
   return [...lastAsk.values()]
     .filter(r => !r.resolved_at)

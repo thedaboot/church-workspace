@@ -133,6 +133,9 @@ import logoDark from './assets/logo-dark.webp';
 import { BTN_CONFIRM } from './components/buttons.js';
 import { errorReason } from './services/errorText.js';
 import { prefetchViewsIdle } from './services/viewChunks.js';
+import { kakaoDemo } from './services/inApp.js';
+// 게스트 시연 표식(?demo=kakao)을 주소가 '/'로 정리되기 전에 붙잡는다(v5 2묶음 · 게스트·미리보기만 — 클라우드는 실제 UA만 · services/inApp.js)
+kakaoDemo();
 
 // activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
 // 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다

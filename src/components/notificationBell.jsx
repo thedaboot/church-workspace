@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Bell, BellRing, BellOff, Users, CalendarClock, Smartphone, Church } from 'lucide-react';
+import { X, Bell, BellRing, BellOff, Users, CalendarClock, Smartphone, Church, Compass } from 'lucide-react';
+import { inKakao, openExternal, kakaoDemo } from '../services/inApp.js';
 import { store } from '../store/workspaceStore.js';
 import { useAuth } from '../services/auth.jsx';
 import { formatRelative } from '../utils.js';
@@ -20,6 +21,8 @@ import { setTaskFocus, notifFocusHint, onTaskOpen, openTaskId, notifArrival } fr
 // 19차 묶음 D에서 layout.jsx에서 갈라 왔다(동작·모양은 그대로).
 //   · 알림은 **남긴 계정 앞으로** 온다(0063) — 구독 필터는 myUid()로 물은 값(세션 uid가 아니다)
 //   · 판 안: 머리(모두 읽음) · 안드로이드 설치 줄 · '이 기기로 알림 받기'(권한은 여기서 묻는다) · 알림 줄(열기 · 지우기)
+//   · 카카오톡 인앱(v5 2묶음 · services/inApp.js)에서는 설치 줄·알림 받기 줄 대신 '브라우저로 열기' 한 줄(KakaoOutRow) — 인앱 웹뷰는
+//     웹 푸시도 홈 화면 추가도 못 한다. 게스트·미리보기는 `?demo=kakao`면 종이 서고(bellOn) 넘기는 대신 토스트 — 클라우드는 실제 UA만
 //   · 판은 앵커 곁에 그린다(portal: false — 원래 그렇다) · 껍데기는 hooks/usePopover 한 벌 · 640 미만 폰은 화면 폭 - 32px(좌우 16px · PITFALLS 49-f)
 // ============================================================================
 
@@ -100,6 +103,33 @@ function PushRow() {
     </button>
   );
 }
+
+// 카카오 인앱 — 같은 주소를 기본 브라우저로(kakaotalk://web/openExternal · 아이폰·안드로이드 둘 다).
+// 한 문구로(사용자 결정 2026-10-18) — openExternal은 아이폰·안드로이드 모두 **기기의 기본 브라우저**로 연다(사파리·크롬으로 가르지 않는다).
+// demo는 게스트 시연 토스트에만(kakaoDemo — 클라우드에서는 늘 false).
+export const KAKAO_OUT_COPY = {
+  title: '브라우저로 열기',
+  sub: '알림 받기와 홈 화면에 추가하는 건 브라우저에서 할 수 있어요',
+  demo: '시연: 카카오톡 안이라면 여기서 브라우저로 넘어가요',
+};
+function KakaoOutRow() {
+  const go = () => {
+    openExternal();
+    if (kakaoDemo()) showToast(KAKAO_OUT_COPY.demo);
+  };
+  return (
+    <button onClick={go} data-kakao-out=""
+      className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-line text-left hover:bg-surface-hover transition-colors">
+      <Compass size={13} strokeWidth={1.75} className="shrink-0 text-accent-text" />
+      <span className="flex-1 min-w-0">
+        <span className="block text-[11px] text-fg">{KAKAO_OUT_COPY.title}</span>
+        <span className="block text-[10px] text-fg-muted mt-0.5">{KAKAO_OUT_COPY.sub}</span>
+      </span>
+    </button>
+  );
+}
+// 종이 서는가 — 클라우드 · 또는 게스트의 카카오 시연(?demo=kakao — 게스트는 알림 행이 없어 판은 그 줄과 빈 목록뿐)
+export const bellOn = (cloudMode) => cloudMode || kakaoDemo();
 
 // 시스템 알림의 동그라미 — 갈래(notifArea)마다 [아이콘, 색]. 표에 없는 갈래(마감 등)는 시계
 const AREA_ICON = {
@@ -254,8 +284,7 @@ export function NotificationBell({ onOpenTask, onOpenLink }) {
               <button onClick={readAll} className="text-[10px] text-accent-text hover:bg-surface-hover rounded-md px-1.5 py-1 transition active:scale-95">모두 읽음</button>
             )}
           </div>
-          <InstallRow />
-          <PushRow />
+          {inKakao() ? <KakaoOutRow /> : <><InstallRow /><PushRow /></>}
           {items.length === 0 ? (
             <div className="text-center py-8 px-3">
               <span className="inline-flex w-8 h-8 rounded-full bg-tag-yellow text-tag-yellow-fg items-center justify-center mb-2"><Bell size={13} strokeWidth={1.75} /></span>

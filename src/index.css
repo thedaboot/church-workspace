@@ -427,6 +427,15 @@
   .dc-lock-veil-in, .dc-lock-veil-out, .dc-lock-blur-out, .dc-lock-blur-in, .dc-shake { animation: none !important; }
 }
 
+/* ── v5 2묶음 — 다붓이 답을 한 문장씩 펼칠 때의 커서(dabooti.jsx · services/answerReveal.js).
+   폭 0으로 서서(음수 여백) 글자를 밀지 않는다 · 움직임 줄이기면 깜빡이지 않는다(펼치기 자체도 없다). */
+@keyframes dab-caret-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+.dab-caret { display: inline-block; width: 2px; height: 1.05em; margin-right: -2px; vertical-align: -0.17em; border-radius: 1px;
+  background: var(--app-accent); animation: dab-caret-blink .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dab-caret { animation: none !important; }
+}
+
 /* 엑셀 표 애니메이션(.dc-sheet · .dc-cell-paint · .dc-bar-grow)은 2026-08-31에 뺐다.
    우리가 표를 직접 그리던 SheetView가 없어졌는데(커밋 "표는 구글이 그린다") 규칙만
    남아서, 아무 요소도 쓰지 않는 죽은 CSS였다. 표는 이제 구글 iframe이 그리므로

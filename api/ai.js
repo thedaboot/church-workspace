@@ -178,7 +178,7 @@ async function handleAsk(req, body, res) {
   const tooMany = () => reply(429, { error: '지금 물어보는 사람이 많아요\n잠시 후 다시 물어봐 주세요' });
   try {
     const db = userClient(bearer(req));
-    const out = await answerQuestion(q, { db, admin, prev, gate: busy, onStage: reply.stage });
+    const out = await answerQuestion(q, { db, admin, prev, gate: busy, onStage: reply.stage, onEvidence: reply.evidence });
     if (await busy) { tooMany(); return; }
     const id = await saveAnswer(admin, q, out);
     // 알려 주는 말(talkKind statement)도 배운 것 저장소로(20차 ⑧ — 마스터 말이면 바로 반영) · 이미 아는 말(save: false)은 남기지 않는다
@@ -189,7 +189,7 @@ async function handleAsk(req, body, res) {
     if (out.kind === 'forget') {
       await whoAsks(db).catch(() => ({})).then(who => forgetOp(admin, { prev, who }));
     }
-    const { dropped, wikiCards: _wc, ...shown } = out;   // wikiCards는 저장용(20차 ⑦ · leaderCited) — 화면에는 안 간다
+    const { dropped, wikiCards: _wc, from: _from, ...shown } = out;   // wikiCards · from은 저장용(20차 ⑦ leaderCited · 캐시 나이) — 화면에는 안 간다
     reply(200, { id, ...shown, ...(askNudge(out, q, prev) ? { nudge: true } : {}) });
   } catch (e) {
     if (await busy) { tooMany(); return; }
@@ -228,13 +228,14 @@ async function handleLearn(req, body, res, { tellOp, learnOp, whoAsks, userClien
 // 단계 신호가 한 번도 없으면(캐시 · 출석 · 생일 · 인사 · 알려 주는 말 — 바로 오는 답) 스트림을 열지 않고 예전처럼 코드 + JSON 한 번.
 // 앱(services/wiki.js)은 몸통을 줄 단위로 읽고, 스트림을 못 읽는 웹뷰면 끝에 한 번 읽는다(같은 마지막 줄).
 // Vercel Node 함수는 res.write를 그대로 흘려보낸다 — 압축·버퍼링을 막는 머리를 같이 단다.
+// 근거 먼저(v5 2묶음): reply.evidence(cites) — 모델을 부르기 전에 `{"evidence":[{t,id,label}]}` 한 줄(_wikiAsk.earlyEvidence가 고른 것 · 키는 evidence 하나뿐 — answerReveal.isEvidenceLine).
 export function askReply(res, stream) {
   let open = false;
   const reply = (code, body) => {
     if (!open) { res.status(code).json(body); return; }
     res.end(`${JSON.stringify(code === 200 ? body : { ...body, status: code })}\n`);
   };
-  reply.stage = stream ? (s) => {
+  const line = (o) => {
     if (!open) {
       open = true;
       res.statusCode = 200;
@@ -243,7 +244,9 @@ export function askReply(res, stream) {
       res.setHeader('X-Accel-Buffering', 'no');
       res.flushHeaders?.();
     }
-    res.write(`${JSON.stringify({ stage: s })}\n`);
-  } : null;
+    res.write(`${JSON.stringify(o)}\n`);
+  };
+  reply.stage = stream ? (s) => line({ stage: s }) : null;
+  reply.evidence = stream ? (cites) => line({ evidence: cites }) : null;
   return reply;
 }

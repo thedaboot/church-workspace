@@ -1,4 +1,4 @@
-import { FAQ_SOURCE, MASTER_PAGES, hashKey, kstDate, prefilter, stripBold, talkKind, termsOf, tokenCoverage, forgetKind } from '../../src/services/wikiCore.js';
+import { FAQ_SOURCE, MASTER_PAGES, hashKey, kstDate, prefilter, stripBold, talkKind, termsOf, tokenCoverage, forgetKind, isAskRow } from '../../src/services/wikiCore.js';
 import { leaderCited } from '../../src/services/visibility.js';
 
 // ── '아직 답하지 못한 질문' 장(id는 faq 그대로 — 딥링크·정책·푸시가 그 id를 안다) — 물어본 글로 매일 다시 세운다(모델 없음 · 마스터만 · 0090) ──
@@ -38,7 +38,7 @@ export function openGroups(questions = [], { leaderCards = new Set(), wikiLines 
   const out = [];
   const sorted = [...questions].filter(q => q && q.status !== 'refused' && q.status !== 'failed').sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   for (const [norm, list] of Map.groupBy(sorted, q => q.norm)) {
-    const ask = [...list].reverse().find(q => q.via !== 'nightly');
+    const ask = [...list].reverse().find(isAskRow);   // 아침 미리 답하기(warm · 0115)는 물음이 아니다
     if (!ask || ask.resolved_at || (since && String(ask.created_at) < since)) continue;
     const bad = ask.feedback === 'bad';
     if (ask.status !== 'unknown' && !bad) continue;
@@ -50,7 +50,7 @@ export function openGroups(questions = [], { leaderCards = new Set(), wikiLines 
     const night = [...list].reverse().find(q => q.via === 'nightly' && String(q.created_at) >= String(ask.created_at));
     const cause = night?.answer?.cause;
     if (['dropped', 'known', 'told', 'talk'].includes(cause) || (cause === 'missed' && night.status === 'answered' && (!bad || night.answer.fromBad))) continue;
-    out.push({ norm, q: ask.question, id: ask.id, why: bad || cause === 'disputed' ? 'bad' : 'none', at: ask.created_at, n: list.filter(q => q.via !== 'nightly').length, row: ask });
+    out.push({ norm, q: ask.question, id: ask.id, why: bad || cause === 'disputed' ? 'bad' : 'none', at: ask.created_at, n: list.filter(isAskRow).length, row: ask });
   }
   return out;
 }

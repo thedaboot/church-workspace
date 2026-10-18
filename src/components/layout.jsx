@@ -21,7 +21,7 @@ import { SearchBox } from './searchBox.jsx';
 import { TabLock } from './leaderOnly.jsx';
 import { TrashEntry, TrashDialog } from './trash.jsx';
 import { useTrashItems } from '../services/trash.js';
-import { NotificationBell } from './notificationBell.jsx';
+import { NotificationBell, bellOn } from './notificationBell.jsx';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
 
@@ -257,7 +257,7 @@ export const TopNav = React.memo(({
             ? <DaboutiFace active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />
             : <DaboutiPill active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />}
           <SearchBox onSearchSelect={onSearchSelect} variant={narrow ? 'icon' : 'inline'} />
-          {cloudMode && <NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
+          {bellOn(cloudMode) && <NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
           <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
         </div>
       </div>

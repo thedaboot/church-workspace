@@ -951,24 +951,39 @@ export function knownStatement(s, lines = []) {
 export const NAME_LIMIT = 5;
 const fewNames = (names) => (names.length > NAME_LIMIT ? `${names.slice(0, NAME_LIMIT).join(', ')} 외 ${names.length - NAME_LIMIT}명` : names.join(', '));
 
-// ── 답 캐시 (사용자 결정 2026-10-04) ───────────────────────────────────────────
-// 같은 질문(normQ)을 오늘(KST) 이미 답했고, 그 답이 마지막 데이터 변경(위키 · 고친 줄 · 업무 · 주보 · 파일) **뒤에**
+// ── 답 캐시 (사용자 결정 2026-10-04 · 날을 넘겨 쓰기는 v5 2묶음 2026-10-18) ─────────────────────────────
+// 같은 질문(normQ)을 이미 답했고, 그 답이 마지막 데이터 변경(위키 · 고친 줄 · 업무 · 프로젝트 · 댓글 · 주보 · 파일 · 조각 · 배운 것) **뒤에**
 // 만들어졌으면 그 답을 그대로 준다(모델을 부르지 않는다). 묻는 사람에 따라 근거가 달라지는 질문은 캐시하지 않는다:
 // 사람(가입자 명단 · 세션 RLS) · 출석 · 생일 · '내·나·우리 순' · 앞 질문을 문맥으로 쓴 경우.
+// v5 2묶음: '같은 날(KST)' 조건을 걷었다 — 다른 날의 답도 CACHE_DAYS 안이고 **날에 기대지 않는 답**(crossDayOk)이면 쓴다.
+// 날에 기대는 답(오늘·내일·이번·다음·지난… 이 질문이나 답에 있다 · QT 근거)은 데이터가 그대로여도 날이 바뀌면 틀린다('다음 월례회는 10월 11일') — 그날만.
 const ME = /(?<![가-힣])(?:내|나|나의|난|날|저|제|저의|저희|우리)(?![가-힣])|내가|제가|우리\s?순|내\s?순/;
 export function cacheEligible(q, prev = '') {
   const s = String(q || '');
   if (String(prev || '').trim()) return false;
   return !isPeopleQuestion(s) && !isAttendanceQuestion(s) && !isBirthdayQuestion(s) && !ME.test(s);
 }
-// row: dabooti_questions 행 · stamp: 마지막 데이터 변경 시각(ISO) · today: KST 'YYYY-MM-DD'
-export function cacheFresh(row, stamp, today) {
-  if (!row || row.status !== 'answered' || row.feedback === 'bad' || !row.answer?.cacheable || !row.answer?.sentences?.length) return false;
-  if (kstDate(row.created_at) !== today) return false;
-  if (!stamp || !(new Date(row.created_at).getTime() > new Date(stamp).getTime())) return false;
-  // 마스터만 보는 장(자주 묻는 질문)을 근거로 한 답은 다른 사람에게 주지 않는다
-  return !row.answer.sentences.some(s => (s.cites || []).some(c => c.t === 'page' && MASTER_PAGES.has(c.id)));
+export const CACHE_DAYS = 7;
+export const RELATIVE_TIME = /오늘|내일|모레|어제|그제|그저께|이번|다음|지난|저번|요즘|최근|지금|현재|아까|방금|올해|내년|작년|금년|금주|이달|주말|곧|앞으로|남은|남았|며칠|언제까지/;
+export function crossDayOk(question, answer) {
+  const said = (answer?.sentences || []).map(s => s?.text || '').join(' ');
+  if (RELATIVE_TIME.test(String(question || '')) || RELATIVE_TIME.test(said)) return false;
+  return !(answer?.sentences || []).some(s => (s.cites || []).some(c => c.t === 'page' && c.id === 'qt'));
 }
+// row: dabooti_questions 행(question 칸이 있으면 날 판정에 쓴다) · stamp: 마지막 데이터 변경 시각(ISO) · today: KST 'YYYY-MM-DD' · now: ms
+export function cacheFresh(row, stamp, today, { now = Date.now() } = {}) {
+  if (!row || row.status !== 'answered' || row.feedback === 'bad' || !row.answer?.cacheable || !row.answer?.sentences?.length) return false;
+  // 처음 답한 때(캐시로 준 답을 다시 저장한 행은 answer.from) — 나이와 도장을 그때로 잰다
+  const born = row.answer.from || row.created_at;
+  const at = new Date(born).getTime();
+  if (!stamp || !(at > new Date(stamp).getTime())) return false;
+  // 마스터만 보는 장(자주 묻는 질문)을 근거로 한 답은 다른 사람에게 주지 않는다
+  if (row.answer.sentences.some(s => (s.cites || []).some(c => c.t === 'page' && MASTER_PAGES.has(c.id)))) return false;
+  if (kstDate(born) === today) return true;
+  return now - at <= CACHE_DAYS * 864e5 && crossDayOk(row.question, row.answer);
+}
+// 사람이 물은 행인가 — 아침 고리(nightly) · 아침 미리 답하기(warm · 0115)는 물음이 아니다(묶음 세기 · 열린 질문 · 짝)
+export const isAskRow = (r) => !!r && r.via !== 'nightly' && r.via !== 'warm';
 
 // ── 대화 수명 (사용자 결정 2026-10-04) ────────────────────────────────────────
 // 앱이 떠 있는 동안(탭·화면을 오가도) 대화가 남는다. 새로 열면(새로고침 · 껐다 켜기) 비고,

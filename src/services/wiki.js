@@ -1,6 +1,8 @@
 import { supabase } from './supabaseClient.js';
 import { accessToken, authedPost } from './cloud/core.js';
 import { SEED_PAGES, prefilter, NOT_FOUND, askLines, isStageLine } from './wikiCore.js';
+import { isEvidenceLine } from './answerReveal.js';
+import { demoAnswerFor, runDemo } from './dabootiDemo.js';
 
 // ============================================================================
 // 위키 · 다붓이 — 화면 쪽 읽기·쓰기 (0088 · 16차). 그리는 규칙은 wikiCore.js(순수)에 있다.
@@ -53,10 +55,14 @@ export async function saveWikiEdits(rows) {
 // → { id, status, sentences:[{text, cites}], files:[…] } · 실패는 던진다(err.human = 화면 글)
 // onStage(stage) — 서버가 흘려보내는 단계('gather' · 'answer' · 'fallback' · 20차 ②). 몸통을 줄 단위로 읽고, 스트림을 못 읽는
 // 웹뷰(body.getReader 없음)면 끝에 한 번 읽는다 — 마지막 줄은 같은 답이라 예전처럼 돈다(단계 문구만 없다). 55초 끊기는 그대로.
-export async function askDabooti(q, prev = '', { onStage } = {}) {
+// onEvidence(cites) — 서버가 답보다 먼저 흘리는 '찾은 근거' 줄({ evidence } · v5 2묶음 — api/_wikiAsk.js earlyEvidence가 모델을 부르기 전에 흘린다 · 게스트는 시연 흉내).
+export async function askDabooti(q, prev = '', { onStage, onEvidence } = {}) {
   const pf = prefilter(q);
   // 검사(tests/wiki)가 게스트에 답 하나를 넣는 자리 — 👍/👎·파일 카드를 그려 보려고(클라우드에서는 보지 않는다)
   if (!supabase && !pf && typeof window !== 'undefined' && window.__dabootiAnswer) return { ...window.__dabootiAnswer };
+  // 게스트 시연 — 근거 먼저 · 답은 한 문장씩(services/dabootiDemo.js · '수련회'가 든 질문만)
+  const demo = !supabase && !pf ? demoAnswerFor(q) : null;
+  if (demo) return runDemo(demo, { onStage, onEvidence });
   if (!supabase) return pf ? { id: null, status: 'refused', sentences: [{ text: pf.answer, cites: [] }], files: [] }
     : { id: null, status: 'unknown', sentences: [{ text: NOT_FOUND, cites: [] }], files: [] };
   const token = await accessToken();   // 없어도 그대로 보낸다 — 서버가 401로 답한다
@@ -65,7 +71,7 @@ export async function askDabooti(q, prev = '', { onStage } = {}) {
   try {
     const r = await authedPost('/api/ai', { ask: q, prev, stream: 1 }, { token, signal: ctl.signal });
     let j = {};
-    const take = (o) => { if (isStageLine(o)) onStage?.(o.stage); else if (o && typeof o === 'object') j = o; };
+    const take = (o) => { if (isStageLine(o)) onStage?.(o.stage); else if (isEvidenceLine(o)) onEvidence?.(o.evidence); else if (o && typeof o === 'object') j = o; };
     const reader = r.ok && typeof TextDecoder !== 'undefined' ? r.body?.getReader?.() : null;
     if (reader) {
       const dec = new TextDecoder();

@@ -17,10 +17,10 @@ const PORT = Number(process.env.VERIFY_PORT || 4390);
 const BASE = `http://localhost:${PORT}`;
 
 // 브라우저를 쓰지 않는 순수 로직 자체검증 (서버가 필요 없다)
-const NODE_ONLY = ['logcheck', 'logcheck-task', 'logcheck-dash', 'logcheck-live', 'logcheck-v2', 'logcheck-sec', 'logcheck-ai', 'logcheck-wiki', 'mdcheck', 'bibleref', 'sunguide', 'assignees', 'push', 'sheet', 'office', 'drivesync', 'aictx', 'coedit'];
+const NODE_ONLY = ['logcheck', 'logcheck-task', 'logcheck-dash', 'logcheck-live', 'logcheck-v2', 'logcheck-sec', 'logcheck-ai', 'logcheck-wiki', 'logcheck-phone', 'mdcheck', 'bibleref', 'sunguide', 'assignees', 'push', 'sheet', 'office', 'drivesync', 'aictx', 'coedit'];
 // 순서: 넓게 훑는 것부터. 드래그·캘린더는 타이밍에 민감해서 마지막에 조용히 돌린다.
 const ORDER = [
-  'logcheck', 'logcheck-task', 'logcheck-dash', 'logcheck-live', 'logcheck-v2', 'logcheck-sec', 'logcheck-ai', 'logcheck-wiki',
+  'logcheck', 'logcheck-task', 'logcheck-dash', 'logcheck-live', 'logcheck-v2', 'logcheck-sec', 'logcheck-ai', 'logcheck-wiki', 'logcheck-phone',
   'mdcheck', 'bibleref', 'sunguide', 'sheet', 'office', 'drivesync', 'assignees', 'push', 'aictx', 'coedit',
   'errhunt', 'handoff',
   'navsmoke', 'onebar', 'mobbits', 'bottomgap', 'modalclose',
