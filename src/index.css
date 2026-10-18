@@ -348,6 +348,20 @@
   .dc-feed-chunk { animation: none; }
 }
 
+/* ── 그 자리에서 접고 펴기 (v5 2묶음 · 2026-10-18 · components/Fold.jsx) ──────────────────
+   표 정렬의 오름/내림 · 해결한 댓글 펼치기. 위 '최근 활동'과 같은 0fr ↔ 1fr + 투명도 · quint .28s(90%에 닿는 때 약 90ms · PITFALLS 57-a).
+   .dc-move-in — 고정 묶음에 새로 든 댓글처럼 자리를 옮겨 다시 서는 줄(dc-row와 같은 모양 · 조금 길게). */
+.dc-fold {
+  display: grid; grid-template-rows: 0fr; opacity: 0;
+  transition: grid-template-rows .28s var(--ease-out-quint), opacity .28s var(--ease-out-quint);
+}
+.dc-fold[data-open='true'] { grid-template-rows: 1fr; opacity: 1; }
+.dc-move-in { animation: dc-row-in .34s var(--ease-out-quint) backwards; }
+@media (prefers-reduced-motion: reduce) {
+  .dc-fold { transition: none; }
+  .dc-move-in { animation: none; }
+}
+
 /* ── 스켈레톤 ───────────────────────────────────────────────────────────────
    animate-pulse(투명도 1↔.5)는 **흰 배경 위 옅은 회색에서 눈에 안 보인다.**
    "로딩 중"이 아니라 "빈 상자가 떡하니 있다"로 읽혔다(사용자 지적).

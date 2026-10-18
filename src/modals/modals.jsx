@@ -650,7 +650,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
     /* members: 답글 입력창도 댓글 입력창과 같은 @멘션 자동완성을 쓴다 */
     // key: 업무마다 새로 선다 — 답글 초안·'이전 댓글 더 보기'가 다른 업무로 따라가지 않게(초안은 업무 열쇠로 남는다)
     ? <CommentPanel key={task.id} cardId={task.id} comments={source.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} loading={detailLoading} members={members}
-        focusId={focusTarget} flashId={flashId} />
+        focusId={focusTarget} flashId={flashId} assignees={source.assignees} />
     : null;
   const activityPanel = listsReady && !closed ? <ActivityPanel logs={source.activityLog} loading={detailLoading} /> : null;
   const versionsPanel = showVersions && !closed ? <VersionPanel cardId={task.id} pickedId={diffPick?.version.id} onPick={pickVersion} refreshKey={versionsKey} load={cloudMode ? null : fake?.versions} /> : null;

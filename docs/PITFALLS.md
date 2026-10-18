@@ -1466,3 +1466,9 @@ t가 붙은 주소가 방금 돌아온 자리를 덮는다). 열기 전 화면�
 가짜 생일 셋이 달력에 선다. `eventStore.guestBirthdays()`(supabase가 없을 때만)로 바꿨고 `logcheck`가 단정한다.
 **65-c.** **`save_event`는 definer다** — 관련 업무를 갈아 끼울 때 '있는 업무만' 거르는데, invoker면 카드 RLS가 고치는 사람이 못 보는 업무(직접 선택 · 지난해 리더 · 휴지통)를
 없는 것으로 보고 그 줄을 지운다. 그래서 첫 줄에서 `is_leader() or is_master()`를 직접 보고(42501) 업무 존재는 RLS 밖에서 본다. 표의 쓰기 정책도 같은 판정이라 지우기는 표 delete 하나다.
+
+### 댓글 고정·해결 (2026-10-18 · 0114)
+**66-a.** **리허설 클레임에 email을 싣는다** — `is_master()`·`is_admin()`은 sub가 아니라 `auth.jwt() ->> 'email'`로 admins 표를 본다. sub만 실으면 마스터·관리자가 순원으로 판정된다.
+그리고 '담당자'·'쓴 사람' 자리를 실데이터에서 고를 때 **관리자 계정을 빼고** 고른다 — 0114 리허설의 첫 담당자가 마스터 계정이어서 '담당자 고정 통과'가 마스터 갈래로 지나갔다.
+**66-b.** **댓글 행을 고치면 업무의 '마지막으로 고친 사람'이 바뀐다** — comments update → `trg_recount_card_comments`(0016)가 cards를 update → `set_card_updated_meta`가 updated_at·updated_by를 찍는다.
+고정·해결도 댓글 고치기·달기와 같이 업무를 '방금 고친 업무'로 만든다(지금은 그대로 · 바꾸려면 recount가 값이 같을 때 update하지 않게).

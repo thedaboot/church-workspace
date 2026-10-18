@@ -1270,3 +1270,104 @@ export const readJson = async (req) => req.body;
   ok((await post(db2, { eventFeed: true, events: ['x'] })).code === 400, '⑨ id가 아닌 값은 400');
   console.log(`PASS  0112 행사 일정 — 정책(읽기 승인 · 쓰기 리더진 + 마스터) · save_event · 실시간 · 행사 내 달력 서명·.ics·저장 ${n}가지`);
 }
+
+// ── 0114 댓글 고정·해결 — 마이그레이션 모양(고정은 쓴 사람·담당자·마스터·관리자 · 해결은 댓글 쓸 수 있는 사람 · 잠긴 업무 막힘 · 칸 가드) ──
+// 라이브 경계는 psql 리허설(ROLLBACK)로 봤다(순원 고정 42501 · 순원 해결 통과 · 담당자 고정 통과 · 표 update로 칸 바꾸기는 되돌려짐 ·
+// 잠긴 업무 42501 · 답글 22023). 여기는 파일 모양과 앱 배선 · api/ics.js의 '모두' 갈래를 가짜 DB로 끝까지 돌린다.
+// **되돌리기**(§3-5): set_comment_pin의 담당자·마스터·관리자 판정 줄을 지우면 ②가, can_comment_card의 locked_hidden_ids 줄을 지우면 ①이,
+// 보호 트리거의 `current_user not in` 갈래를 지우면 ④가, api/ics.js allGet의 서명 대조를 한 건 서명으로 바꾸면 ⑥이 깨진다.
+{
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { pathToFileURL, fileURLToPath } = await import('node:url');
+  const m = readFileSync(new URL('../supabase/migrations/0114_comment_pin_resolve.sql', import.meta.url), 'utf8');
+  const sql = m.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  let n = 0;
+  const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
+  const can = sql.match(/create or replace function public\.can_comment_card\([\s\S]*?\$\$;/)?.[0] || '';
+  ok(/public\.is_approved\(\)/.test(can) && /c <> all \(public\.hidden_ids\(\)::uuid\[\]\)/.test(can) && /c <> all \(public\.locked_hidden_ids\(\)::uuid\[\]\)/.test(can),
+    '① 댓글 쓸 수 있나 = 승인 · 숨은 업무 아님 · 잠긴 업무 아님(comments_insert와 같은 판정)');
+  const pin = sql.match(/create or replace function public\.set_comment_pin\([\s\S]*?end \$\$;/)?.[0] || '';
+  const res = sql.match(/create or replace function public\.set_comment_resolved\([\s\S]*?end \$\$;/)?.[0] || '';
+  ok([pin, res].every(f => /security definer set search_path = public, pg_temp/.test(f) && /not public\.can_comment_card\(c\.card_id\) then\s+raise exception [^;]*errcode = '42501'/.test(f)),
+    '② 두 함수 다 definer · 첫 판정이 can_comment_card(못 보는·잠긴 업무는 42501)');
+  ok(/c\.author_id = any \(array\[auth\.uid\(\), me\]\)/.test(pin) && /from public\.card_assignees a\s+where a\.card_id = c\.card_id and a\.profile_id = any \(array\[auth\.uid\(\), me\]\)/.test(pin)
+    && /or public\.is_master\(\)\s+or public\.is_admin\(\)\) then\s+raise exception [^;]*errcode = '42501'/.test(pin), '② 고정은 쓴 사람 · 담당자 · 마스터 · 관리자만');
+  ok(!/card_assignees|is_master|is_admin|author_id/.test(res), '② 해결은 그 밖의 판정이 없다(댓글 쓸 수 있는 사람 누구나 — 사용자 결정 2026-10-18)');
+  ok([pin, res].every(f => /if c\.parent_id is not null then\s+raise exception [^;]*errcode = '22023'/.test(f)), '③ 답글은 고정·해결 못 함');
+  ok(/pinned_by = case when p_on then coalesce\(pinned_by, me\) end/.test(pin) && /resolved_by = case when p_on then coalesce\(resolved_by, me\) end/.test(res),
+    '③ 바꾼 사람은 함수가 적는다(effective_uid) · 끄면 비운다');
+  const guard = sql.match(/create or replace function public\.guard_comment_marks\(\)[\s\S]*?end \$\$;/)?.[0] || '';
+  ok(/if current_user not in \('authenticated', 'anon'\) then\s+return new;/.test(guard) && /new\.pinned_at := old\.pinned_at; new\.pinned_by := old\.pinned_by;/.test(guard)
+    && /before insert or update of pinned_at, pinned_by, resolved_at, resolved_by on public\.comments/.test(sql), '④ 클라이언트가 표로 칸을 바꾸면 되돌린다(함수 안·서버 키·psql은 통과)');
+  ok(/revoke execute on function public\.guard_comment_marks\(\) from public, anon, authenticated;/.test(sql)
+    && ['set_comment_pin(uuid, boolean)', 'set_comment_resolved(uuid, boolean)', 'can_comment_card(uuid)'].every(f => sql.includes(`revoke all on function public.${f} from public, anon;`)),
+    '④ 익명 회수 · 트리거 함수는 아무도 못 부른다');
+  ok(!/create policy|alter policy/.test(sql), '④ 정책은 건드리지 않는다(남의 댓글 본문은 여전히 못 고친다)');
+  const cloud = readSplit('src/services/cloud.js');
+  ok(/rpc\('set_comment_pin', \{ p_comment: id, p_on: !!on \}\)/.test(cloud) && /rpc\('set_comment_resolved', \{ p_comment: id, p_on: !!on \}\)/.test(cloud), '⑤ 앱은 두 함수를 부른다');
+  const sync = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  ok(/pinnedAt: c\.pinned_at \|\| null,/.test(sync) && /resolvedBy: c\.resolved_by \? \(profileIdToName\.get\(c\.resolved_by\)/.test(sync), '⑤ 읽기는 칸 넷을 앱 모양으로(사람은 표시명)');
+
+  // ── api/ics.js '모두' 갈래(이번 주 일정 모두 추가) — 가짜 DB로 끝까지 ──
+  process.env.SUPABASE_SECRET_KEY ||= 'test-secret';
+  const dir = mkdtempSync(join(tmpdir(), 'lc-icsall-'));
+  const real = (rel) => pathToFileURL(fileURLToPath(new URL(`../${rel}`, import.meta.url))).href;
+  writeFileSync(join(dir, 'fake_lib.mjs'), `export * from '${real('api/_lib.js')}';
+export const adminClient = () => globalThis.__fakeDb;
+export const requireApprovedUser = async () => globalThis.__fakeUser;
+export const readJson = async (req) => req.body;
+`);
+  const icsSrc = readFileSync(new URL('../api/ics.js', import.meta.url), 'utf8')
+    .replace("from './_lib.js'", `from '${pathToFileURL(join(dir, 'fake_lib.mjs')).href}'`)
+    .replace(/from '\.\/(_\w+\.js)'/g, (_, f) => `from '${real(`api/${f}`)}'`)
+    .replace(/from '\.\.\/src\/([^']+)'/g, (_, f) => `from '${real(`src/${f}`)}'`);
+  writeFileSync(join(dir, 'ics.mjs'), icsSrc);
+  const ics = await import(pathToFileURL(join(dir, 'ics.mjs')).href);
+  const SVC = '33333333-3333-4333-8333-333333333333';
+  const DRAFT = '44444444-4444-4444-8444-444444444444';
+  const services = [
+    { id: SVC, kind: 'sunday', service_date: '2026-10-18', status: 'published', notices: [
+      { title: '축제', body: '10월 24일 (토) 오후 2시 본당' },
+      { title: '다음 주 예배 위원', body: '대표기도: 이수빈 형제' },
+      { title: '리더 모임', body: '10월 21일 (수) 오후 7시 30분' },
+    ] },
+    { id: DRAFT, kind: 'sunday', service_date: '2026-10-25', status: 'draft', notices: [{ title: 'x', body: '10월 30일 (금)' }] },
+  ];
+  globalThis.__fakeDb = { from: () => {
+    const f = []; const b = { select: () => b, eq: (c, v) => { f.push(r => r[c] === v); return b; }, maybeSingle: () => b,
+      then: (ok2, no) => Promise.resolve({ data: services.find(r => f.every(x => x(r))) ?? null, error: null }).then(ok2, no) };
+    return b;
+  } };
+  globalThis.__fakeUser = { id: 'u' };
+  const fakeRes = () => {
+    const r = { code: 0, headers: {}, body: undefined };
+    r.status = (c) => { r.code = c; return r; };
+    r.setHeader = (k, v) => { r.headers[k.toLowerCase()] = v; return r; };
+    r.json = (o) => { r.body = o; return r; };
+    r.end = (b) => { r.body = b; return r; };
+    return r;
+  };
+  const call = async (req) => { const r = fakeRes(); await ics.default({ headers: { host: 'x.app' }, ...req }, r); return r; };
+  const p1 = await call({ method: 'POST', body: { s: SVC, all: true } });
+  ok(p1.code === 200 && /^\/api\/ics\?s=[\w-]+&all=1&e=\d+&sig=[\w-]+$/.test(p1.body.url), '⑥ POST {s, all} → 10분 서명 주소');
+  ok((await call({ method: 'POST', body: { s: DRAFT, all: true } })).code === 404, '⑥ 작성 중 주보는 404');
+  ok((await call({ method: 'POST', body: { s: 'x', all: true } })).code === 400, '⑥ 주보 id가 아니면 400');
+  const q = Object.fromEntries(new URL(p1.body.url, 'https://x.app').searchParams);
+  const g1 = await call({ method: 'GET', query: q });
+  const body = String(g1.body).replace(/\r\n /g, '');
+  ok(g1.code === 200 && /^text\/calendar/.test(g1.headers['content-type']) && (body.match(/BEGIN:VEVENT/g) || []).length === 2
+    && body.indexOf('SUMMARY:리더 모임') < body.indexOf('SUMMARY:축제') && !body.includes('예배 위원'), '⑥ GET → VEVENT 둘(날짜 차례 · 날짜 없는 광고는 빠진다)');
+  ok(g1.headers['content-disposition'].includes(`filename*=UTF-8''${encodeURIComponent('2026.10.18 광고 일정.ics')}`), "⑥ 파일 이름 '2026.10.18 광고 일정.ics'");
+  ok((await call({ method: 'GET', query: { ...q, sig: 'x' } })).code === 403, '⑥ 서명이 틀리면 403');
+  ok((await call({ method: 'GET', query: { ...q, e: String(Date.now() - 1) } })).code === 403, '⑥ 만료되면 403');
+  // 한 건 서명(n=0)으로는 모두 갈래가 열리지 않고, 모두 서명으로는 한 건 갈래가 열리지 않는다
+  const one = await call({ method: 'POST', body: { s: SVC, n: 0 } });
+  const q1 = Object.fromEntries(new URL(one.body.url, 'https://x.app').searchParams);
+  ok((await call({ method: 'GET', query: { s: SVC, all: '1', e: q1.e, sig: q1.sig } })).code === 403
+    && (await call({ method: 'GET', query: { s: SVC, n: '0', e: q.e, sig: q.sig } })).code === 403, '⑥ 한 건 서명과 모두 서명은 서로를 열지 못한다');
+  const g2 = await call({ method: 'GET', query: q1 });
+  ok(g2.code === 200 && (String(g2.body).match(/BEGIN:VEVENT/g) || []).length === 1 && g2.headers['content-disposition'] === 'inline; filename="event.ics"', '⑥ 한 건 갈래는 그대로');
+  console.log(`PASS  0114 댓글 고정·해결 — 함수 판정(고정 쓴 사람·담당자·마스터·관리자 · 해결 댓글 쓸 수 있는 사람 · 잠금 · 답글) · 칸 가드 · 배선 · api/ics 모두 갈래 ${n}가지`);
+}

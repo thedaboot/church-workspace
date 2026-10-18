@@ -236,6 +236,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0110_past_year_leaders` | 지난해 리더가 지난해 '리더만 보기' 프로젝트를 계속 보고 고친다 — `my_leader_years()` · `leader_hidden_project_ids()` · `hidden_ids`·`can_see_project`·projects 정책 셋에 프로젝트 연도 갈래 · `leader_profile_ids_for(y)` · `project_audiences`의 리더 프로젝트 줄에 그해 리더(알림·멘션 후보). **0104·0105·0107 뒤에 적용**(그 몸통을 합쳤다 · 번호 차례 그대로) |
 | `0111_my_teams_to_person` | 설정(내 정보)에서 고친 소속을 명단(`people.teams`)에도 — `set_my_person_teams(text[])`(내 명단 사람 · 명단 이름만 · 겹침은 0107 트리거) · 설정 소속 칩도 명단과 같은 겹침 막기(사용자 지적 2026-10-18) |
 | `0112_events` | 행사 일정(전체 일정의 '행사' 칸 · 사용자 승인 시안 mock/b2) — `events`(예배·행사·수련회 · 시작일~종료일 · 장소 · 메모) · `event_tasks`(관련 업무 · 양쪽 cascade) · `event_feeds`(행사 내 달력 · 사람마다 한 줄 · 쓰기는 서버만) · `save_event`(행사 + 관련 업무 한 트랜잭션 · 리더진 + 마스터만) · 읽기 승인 전원 · 쓰기 리더진 + 마스터 · events·event_tasks 실시간. **푸시보다 먼저 적용**(PITFALLS 65-a) |
+| `0114_comment_pin_resolve` | 댓글 고정·해결(최상위 댓글만 · 사용자 승인 시안 mock/b3) — `comments.pinned_at·pinned_by·resolved_at·resolved_by` · `set_comment_pin`(쓴 사람·담당자·마스터·관리자) · `set_comment_resolved`(댓글 쓸 수 있는 사람) — 둘 다 definer · 잠긴 업무·숨은 업무 42501 · 답글 22023 · 칸은 보호 트리거가 지킨다(표 update로는 못 바꾼다) · 정책은 그대로. **푸시보다 먼저 적용** |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

@@ -1,7 +1,7 @@
 // logcheck-dash — 대시보드·연결 지도(그래프)·업무 셈. 노드 스위트(브라우저·서버 없음 · tests/README.md).
 // logcheck 묶음의 하나다 — `npm run verify -- logcheck`가 logcheck와 logcheck-* 전부를 돈다.
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { loadSource, readSplit } from './_load.mjs';
 
 const { TaskService } = await import(new URL('../src/services/domain.js', import.meta.url).href);
@@ -1250,4 +1250,81 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
     && /\.dc-step-size \{ transition: none !important; \}/.test(css), '높이·폭 전이는 대화창 길이 quint · 움직임 줄이기는 없음');
   assert.ok(/onCancel=\{\(\) => goStep\('edit'\)\}/.test(set), '복제의 취소는 이름 수정으로 돌아온다');
   console.log('PASS  한 창 안의 단계 전환(높이·폭 따라감 · dc-nav · 움직임 줄이기)');
+}
+
+// ── 프로젝트 '표' 보기 + 댓글 고정·해결(v5 2묶음 '업무 편의' · 0114) ─────────────────────────────
+// **되돌리기**: projectViews.sortTasks의 '빈 값은 맨 아래'(a.v == null → 1)를 sign에 곱하면 '내림차순에서도 미정은 맨 아래'가,
+// commentMarks.withMark의 `c.parentId` 거름을 빼면 '답글에는 붙지 않는다'가, canPin의 담당자 갈래를 빼면 '담당자는 남의 댓글도 고정'이,
+// taskTable의 정렬 방향 Fold를 `{sort && …}`로 되돌리면 '오름/내림은 그 자리에서 펴진다'가 깨진다.
+{
+  const PV = await import(new URL('../src/services/projectViews.js', import.meta.url).href);
+  const T = (id, o = {}) => ({ id, title: id, status: '시작 전', teams: [], assignees: [], startDate: '', dueDate: '', subtasks: [], dependsOn: [], ...o });
+  const list = [
+    T('a', { title: '포스터', status: '진행 중', dueDate: '2026-10-21', assignees: ['박지호'], subtasks: [{ done: true }, { done: false }] }),
+    T('b', { title: '대관', status: '완료', dueDate: '2026-10-06', assignees: ['김윤주'] }),
+    T('c', { title: '현수막', status: '시작 전' }),                                   // 마감 미정 · 담당자 없음
+    T('d', { title: '리허설', status: '보류 중', dueDate: '2026-11-07', assignees: ['이하랑', '정민수'], subtasks: [{ done: true }] }),
+    T('e', { title: '순번표', status: '상시', assignees: ['홍길동'] }),
+  ];
+  const ids = (a) => a.map(t => t.id).join('');
+  assert.strictEqual(ids(PV.sortTasks(list, 'dueDate', 'asc')), 'badce', '마감 오름차순 · 미정은 맨 아래(원래 차례)');
+  assert.strictEqual(ids(PV.sortTasks(list, 'dueDate', 'desc')), 'dabce', '내림차순에서도 미정은 맨 아래');
+  assert.strictEqual(ids(PV.sortTasks(list, 'status', 'asc')), 'cadbe', '상태는 보드 차례(시작 전 → 상시)');
+  assert.strictEqual(ids(PV.sortTasks(list, 'title', 'asc')), 'bdeac', '제목은 가나다');
+  assert.strictEqual(ids(PV.sortTasks(list, 'subtasks', 'desc')), 'dabce', '하위 업무 진척(다 한 것 먼저) · 없으면 맨 아래');
+  assert.strictEqual(ids(PV.sortTasks(list, 'assignees', 'asc')), 'badec', '담당자는 첫 사람 이름 · 없으면 맨 아래');
+  assert.deepStrictEqual([PV.nextSort(null, 'title'), PV.nextSort({ key: 'title', dir: 'asc' }, 'title'), PV.nextSort({ key: 'title', dir: 'desc' }, 'title'), PV.nextSort({ key: 'title', dir: 'desc' }, 'status')],
+    [{ key: 'title', dir: 'asc' }, { key: 'title', dir: 'desc' }, null, { key: 'status', dir: 'asc' }], '머리 누르기: 오름 → 내림 → 보드 차례 · 다른 칸은 오름부터');
+  assert.strictEqual(ids(PV.filterTasks(list, { statuses: ['진행 중', '보류 중'] })), 'ad', '상태 거르기');
+  assert.strictEqual(ids(PV.filterTasks(list, { assignees: ['정민수'] })), 'd', '여럿이 맡은 업무도 한 사람으로 걸린다');
+  assert.strictEqual(ids(PV.filterTasks(list, { assignees: [''] })), 'c', "'' = 담당자 미지정");
+  assert.strictEqual(ids(PV.filterTasks(list, { statuses: ['시작 전'], assignees: ['박지호'] })), '', '두 조건은 그리고');
+  assert.strictEqual(ids(PV.filterTasks(list, {})), 'abcde', '빈 조건은 전부');
+  assert.deepStrictEqual(PV.assigneesOf(list), ['김윤주', '박지호', '이하랑', '정민수', '홍길동', ''], '담당자 목록 가나다 + 미지정 맨 뒤');
+  assert.ok(PV.PHONE_COLS_DEFAULT.every(k => PV.PHONE_COL_CHOICES.includes(k)) && !PV.PHONE_COL_CHOICES.includes('title'), '폰은 제목 + 고른 두 칸');
+
+  // 댓글 고정·해결 — commentMarks는 스토어·토스트·클라우드를 들이므로 import 줄과 markComment(쓰기)를 떼고 순수 함수만 들인다
+  const cmSrc = readFileSync(new URL('../src/services/commentMarks.js', import.meta.url), 'utf8')
+    .replace(/^import .*$/gm, '').replace(/const FAIL = [\s\S]*$/, '');
+  const { splitPinned, withMark, canPin } = await loadSource('src/services/commentMarks.js', { src: cmSrc });
+  const C = [
+    { id: 'c1', text: '1', parentId: null }, { id: 'c2', text: '2', parentId: null, pinnedAt: '2026-10-02' },
+    { id: 'r1', text: 'r', parentId: 'c1' }, { id: 'c3', text: '3', parentId: null, pinnedAt: '2026-10-01' },
+  ];
+  const sp = splitPinned(C);
+  assert.deepStrictEqual([sp.pinned.map(c => c.id), sp.rest.map(c => c.id)], [['c3', 'c2'], ['c1']], '고정은 고정한 차례 · 답글은 둘 다에서 빠진다');
+  const m1 = withMark(C, 'c1', { pinned: true, resolved: true }, '홍길동', 'T');
+  assert.deepStrictEqual([m1[0].pinnedAt, m1[0].pinnedBy, m1[0].resolvedAt, m1[0].resolvedBy], ['T', '홍길동', 'T', '홍길동'], '고정·해결 표시');
+  assert.strictEqual(withMark(m1, 'c1', { resolved: false }, 'x', 'U')[0].resolvedAt, null, '미해결');
+  assert.strictEqual(withMark(m1, 'c1', { resolved: false }, 'x', 'U')[0].pinnedAt, 'T', '한쪽만 바꾸면 다른 쪽은 그대로');
+  assert.strictEqual(withMark(C, 'r1', { pinned: true }, 'x', 'T')[2].pinnedAt, undefined, '답글에는 붙지 않는다');
+  // 고정할 수 있는 사람 — 쓴 사람 · 업무 담당자 · 마스터 · 관리자(DB set_comment_pin과 같은 판정 · 0114)
+  const own = { id: 'k1', author: '홍길동', parentId: null };
+  assert.strictEqual(canPin({ comment: own, me: '홍길동' }), true, '쓴 사람은 고정');
+  assert.strictEqual(canPin({ comment: own, me: '박지호', assignees: ['박지호'] }), true, '담당자는 남의 댓글도 고정');
+  assert.strictEqual(canPin({ comment: own, me: '박지호', assignees: ['김윤주'] }), false, '그 밖의 사람은 고정 못 함');
+  assert.strictEqual(canPin({ comment: own, me: '박지호', isMaster: true }), true, '마스터');
+  assert.strictEqual(canPin({ comment: own, me: '박지호', isAdmin: true }), true, '관리자');
+  assert.strictEqual(canPin({ comment: { ...own, parentId: 'x' }, me: '홍길동', isMaster: true }), false, '답글은 누구도 고정 못 함');
+  assert.strictEqual(canPin({ comment: own, me: '' }), false, '이름을 모르면 고정 못 함');
+  // 화면 — 해결은 누구나(canMark) · 고정은 canPinIt일 때만 · 문구(사용자 결정 2026-10-18) · 댓글 칸 붙여넣기 → 첨부는 뺐다
+  const cmJsx = readFileSync(new URL('../src/modals/comments.jsx', import.meta.url), 'utf8');
+  assert.ok((cmJsx.match(/canMark && canPinIt &&/g) || []).length === 2, '고정 버튼은 폰 ⋯ 메뉴·데스크톱 아이콘 둘 다 canPinIt으로 거른다');
+  assert.ok(!cmJsx.includes('해결 취소') && (cmJsx.match(/'미해결'/g) || []).length === 2, "'해결 취소' → '미해결'");
+  assert.ok(cmJsx.includes('님이 해결로 변경 · ') && !cmJsx.includes('해결로 표시'), "'○○님이 해결로 변경 · 날짜'");
+  assert.ok(!/onPasteFiles/.test(cmJsx), '댓글 칸 사진 붙여넣기(→ 첨부)는 없다');
+  assert.ok(/<Fold open=\{resolvedOpen\}>/.test(cmJsx) && /<Fold open=\{!!c\.resolvedAt\}>/.test(cmJsx), '해결한 댓글은 그 자리에서 접고 편다(Fold)');
+  assert.ok(/markComment\(cardId, id, what, [^)]*\{ cloud: cloudMode \}\)/.test(cmJsx), '클라우드면 서버로(0114 함수)');
+  const cmMarks = readFileSync(new URL('../src/services/commentMarks.js', import.meta.url), 'utf8');
+  assert.ok(/commentPinCloud\(id, on\) : commentResolveCloud\(id, on\)/.test(cmMarks) && /showToast\(failText\(/.test(cmMarks), '서버 실패는 되돌리고 토스트');
+  // 표 — 폰 시트 '세부 항목' · 정렬 방향은 Fold로 펴진다 · 간트는 없다(사용자 결정 2026-10-18)
+  const tt = readFileSync(new URL('../src/components/taskTable.jsx', import.meta.url), 'utf8');
+  assert.ok(tt.includes('>세부 항목</p>') && !tt.includes('보이는 칸'), "폰 시트 '보이는 칸' → '세부 항목'");
+  assert.ok(/<Fold open=\{!!sort\}/.test(tt) && !/\{sort && \(\s*<Segmented/.test(tt), '정렬 항목을 누르면 오름/내림이 그 자리에서 펴진다');
+  const pvw = readFileSync(new URL('../src/views/projectView.jsx', import.meta.url), 'utf8');
+  assert.ok(/\['table', '표'\]\]/.test(pvw) && !/gantt|간트/i.test(pvw), '보기 전환은 보드 · 캘린더 · 그래프 · 표(간트 없음)');
+  assert.ok(!existsSync(new URL('../src/components/gantt.jsx', import.meta.url)), 'gantt.jsx는 들이지 않았다');
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+  assert.ok(/\.dc-fold \{[^}]*grid-template-rows: 0fr[^}]*var\(--ease-out-quint\)/.test(css) && /prefers-reduced-motion: reduce\) \{\s*\.dc-fold \{ transition: none; \}/.test(css), '접고 펴기는 quint · 움직임 줄이기면 바로');
+  console.log('PASS  표 정렬·거르기 · 세부 항목 · 정렬 방향 펴기 · 댓글 고정·해결(권한·문구)');
 }

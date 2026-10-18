@@ -45,7 +45,8 @@ export function tokenizeInline(text, marks = [], href = null) {
   return out;
 }
 // 줄 전체가 이미지 URL일 때만 image 노드로 (일부만 포함된 줄은 문단으로 두어 원문 보존)
-export const IMAGE_LINE_RE = /^https?:\/\/\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?$/i;
+// blob 주소 갈래는 게스트 본문 사진(v5 2묶음 · 붙여넣기 — MarkdownEditor uploadImage)이다. 이 탭에서만 살고 새로 고치면 깨진 그림이다.
+export const IMAGE_LINE_RE = /^(?:https?:\/\/\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?|blob:https?:\/\/[\w.:-]+\/[\w-]+)$/i;
 
 const textNode = (text, marks) => (marks && marks.length ? { type: 'text', text, marks } : { type: 'text', text });
 

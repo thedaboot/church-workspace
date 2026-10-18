@@ -84,6 +84,12 @@ export async function noticeIcsUrl(serviceId, index) {
   return (await askServer('/api/ics', { s: serviceId, n: index }, '일정을 만들지 못했어요\n잠시 후 다시 시도해주세요', out => !!out.url)).url;
 }
 
+// 이번 주 일정 모두 추가(v5 2묶음) — 같은 두 걸음 · 같은 10분 서명. 주보의 날짜가 읽히는 광고 전부(api/ics.js 'all' 갈래).
+export async function noticeIcsAllUrl(serviceId) {
+  if (!supabase) return null;
+  return (await askServer('/api/ics', { s: serviceId, all: true }, '일정을 만들지 못했어요\n잠시 후 다시 시도해주세요', out => !!out.url)).url;
+}
+
 // 주보 공개 보기 주소(사용자 결정 2026-09-26 · api/service-view.js) — 로그인한 승인 멤버가 발행본에 대해 받는다.
 // 서명은 서버 비밀로만 만들 수 있어 서버에 묻는다(한 주보에 한 주소 — 부르는 쪽이 주보마다 한 번 쥔다).
 // 게스트는 서버가 없다 → null(버튼을 세우지 않는다). 돌려주는 것은 경로(`/w/<id>/<sig>`)다.

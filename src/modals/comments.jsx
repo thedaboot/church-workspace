@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { Pencil, Trash2, Heart, ThumbsUp, Check } from 'lucide-react';
+import { Pencil, Trash2, Heart, ThumbsUp, Check, Pin, PinOff, CircleCheck, CircleDashed, Ellipsis, ChevronDown } from 'lucide-react';
 import { formatDate, isMobileViewport, imeComposing, coarsePointer } from '../utils.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { Avatar } from '../components/Avatar.jsx';
@@ -14,6 +14,10 @@ import { showToast } from '../components/Toast.jsx';
 import { reactionSummary, toggleReaction, commentReactionCloud, notifyReaction } from '../services/cloudSync.js';
 import { BTN } from '../components/buttons.js';
 import { failedComments } from '../services/optimistic.js';
+import { usePopover } from '../hooks/usePopover.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
+import { splitPinned, markComment, canPin } from '../services/commentMarks.js';
+import { Fold } from '../components/Fold.jsx';
 
 // ============================================================================
 // 업무 창의 댓글 · 활동 기록 패널
@@ -21,6 +25,11 @@ import { failedComments } from '../services/optimistic.js';
 // 둘 다 목록 화면에는 나오지 않는다 — 창을 열 때 그 카드 것만 읽어 온다
 // (cloudSync.loadCardDetail). 그래서 여기 오는 comments/logs는 이미 채워진 배열이다.
 // 댓글 반응(0032)도 같은 길로 실려 온다(comment.reactions).
+// 고정·해결(0114 · v5 2묶음 · 사용자 승인 시안 mock/b3): 최상위 댓글에만 — 고정한 것은 맨 위 '고정한 댓글' 묶음, 해결한 것은
+// 한 줄로 접힌다(누르면 펼친다 · components/Fold). 값·권한·저장은 services/commentMarks.js(고정은 쓴 사람·담당자·마스터·관리자 ·
+// 해결은 댓글을 쓸 수 있는 사람 — DB 함수가 같은 판정을 본다).
+// 조작: 데스크톱은 수정·삭제 옆 아이콘(같은 hover 규칙 · 터치 기기는 늘 보인다) · 폰은 '⋯' 한 자리에 고정·해결·수정·삭제.
+// 접고 펴기·자리 옮김은 뚝 바뀌지 않게(사용자 지적 2026-10-18) — 해결한 댓글은 Fold, 고정 묶음에 새로 든 줄은 .dc-move-in.
 // ============================================================================
 
 // ── 댓글 반응 (0032) ────────────────────────────────────────────────────────
@@ -206,15 +215,87 @@ const FLASH_ON = { backgroundColor: 'var(--color-accent-weak)', boxShadow: '0 0 
 const flashStyle = (on) => (on ? FLASH_ON : prefersReducedMotion() ? null
   : { transition: 'background-color .9s var(--ease-out-quint), box-shadow .9s var(--ease-out-quint)', borderRadius: '6px' });
 
+// 폰의 '⋯' — 고정·해결·수정·삭제를 한 자리에(멤버 관리 줄의 '⋯'와 같은 판 · usePopover). 삭제는 같은 ConfirmPopover를 '⋯'에 붙여 연다.
+// 고정은 canPinIt(쓴 사람·담당자·마스터·관리자)일 때만, 해결은 canMark(최상위 댓글)면 누구나.
+function CommentMore({ c, isOwner, canMark, canPinIt, onMark, onEdit, onDelete, hasReplies }) {
+  const pop = usePopover(176, 200, { gap: 6, measure: true });
+  const [confirm, setConfirm] = useState(false);
+  const choose = (fn) => () => { pop.close(); fn(); };
+  const item = 'w-full h-10 flex items-center gap-[9px] px-2.5 rounded-[7px] text-[13.5px] text-left outline-none transition-colors hover:bg-surface-hover';
+  return (
+    <span ref={pop.rootRef} className="ml-auto self-center inline-flex -my-1.5">
+      <ConfirmPopover open={confirm} onOpenChange={setConfirm} onConfirm={onDelete}
+        message={hasReplies ? '댓글을 삭제할까요? 답글도 함께 삭제돼요.' : '댓글을 삭제할까요?'}>
+        <span ref={pop.btnRef} className="inline-flex">
+          <button type="button" aria-label="댓글 더 보기" aria-haspopup="menu" aria-expanded={pop.open} data-comment-more=""
+            onClick={() => { setConfirm(false); pop.toggle(); }}
+            className={`w-7 h-7 inline-flex items-center justify-center rounded-full transition active:scale-95 ${pop.open || confirm ? 'bg-surface-hover text-fg' : 'text-fg-muted'}`}>
+            <Ellipsis size={15} />
+          </button>
+        </span>
+      </ConfirmPopover>
+      {pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated p-1', (
+        <div role="menu" aria-label="댓글 더 보기">
+          {canMark && canPinIt && (
+            <button type="button" role="menuitem" onClick={choose(() => onMark(c.id, { pinned: !c.pinnedAt }))} className={`${item} text-fg-secondary`}>
+              {c.pinnedAt ? <PinOff size={16} className="shrink-0 text-fg-muted" /> : <Pin size={16} className="shrink-0 text-fg-muted" />}
+              {c.pinnedAt ? '고정 해제' : '고정'}
+            </button>
+          )}
+          {canMark && (
+            <button type="button" role="menuitem" onClick={choose(() => onMark(c.id, { resolved: !c.resolvedAt }))} className={`${item} text-fg-secondary`}>
+              {c.resolvedAt ? <CircleDashed size={16} className="shrink-0 text-fg-muted" /> : <CircleCheck size={16} className="shrink-0 text-tag-green-fg" />}
+              {c.resolvedAt ? '미해결' : '해결'}
+            </button>
+          )}
+          {isOwner && (
+            <>
+              <button type="button" role="menuitem" onClick={choose(onEdit)} className={`${item} text-fg-secondary`}>
+                <Pencil size={16} className="shrink-0 text-fg-muted" /> 수정
+              </button>
+              <button type="button" role="menuitem" onClick={choose(() => setConfirm(true))} className={`${item} text-tag-red-fg`}>
+                <Trash2 size={16} className="shrink-0" /> 삭제
+              </button>
+            </>
+          )}
+        </div>
+      ))}
+    </span>
+  );
+}
+
+// 해결한 댓글 — 한 줄로 접힌 머리(누르면 펼친다 · 펼친 동안은 같은 줄이 접기 손잡이다).
+// 초록 체크 · 쓴 사람 · 첫 줄 · 답글 수. 해결한 사람과 때는 title로.
+function ResolvedLine({ c, replies, open, onToggle }) {
+  const first = String(c.text || '').split('\n').find(l => l.trim()) || '';
+  return (
+    <button type="button" onClick={onToggle} aria-expanded={open} data-comment-resolved={c.id}
+      title={c.resolvedBy ? `${c.resolvedBy}님이 해결로 변경 · ${formatDate(c.resolvedAt)}` : undefined}
+      className="w-full flex items-center gap-2 py-1 text-left rounded-md hover:bg-surface-hover transition-colors">
+      <CircleCheck size={14} className="shrink-0 text-tag-green-fg" />
+      <span className="shrink-0 text-[10.5px] font-bold text-tag-green-fg">해결됨</span>
+      <span className="shrink-0 text-[11px] font-semibold text-fg">{c.author}</span>
+      <span className="flex-1 min-w-0 truncate text-[11px] text-fg-muted">{first}</span>
+      {replies > 0 && <span className="shrink-0 text-[10px] text-fg-muted tabular-nums">답글 {replies}</span>}
+      {/* 펴고 접을 때 화살표는 바꿔 끼우지 않고 돈다(움직임 줄이기면 바로) */}
+      <ChevronDown size={13} className={`shrink-0 text-fg-muted transition-transform duration-300 ease-[var(--ease-out-quint)] motion-reduce:transition-none ${open ? 'rotate-180' : ''}`} />
+    </button>
+  );
+}
+
 // 노션 스타일 플랫 댓글: 아바타 + 이름·시간 + 본문, 카드 대신 헤어라인 구분
 // 작성자 본인일 때만 수정(인라인 textarea)·삭제(인라인 확인) 노출
 // failed — 서버에 못 간 댓글(아래 '못 보낸 댓글'): 얼굴·이름 줄·본문이 흐리고, 본문 아래에 실패 한 줄 + '다시 보내기'. 서버에 없는 글이라
 // 수정·삭제·반응을 걷는다(시안 A1). sending이면 '다시 보내기'를 잠깐 막는다.
-const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions, myKey, onToggleReaction, onOpenReaction, flash = false, failed = null, onResend }) => {
+const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions, myKey, onToggleReaction, onOpenReaction, flash = false, failed = null, onResend, onMark = null, canPinIt = false }) => {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(c.text);
   const editRef = useAutoGrow(editing ? editText : null);
   const isOwner = c.author === currentUser?.name && !failed;
+  const isMobile = useIsMobile();
+  // 고정·해결은 최상위 댓글에만(onMark가 온다) · 못 보낸 댓글에는 없다(서버에 없는 글이다) · 고정은 canPinIt일 때만(commentMarks.canPin)
+  const canMark = !!onMark && !failed;
+  const startEdit = () => { setEditText(c.text); setEditing(true); };
 
   const saveEdit = () => {
     if (!editText.trim()) return;
@@ -233,12 +314,30 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
           <span className="comment-stamp text-[10px] text-fg-muted whitespace-nowrap">
             {formatDate(c.timestamp)}{c.edited && ' · 수정됨'}
           </span>
-          {isOwner && !editing && (
+          {!editing && isMobile && (isOwner || canMark) && (
+            <CommentMore c={c} isOwner={isOwner} canMark={canMark} canPinIt={canPinIt} onMark={onMark} onEdit={startEdit}
+              onDelete={() => onDelete(c.id)} hasReplies={hasReplies} />
+          )}
+          {!editing && !isMobile && (isOwner || canMark) && (
             <span className="ml-auto self-center flex items-center gap-1.5 opacity-100 pointer-fine:md:opacity-0 md:group-hover/comment:opacity-100 transition-opacity">
-              <button onClick={() => { setEditText(c.text); setEditing(true); }} className="relative before:absolute before:-inset-[3px] text-fg-faint hover:text-fg-muted transition-colors" title="수정"><Pencil size={11} /></button>
-              <ConfirmPopover message={hasReplies ? '댓글을 삭제할까요? 답글도 함께 삭제돼요.' : '댓글을 삭제할까요?'} onConfirm={() => onDelete(c.id)}>
-                <button type="button" className="relative before:absolute before:-inset-[3px] text-fg-faint hover:text-tag-red-fg transition-colors" title="삭제"><Trash2 size={11} /></button>
-              </ConfirmPopover>
+              {canMark && canPinIt && (
+                <button type="button" onClick={() => onMark(c.id, { pinned: !c.pinnedAt })} data-comment-pin=""
+                  className={`relative before:absolute before:-inset-[3px] transition-colors ${c.pinnedAt ? 'text-accent-text' : 'text-fg-faint hover:text-fg-muted'}`}
+                  title={c.pinnedAt ? '고정 해제' : '고정'}>{c.pinnedAt ? <PinOff size={11} /> : <Pin size={11} />}</button>
+              )}
+              {canMark && (
+                <button type="button" onClick={() => onMark(c.id, { resolved: !c.resolvedAt })} data-comment-resolve=""
+                  className={`relative before:absolute before:-inset-[3px] transition-colors ${c.resolvedAt ? 'text-tag-green-fg' : 'text-fg-faint hover:text-tag-green-fg'}`}
+                  title={c.resolvedAt ? '미해결' : '해결'}>{c.resolvedAt ? <CircleDashed size={11} /> : <CircleCheck size={11} />}</button>
+              )}
+              {isOwner && (
+                <>
+                  <button onClick={startEdit} className="relative before:absolute before:-inset-[3px] text-fg-faint hover:text-fg-muted transition-colors" title="수정"><Pencil size={11} /></button>
+                  <ConfirmPopover message={hasReplies ? '댓글을 삭제할까요? 답글도 함께 삭제돼요.' : '댓글을 삭제할까요?'} onConfirm={() => onDelete(c.id)}>
+                    <button type="button" className="relative before:absolute before:-inset-[3px] text-fg-faint hover:text-tag-red-fg transition-colors" title="삭제"><Trash2 size={11} /></button>
+                  </ConfirmPopover>
+                </>
+              )}
             </span>
           )}
         </div>
@@ -348,8 +447,8 @@ const revealReply = (el) => {
 };
 
 // cardId — 초안 표의 열쇠(위 '쓰던 댓글·답글'). focusId·flashId — 알림·검색으로 연 댓글(modals.jsx): focusId가 접힌
-// '이전 댓글' 안이면 펴서 그리고, flashId인 댓글을 잠깐 밝힌다.
-export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser, onUpdate, onDelete, loading = false, members = [], focusId = null, flashId = null }) => {
+// '이전 댓글' 안이면 펴서 그리고, flashId인 댓글을 잠깐 밝힌다. assignees — 그 업무의 담당자(고정할 수 있는 사람 · commentMarks.canPin).
+export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser, onUpdate, onDelete, loading = false, members = [], focusId = null, flashId = null, assignees = [] }) => {
   const [replyingTo, setReplyingTo] = useState(null);
   // 초안은 **원 댓글별로** 들고 있는다. 하나의 replyText 하나였을 때는 답글을 쓰다가
   // 다른 댓글의 '답글'을 누르면 쓰던 글이 말없이 사라졌다(§8 — 사람이 쓴 것을
@@ -388,7 +487,7 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
   // 클라우드: 서버가 원본이고 댓글에 실려 온다(loadCardDetail). local은 방금 누른
   //   것을 서버 응답보다 먼저 보여주기 위한 덮개이고, 새 댓글 목록이 오면 버린다.
   // 게스트: local이 곧 원본이고 localStorage에 남는다(댓글과 같은 방식).
-  const { enabled, session } = useAuth();
+  const { enabled, session, isAdmin, isMaster } = useAuth();
   const cloudMode = enabled && !!session;
   // 열쇠는 auth user id다 — 이름으로 판정하면 동명이인이 서로의 반응을 자기 것으로 본다.
   // **합친 계정이면 남긴 계정의 id**(0063) — DB가 그 값으로 주인을 적고(comment_reactions
@@ -446,7 +545,13 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
     return reactionSummary(reactionsOf(c), me.userId).find(s => s.kind === peekAt.kind)?.people || [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peekAt, all, local, cloudMode, me.userId]);
-  const allTopLevel = all.filter(c => !c.parentId);
+  // 고정한 댓글은 맨 위 묶음으로 빠지고(고정한 차례), 나머지만 시간 순 목록·'이전 댓글'에 든다(services/commentMarks.js)
+  const { pinned, rest: allTopLevel } = useMemo(() => splitPinned(all), [all]);
+  // 해결한 댓글 중 펼쳐 둔 것 — 창을 다시 열면 다시 접힌다
+  const [openResolved, setOpenResolved] = useState(() => new Set());
+  const toggleResolved = (id) => setOpenResolved(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const mark = (id, what) => markComment(cardId, id, what, currentUser?.name || '', { cloud: cloudMode });
+  const pinOk = (c) => canPin({ comment: c, assignees, me: currentUser?.name || '', isMaster, isAdmin });
   const repliesByParent = useMemo(() => {
     const m = new Map();
     for (const c of all) if (c.parentId) { if (!m.has(c.parentId)) m.set(c.parentId, []); m.get(c.parentId).push(c); }
@@ -456,7 +561,7 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
 
   // 최신 댓글이 아래쪽이므로 뒤에서 N개만 노출 — 보여 줄 댓글(focusId)이 접힌 쪽에 있으면 다 편다
   const focusTop = focusId ? (all.find(c => c.id === focusId)?.parentId || focusId) : null;
-  const focusFolded = !!focusTop && !allTopLevel.slice(-INITIAL_COMMENTS).some(c => c.id === focusTop);
+  const focusFolded = !!focusTop && !pinned.some(c => c.id === focusTop) && !allTopLevel.slice(-INITIAL_COMMENTS).some(c => c.id === focusTop);
   const hiddenCount = showAll || focusFolded ? 0 : Math.max(0, allTopLevel.length - INITIAL_COMMENTS);
   const topLevel = hiddenCount > 0 ? allTopLevel.slice(-INITIAL_COMMENTS) : allTopLevel;
 
@@ -488,20 +593,20 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
     return <p className="text-center mt-8 text-xs text-fg-faint">첫 댓글을 남겨보세요!</p>;
   }
 
-  return (
-    <div ref={rootRef} className="divide-y divide-line/60">
-      {hiddenCount > 0 && (
-        <button
-          type="button" onClick={showOlder}
-          className="w-full text-[11px] text-accent-text hover:bg-surface-hover rounded-md py-2 mb-1 transition active:scale-95"
-        >이전 댓글 {hiddenCount}개 더 보기</button>
-      )}
-      {topLevel.map(c => (
-        <div key={c.id} className="py-3 first:pt-0 animate-in fade-in duration-200">
+  // 최상위 댓글 한 줄(답글·답글 칸까지) — 고정 묶음과 시간 순 목록이 같이 쓴다
+  // 해결로 바꾸면 본문이 그 자리에서 접히고 한 줄 머리가 펴진다(둘 다 Fold — 뚝 바뀌지 않게) · 고정 묶음의 줄은 옮겨 설 때 .dc-move-in
+  const thread = (c, moved = false) => {
+    const resolvedOpen = !c.resolvedAt || openResolved.has(c.id) || focusTop === c.id;
+    return (
+        <div key={c.id} data-thread={c.id} className={`py-3 first:pt-0 ${moved ? 'dc-move-in' : 'animate-in fade-in duration-200'}`}>
+          <Fold open={!!c.resolvedAt}>
+            <ResolvedLine c={c} replies={getReplies(c.id).length} open={resolvedOpen} onToggle={() => toggleResolved(c.id)} />
+          </Fold>
+          <Fold open={resolvedOpen}><div className={c.resolvedAt ? 'pt-2' : undefined}>
           <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} hasReplies={getReplies(c.id).length > 0}
             reactions={reactionsOf(c)} myKey={me.userId} onToggleReaction={toggleFor} flash={flashId === c.id}
             onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })}
-            failed={failed.get(c.id) || null} onResend={() => resend(c.id)} />
+            failed={failed.get(c.id) || null} onResend={() => resend(c.id)} onMark={mark} canPinIt={pinOk(c)} />
           {/* 답글 버튼은 **언제나 보인다.** 예전에는 데스크톱에서 hover해야 나타났는데,
               그러면 답글이라는 기능 자체가 마우스를 올려 본 사람에게만 있다(§8).
               답글이 있으면 개수를 같이 적는다 — 아래 접힌 줄이 몇 개인지 눌러 보지
@@ -567,8 +672,28 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
               )}
             </div>
           )}
+        </div></Fold>
         </div>
-      ))}
+    );
+  };
+
+  return (
+    <div ref={rootRef}>
+      {hiddenCount > 0 && (
+        <button
+          type="button" onClick={showOlder}
+          className="w-full text-[11px] text-accent-text hover:bg-surface-hover rounded-md py-2 mb-1 transition active:scale-95"
+        >이전 댓글 {hiddenCount}개 더 보기</button>
+      )}
+      {pinned.length > 0 && (
+        <div data-pinned-comments="" className="dc-move-in mb-3 rounded-lg border border-line bg-surface px-3 pt-2.5">
+          <p className="flex items-center gap-1.5 pb-2 text-[10.5px] font-bold text-fg-muted">
+            <Pin size={11} className="text-accent-text" />고정한 댓글<span className="tabular-nums font-semibold">{pinned.length}</span>
+          </p>
+          <div className="divide-y divide-line/60">{pinned.map(c => thread(c, true))}</div>
+        </div>
+      )}
+      <div className="divide-y divide-line/60">{topLevel.map(c => thread(c))}</div>
       {peekAt && peekPeople.length > 0 && (
         <ReactionPeopleModal kind={peekAt.kind} people={peekPeople} onClose={() => setPeekAt(null)} />
       )}

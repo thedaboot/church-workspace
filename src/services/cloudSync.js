@@ -400,6 +400,11 @@ const commentToApp = (c, reactionsBy) => ({
   timestamp: c.created_at,
   parentId: c.parent_id || null,
   edited: !!c.edited,
+  // 고정 · 해결(0114) — 칸이 없는 DB(0114 전)면 undefined → 표시 없음. 사람은 표시명으로(반응·담당자와 같은 판단 · §6-26)
+  pinnedAt: c.pinned_at || null,
+  pinnedBy: c.pinned_by ? (profileIdToName.get(c.pinned_by) || '이름 미상') : null,
+  resolvedAt: c.resolved_at || null,
+  resolvedBy: c.resolved_by ? (profileIdToName.get(c.resolved_by) || '이름 미상') : null,
   // 반응(0032). 담당자와 같은 판단이다 — DB는 id로 가리키고 **표시명은 읽을 때
   // profiles에서 파생한다**(§6-26). 개수 컬럼을 두지 않으므로 화면이 이 배열을 센다.
   reactions: (reactionsBy?.get(c.id) || []).map(r => ({
@@ -813,6 +818,9 @@ export async function commentReactionCloud(commentId, kind, on) {
   return write(() => (on ? cloud.addCommentReaction(commentId, kind) : cloud.removeCommentReaction(commentId, kind)));
 }
 export async function commentDeleteCloud(commentId) { return write(() => cloud.deleteComment(commentId)); }
+// 고정 · 해결(0114 · services/commentMarks.js가 부른다) — 화면은 먼저 그려 두고, 실패하면 부르는 쪽이 되돌린다.
+export async function commentPinCloud(commentId, on) { return write(() => cloud.setCommentPin(commentId, on)); }
+export async function commentResolveCloud(commentId, on) { return write(() => cloud.setCommentResolved(commentId, on)); }
 
 // 리더만 보는 원본을 복제하면(controllers.handleDuplicateProject) 처음부터 리더만으로 만든다 — 업무가 들어가기 전에(0092 ·
 // 리더가 아니면 DB 트리거가 'all'로 되돌린다). 그 밖의 새 프로젝트는 지금처럼 visibility를 보내지 않는다(DB 기본값 'all').

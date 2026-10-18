@@ -1,5 +1,5 @@
 // ============================================================================
-// 업무 보드 — 프로젝트 · 카드(담당 팀·담당자 조인) · 요약 고정 · 순서 · 댓글 · 댓글 반응(0032) · 참고 링크
+// 업무 보드 — 프로젝트 · 카드(담당 팀·담당자 조인) · 요약 고정 · 순서 · 댓글(고정·해결 0114) · 댓글 반응(0032) · 참고 링크
 // ----------------------------------------------------------------------------
 // 프로젝트·업무를 지우면 첨부 실체 정리는 drive.js의 trashFolder·trashFileBodies 한 벌로 간다(§6-29-e).
 // 0104부터 앱의 지우기는 휴지통(trashCard·trashProject)이다 — deleteCard·deleteProject는 함수가 없는 DB의 되돌아갈 길로 남는다.
@@ -241,6 +241,14 @@ export async function updateComment(id, body) {
 }
 export async function deleteComment(id) {
   unwrap(await client().from('comments').delete().eq('id', id));
+}
+// 고정 · 해결(0114) — 남의 댓글 행은 update 정책이 막으므로 칸 넷만 고치는 DB 함수로 간다(판정도 함수가 본다 · 42501).
+// 돌려받는 것은 고친 행 하나다(부르는 쪽은 실시간 재조회를 기다리지 않고 화면 값을 그대로 둔다).
+export async function setCommentPin(id, on) {
+  return unwrap(await client().rpc('set_comment_pin', { p_comment: id, p_on: !!on }));
+}
+export async function setCommentResolved(id, on) {
+  return unwrap(await client().rpc('set_comment_resolved', { p_comment: id, p_on: !!on }));
 }
 
 // ── comment_reactions (0032 · 하트·따봉·체크) ───────────────────────────────

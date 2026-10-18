@@ -24,14 +24,14 @@ import {
   fetchPlaylistSongs, fetchVideoTitle, setNoteShared,
   fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile, SONGFORM, CUESHEET, lastCueFile,
   recentSongs as worshipRecentSongs, prefillRoles as worshipPrefillRoles,
-  fetchMyNotes, noticeIcsUrl, fetchCovers, COVER, publicServiceUrl,
+  fetchMyNotes, noticeIcsUrl, noticeIcsAllUrl, fetchCovers, COVER, publicServiceUrl,
 } from '../services/worship.js';
 import { CoverImg, useCoverShown } from '../components/worshipCover.jsx';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 import { imeComposing, isKakaoInApp } from '../utils.js';
 import { churchSeason } from '../services/churchYear.js';
 import { myNoteRows, coverImage } from '../services/serviceView.js';
-import { buildIcs, googleCalendarUrl, kakaoExternal, noticeEvent } from '../services/noticeDate.js';
+import { buildIcs, buildIcsMulti, googleCalendarUrl, kakaoExternal, noticeEvent, noticeIcsName } from '../services/noticeDate.js';
 
 import { Segmented } from '../components/segmented.jsx';
 import { useScrollMemory } from '../hooks/useScrollMemory.js';
@@ -998,6 +998,31 @@ export function WorshipView({ onOpenBible } = {}) {
     }, { quiet: true });
   }, []);
 
+  // ── 이번 주 일정 모두 추가(v5 2묶음 · 2026-10-18) ───────────────────────────────
+  // 날짜가 읽힌 광고 전부를 .ics 하나로(VEVENT 여러 개). 아이폰·데스크톱·카카오 인앱은 한 건과 같은 두 걸음
+  // (api/ics.js 'all' 갈래 · 10분 서명 주소 · 서버가 같은 파서로 다시 읽는다). 안드로이드는 구글 템플릿이 한 건씩이라
+  // 화면에서 만든 .ics를 내려받는다(카카오 인앱 안드로이드는 내려받기가 안 돼 서명 주소를 바깥 브라우저로 연다). 게스트는 내려받기.
+  const addAllToCalendar = useCallback(async (svc, events) => {
+    if (!events?.length) return;
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    const kakao = isKakaoInApp(ua);
+    const download = () => {
+      const blob = new Blob([buildIcsMulti(events)], { type: 'text/calendar;charset=utf-8' });
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href; a.download = noticeIcsName(svc?.service_date); a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 10000);
+    };
+    if (/Android/i.test(ua) && !kakao) { download(); return; }
+    await attempt('달력에 넣기', '달력에 넣지 못했어요', null, async () => {
+      const url = await noticeIcsAllUrl(svc.id);
+      if (!url) { download(); return; }
+      const abs = new URL(url, window.location.origin).href;
+      window.location.href = kakao ? kakaoExternal(abs) : abs;
+    }, { quiet: true });
+  }, []);
+
   // 주보 공개 보기 주소(2026-09-26 · api/service-view.js) — 주보마다 한 번만 묻고 쥔다(서명은 늘 같다).
   // 실패는 쥐지 않는다(다음에 다시 묻는다). 게스트는 null → 버튼이 서지 않는다.
   const shareLinks = useRef(new Map());
@@ -1059,7 +1084,7 @@ export function WorshipView({ onOpenBible } = {}) {
         onOpenAttendance={() => { setEditOnOpen(false); setNoteOnOpen(false); setScreen('attendance'); }}
         onOpenBible={onOpenBible}
         onPullPlaylist={pullPlaylist} onLookupTitle={lookupTitle} onShareNote={shareNote}
-        onAddToCalendar={addToCalendar} focusNote={noteOnOpen}
+        onAddToCalendar={addToCalendar} onAddAllToCalendar={addAllToCalendar} focusNote={noteOnOpen}
       />
     );
   }

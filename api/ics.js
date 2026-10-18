@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { adminClient, readJson, requireApprovedUser, safeEqual, isAdminEmail, UUID_RE, serviceKindLabel } from './_lib.js';
-import { readNoticeDate, buildIcs, noticeEvent } from '../src/services/noticeDate.js';
+import { readNoticeDate, buildIcs, buildIcsMulti, noticeEvent, noticeEvents, noticeIcsName } from '../src/services/noticeDate.js';
 import { isApprovedProfile } from '../src/services/approval.js';
 import { STATUS_KO, feedKeepRow, feedEvent, buildFeedIcs, feedCalName, feedUrls, taskLink } from '../src/services/calendarFeed.js';
 import { isRestricted } from '../src/services/visibility.js';
@@ -18,6 +18,13 @@ import { eventFeedEvent, EVENT_FEED_NAME } from '../src/services/events.js';
 //        { url: '/api/ics?s=&n=&e=&sig=' } — **10분짜리 서명 주소**
 //   GET  ?s=&n=&e=&sig=                        → 서명·만료 확인 → text/calendar
 // 서명 열쇠는 서버 비밀(SUPABASE_SECRET_KEY)에서 갈라 낸다(새 비밀 값을 만들지 않는다).
+//
+// **이번 주 일정 모두 추가**(v5 2묶음 · 2026-10-18)도 같은 두 걸음 · 같은 10분 서명이다 — 그 주보에서 날짜가 읽히는 광고 전부를
+// .ics 하나(VEVENT 여러 개 · noticeDate.buildIcsMulti)로:
+//   POST { s: 주보 id, all: true } + Bearer → 읽히는 광고가 있으면 { url: '/api/ics?s=&all=1&e=&sig=' }
+//   GET  ?s=&all=1&e=&sig=                → 서명(순번 자리에 'all' — 한 건 서명과 섞이지 않는다)·만료 → text/calendar
+// 광고 목록은 GET에서 **다시 읽는다**(화면이 보낸 목록을 믿지 않는다 — 한 건과 같은 이유). UID는 광고마다 한 건과 같아서
+// 한 건씩 넣은 일정과 겹쳐 쌓이지 않는다. 안드로이드는 구글 템플릿이 한 건씩이라 화면이 .ics를 내려받는다(worshipView).
 //
 // **내 달력 구독**(2026-09-28 · 0085 · services/calendarFeed.js)도 여기서 받는다 — Hobby 요금제라
 // 함수 파일을 늘리지 않는다. 몸통/주소로 갈래를 가른다:
@@ -57,6 +64,16 @@ async function load(supabase, s, n) {
   const notice = Array.isArray(data.notices) ? data.notices[n] : null;
   const read = notice ? readNoticeDate(notice, data.service_date) : null;
   return read ? { service: data, notice, read } : null;
+}
+
+// 주보 하나의 날짜가 읽히는 광고 전부 → { service, events } | null (발행본 · 한 건 이상)
+async function loadAll(supabase, s) {
+  const { data, error } = await supabase.from('services')
+    .select('id, kind, service_date, status, notices').eq('id', s).maybeSingle();
+  if (error) { console.error('[ics] 주보 조회 실패:', error); return null; }
+  if (!data || data.status !== 'published') return null;
+  const events = noticeEvents(data, Array.isArray(data.notices) ? data.notices : [], serviceKindLabel(data.kind));
+  return events.length ? { service: data, events } : null;
 }
 
 const argsOf = (src) => {
@@ -252,6 +269,28 @@ async function feedGet(req, res) {
   res.status(200).end(buildFeedIcs({ calName: feedCalName(proj.name), events }));
 }
 
+// GET ?s=&all=1&e=&sig= — 이번 주 일정 모두 추가(위 머리말)
+async function allGet(req, res) {
+  const s = String(req.query?.s || '');
+  const e = Number(req.query?.e);
+  if (!UUID_RE.test(s) || !Number.isFinite(e) || e < Date.now() || !safeEqual(String(req.query?.sig || ''), sign(s, 'all', e))) {
+    res.status(403).setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end('링크가 만료되었어요. 앱에서 다시 눌러주세요.');
+    return;
+  }
+  const hit = await loadAll(adminClient(), s);
+  if (!hit) {
+    res.status(404).setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end('이 주보에서 날짜를 읽지 못했어요.');
+    return;
+  }
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+  // 한글 파일 이름은 filename*(RFC 5987) — 옛 이름 칸은 ASCII로 남긴다
+  res.setHeader('Content-Disposition', `inline; filename="notices.ics"; filename*=UTF-8''${encodeURIComponent(noticeIcsName(hit.service.service_date))}`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.status(200).end(buildIcsMulti(hit.events));
+}
+
 export default async function handler(req, res) {
   if (req.method === 'POST') {
     const supabase = adminClient();
@@ -261,6 +300,15 @@ export default async function handler(req, res) {
     // `project`가 있으면 내 달력 구독, `eventFeed`면 행사 내 달력(0112), 둘 다 없으면 광고 한 건(아래 — 예전 그대로)
     if (body && body.project !== undefined) { await feedPost(req, res, supabase, user, body); return; }
     if (body && body.eventFeed !== undefined) { await eventFeedPost(req, res, supabase, user, body); return; }
+    // 이번 주 일정 모두 추가 — 그 주보의 광고 전부(위 머리말)
+    if (body && body.all === true) {
+      const s = String(body.s || '');
+      if (!UUID_RE.test(s)) { res.status(400).json({ error: '어느 주보인지 알 수 없어요' }); return; }
+      if (!(await loadAll(supabase, s))) { res.status(404).json({ error: '이 주보에서 날짜를 읽지 못했어요' }); return; }
+      const e = Date.now() + TTL_MS;
+      res.status(200).json({ url: `/api/ics?s=${s}&all=1&e=${e}&sig=${sign(s, 'all', e)}` });
+      return;
+    }
     const a = argsOf(body);
     if (!a) { res.status(400).json({ error: '어느 광고인지 알 수 없어요' }); return; }
     const hit = await load(supabase, a.s, a.n);
@@ -271,6 +319,7 @@ export default async function handler(req, res) {
   }
   if (req.method !== 'GET') { res.status(405).json({ error: 'method' }); return; }
   if (req.query?.f !== undefined) { await feedGet(req, res); return; }
+  if (req.query?.all !== undefined) { await allGet(req, res); return; }
 
   const a = argsOf(req.query);
   const e = Number(req.query?.e);
