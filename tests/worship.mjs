@@ -315,10 +315,10 @@ const pure = await ev(`(async () => {
     headed: m.groupRoster({
       people: [{ id: 'a', name: '한결' }, { id: 'b', name: '나리' },
         { id: 'p', name: '임성빈', is_pastor: true },
-        { id: 'd', name: '신효진' }, { id: 'e', name: '다솔' }, { id: 'f', name: '정후' }],
+        { id: 'd', name: '신효진' }, { id: 'e', name: '다솔' }, { id: 'f', name: '정후' }, { id: 'h', name: '하람' }],
       groups: [{ id: 'g1', name: '꼬순', leader_person_id: 'a' }],
       members: [{ group_id: 'g1', person_id: 'b' }, { group_id: 'g1', person_id: 'e' }],
-      roles: [{ person_id: 'd', role: 'director' }, { person_id: 'e', role: 'director' }],
+      roles: [{ person_id: 'd', role: 'director' }, { person_id: 'e', role: 'director' }, { person_id: 'f', role: 'vision_maker' }],
     }).map(g => [g.id === null ? 'null' : g.id, g.name, g.people.map(p => p.name).join(',')]),
     // 그 묶음들은 **전체 자격자만** 만진다 — 순장에게는 자기 순뿐이다
     toggleHead: [m.canToggleGroup({ canCheckAll: false, ledGroupIds: ['pastor', 'director'] }, 'pastor'),
@@ -394,13 +394,14 @@ check("어느 순에도 없는 사람은 '순 미지정'으로, 거기도 가나
   JSON.stringify(pure.buckets[1]) === '["순 미지정","다솔,정후"]', JSON.stringify(pure.buckets));
 // 신효진 부장·임성빈 교역자가 '순 미지정'에 들어가 있던 자리다(사용자 지적 2026-09-07).
 // **되돌리기**: groupRoster에서 heads를 앞에 붙이지 않거나 headed를 빼면 이 셋이 깨진다.
-check('전도사님·부장님 묶음이 순 묶음 위에 선다',
-  JSON.stringify(pure.headed.slice(0, 2)) === '[["pastor","전도사님","임성빈"],["director","부장님","다솔,신효진"]]',
+// 비전 메이커는 부장님 묶음에 부장 다음으로(사용자 결정 2026-10-19) — 되돌리기: vmIds 갈래를 지우면 정후가 '순 미지정'으로 간다.
+check('전도사님 · 부장님·비전 메이커 묶음이 순 묶음 위에 선다',
+  JSON.stringify(pure.headed.slice(0, 2)) === '[["pastor","전도사님","임성빈"],["director","부장님 · 비전 메이커","다솔,신효진,정후"]]',
   JSON.stringify(pure.headed));
 check('순에 편성된 부장은 그 순에도 그대로 선다',
   JSON.stringify(pure.headed[2]) === '["g1","꼬순","한결,나리,다솔"]', JSON.stringify(pure.headed));
-check("교역자·부장은 '순 미지정'에서 빠진다(거기 남는 것은 정후뿐)",
-  JSON.stringify(pure.headed[3]) === '["null","순 미지정","정후"]' && pure.headed.length === 4,
+check("교역자·부장·비전 메이커는 '순 미지정'에서 빠진다(거기 남는 것은 하람뿐)",
+  JSON.stringify(pure.headed[3]) === '["null","순 미지정","하람"]' && pure.headed.length === 4,
   JSON.stringify(pure.headed));
 check('전도사님·부장님 묶음은 전체 자격자만 만진다',
   JSON.stringify(pure.toggleHead) === '[false,false,true]', JSON.stringify(pure.toggleHead));

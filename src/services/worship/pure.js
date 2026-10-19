@@ -142,7 +142,9 @@ const UNASSIGNED = '순 미지정';
 // id가 uuid가 아니라 글자인 이유: 이 묶음은 groups 행이 아니라 **명단 속성으로 만든 묶음**이다.
 export const PASTOR_GROUP = 'pastor';
 export const DIRECTOR_GROUP = 'director';
-const HEAD_GROUPS = new Map([[PASTOR_GROUP, '전도사님'], [DIRECTOR_GROUP, '부장님']]);
+// 비전 메이커(0094 · 청년부 간사)는 부장님 묶음에 같이 선다 — 부장 먼저(사용자 결정 2026-10-19 '부장님·비전 메이커' · 김우한 집사님이 '순 미지정'에 있었다)
+const VISION_MAKER = 'vision_maker';
+const HEAD_GROUPS = new Map([[PASTOR_GROUP, '전도사님'], [DIRECTOR_GROUP, '부장님 · 비전 메이커']]);
 
 // 찬양팀 이름(PRAISE_TEAM)은 고정 상수이고 serviceView.js에 있다(위 import · 0044).
 // ── 순수 헬퍼 (브라우저 없이도 검사된다) ────────────────────────────────────
@@ -362,7 +364,11 @@ export function groupRoster({ people = [], groups = [], members = [], roles = []
   // (호칭도 people.js honorific이 같은 차례로 가른다).
   const directorIds = new Set((roles || []).filter(r => r?.role === DIRECTOR_GROUP && r?.person_id).map(r => r.person_id));
   const pastors = people.filter(p => p?.is_pastor).sort(byName);
-  const directors = people.filter(p => !p?.is_pastor && directorIds.has(p.id)).sort(byName);
+  const vmIds = new Set((roles || []).filter(r => r?.role === VISION_MAKER && r?.person_id).map(r => r.person_id));
+  const directors = [
+    ...people.filter(p => !p?.is_pastor && directorIds.has(p.id)).sort(byName),
+    ...people.filter(p => !p?.is_pastor && !directorIds.has(p.id) && vmIds.has(p.id)).sort(byName),
+  ];
   // 이 사람들은 '순 미지정'에서 뺀다(순 편성 여부와 무관하다 — placed와는 다른 집합이다)
   const headed = new Set([...pastors, ...directors].map(p => p.id));
   const heads = [
