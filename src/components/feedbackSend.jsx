@@ -126,7 +126,7 @@ export function FeedbackSend({ onClose }) {
     <div onMouseDown={(e) => { downOnScrim.current = e.target === e.currentTarget; }}
       onClick={(e) => { if (e.target === e.currentTarget && downOnScrim.current) close(); }}
       data-feedback-scrim=""
-      className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-[95] flex items-end md:items-center md:justify-center md:p-4 bg-black/50 dc-scrim${out}`}>
+      className={`fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--app-vh,100dvh)] z-[95] flex items-end md:items-center md:justify-center md:p-4 bg-black/50 dc-scrim${out}`}>
       <div role="dialog" aria-label="피드백 전송" data-feedback-send=""
         className={`w-full md:max-w-[440px] max-h-[88%] md:max-h-[85dvh] flex flex-col overflow-hidden bg-surface rounded-t-2xl md:rounded-lg md:border md:border-line md:shadow-elevated dc-sheet-dialog${out}`}>
         <span className="md:hidden shrink-0 self-center w-9 h-1 mt-2.5 rounded-full bg-line" />

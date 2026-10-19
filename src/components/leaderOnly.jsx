@@ -150,7 +150,7 @@ function useLeaderSwitch(project, onSet) {
     // 키보드 밑에 남아 '이름으로 추가하기' 칸이 가렸다). 칸에 초점이 가면 App의 커서 따라가기가 시트 가운데 칸(하나뿐인 구르는 칸)을 민다.
     // 직접 고르기에서는 시트 높이를 고정한다(사람이 늘고 줄어도 시트 머리가 오르내리지 않게).
     return createPortal(
-      <div className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-[95] flex items-end bg-black/50 dc-scrim${sheetLeaving ? ' dc-out' : ''}`} aria-hidden={sheetLeaving || undefined}>
+      <div className={`fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--app-vh,100dvh)] z-[95] flex items-end bg-black/50 dc-scrim${sheetLeaving ? ' dc-out' : ''}`} aria-hidden={sheetLeaving || undefined}>
         <div ref={sheetRef} role="dialog" aria-label="보는 사람" data-viewers-sheet=""
           className={`w-full flex flex-col overflow-hidden rounded-t-2xl bg-surface dc-sheet-up${sheetLeaving ? ' dc-out' : ''} ${
             isCustomOnly(project) ? 'h-[min(88%,680px)]' : 'max-h-[88%]'}`}>

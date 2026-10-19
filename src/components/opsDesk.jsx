@@ -517,7 +517,7 @@ export function OpsDesk({ onClose }) {
 
   return createPortal(isMobile ? (
     <div role="dialog" aria-label="관리자 메뉴" data-ops-desk=""
-      className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-[95] flex flex-col bg-surface dc-rise${out}`}
+      className={`fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--app-vh,100dvh)] z-[95] flex flex-col bg-surface dc-rise${out}`}
       style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
       {body}
     </div>

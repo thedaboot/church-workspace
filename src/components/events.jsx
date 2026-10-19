@@ -362,7 +362,7 @@ function EventWindow({ initialId, initialDraft, canEdit, onClose }) {
   };
   return createPortal(isMobile ? (
     // 보이는 창(--app-vh · App.jsx) 안에 선다 — 키보드가 올라와도 시트 바닥이 키보드 밑에 남지 않는다(leaderOnly 시트와 같은 길)
-    <div {...scrimProps} className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-50 flex items-end bg-black/50 dc-scrim${out}`}>
+    <div {...scrimProps} className={`fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--app-vh,100dvh)] z-50 flex items-end bg-black/50 dc-scrim${out}`}>
       <div role="dialog" aria-label={title} data-event-dialog=""
         className={`w-full max-h-[92%] overflow-y-auto overscroll-contain flex flex-col px-5 pt-2.5 rounded-t-2xl bg-surface dc-sheet-up${out}`}
         style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
@@ -488,7 +488,7 @@ function TaskAddButton({ open, setOpen, isMobile, big, value, onToggle, tasksSta
       </button>
       {open && createPortal(isMobile ? (
         // 폰 — 일정 시트 위에 한 겹 더(보이는 창 안 · 뒤판 누르면 닫힘)
-        <div className="fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-[90] flex items-end bg-black/30 dc-scrim"
+        <div className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--app-vh,100dvh)] z-[90] flex items-end bg-black/30 dc-scrim"
           onPointerDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
           <div ref={popRef} role="dialog" aria-label="관련 업무 추가"
             className="w-full h-[72%] flex flex-col px-4 pt-2.5 rounded-t-2xl bg-surface dc-sheet-up"

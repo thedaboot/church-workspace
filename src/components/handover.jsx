@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, GraduationCap, Handshake, PencilLine, RotateCcw, X } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { Skeleton } from './media.jsx';
+import { Fold } from './Fold.jsx';
 import { profileAvatar } from '../services/cloudSync.js';
 import { Segmented } from './segmented.jsx';
 import { BTN, BTN_SOFT, BTN_CONFIRM, BTN_CONFIRM_QUIET } from './buttons.js';
@@ -521,24 +522,39 @@ export function HandoverHomeCards({ onTaskClick }) {
       {outgoing.map(it => {
         const to = m.nameOf(it.to);
         const labels = itemPhrases(it).join(' · ');
-        const done = m.hv.notes?.[it.id]?.done;
+        const done = !!m.hv.notes?.[it.id]?.done;
+        const taskCount = (m.hv.notes?.[it.id]?.taskIds || []).length;
+        // 작성 완료 뒤에는 한 줄로 접는다(사용자 승인 목업 ⑥-c 2026-10-19 — 1월 1일까지 큰 카드가 홈 맨 위를 차지했다).
+        // 쓰기 전 카드 ↔ 한 줄은 접고 펴기(Fold · quint) · 한 줄의 '수정'은 같은 인계 내용 시트를 연다.
         return (
-          <div key={it.id} data-hv-out={it.id} className={`home-card dc-card ${CARD} p-4 md:p-[18px]`} style={CARD_STYLE}>
-            <span className="flex items-center gap-1.5 h-[18px] mb-2">
-              <Handshake size={13} className="text-fg-faint shrink-0" />
-              <span className="text-[11.5px] font-semibold text-fg-muted">인수인계</span>
-            </span>
-            <p className="text-[15px] font-extrabold text-fg tracking-[-0.3px] leading-[1.4]">
-              {to ? `${TO_YEAR}년 ${labels}${objectParticle(labels)} ${to}님에게 인계해요` : `${TO_YEAR}년 ${labels} 인계`}
-            </p>
-            <div className="mt-2.5 flex items-center gap-2">
-              <span className="text-[12px] text-fg-muted tabular-nums">
-                {[`업무 ${(m.hv.notes?.[it.id]?.taskIds || []).length}건`, done ? '작성 완료' : '미작성'].join(' · ')}
-              </span>
-              <button type="button" className={`${BTN} ml-auto inline-flex items-center gap-1`} onClick={() => setWriting(it)}>
-                <PencilLine size={13} /><span>{done ? '인계 내용 수정' : '인계 내용 작성'}</span>
-              </button>
-            </div>
+          <div key={it.id} data-hv-out={it.id} data-hv-done={done ? 'true' : 'false'} className={`home-card dc-card ${CARD}`} style={CARD_STYLE}>
+            <Fold open={!done}>
+              <div className="p-4 md:p-[18px]">
+                <span className="flex items-center gap-1.5 h-[18px] mb-2">
+                  <Handshake size={13} className="text-fg-faint shrink-0" />
+                  <span className="text-[11.5px] font-semibold text-fg-muted">인수인계</span>
+                </span>
+                <p className="text-[15px] font-extrabold text-fg tracking-[-0.3px] leading-[1.4]">
+                  {to ? `${TO_YEAR}년 ${labels}${objectParticle(labels)} ${to}님에게 인계해요` : `${TO_YEAR}년 ${labels} 인계`}
+                </p>
+                <div className="mt-2.5 flex items-center gap-2">
+                  <span className="text-[12px] text-fg-muted tabular-nums">{[`업무 ${taskCount}건`, '미작성'].join(' · ')}</span>
+                  <button type="button" className={`${BTN} ml-auto inline-flex items-center gap-1`} onClick={() => setWriting(it)}>
+                    <PencilLine size={13} /><span>인계 내용 작성</span>
+                  </button>
+                </div>
+              </div>
+            </Fold>
+            <Fold open={done}>
+              <div className="flex items-center gap-2.5 h-12 pl-4 pr-2" data-hv-line="">
+                <span className="w-[18px] h-[18px] rounded-full bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><Check size={11} strokeWidth={2.5} /></span>
+                <span className="flex-1 min-w-0 truncate text-[12.5px] text-fg-secondary">
+                  {[`${labels} 인계 내용을 작성했어요`, to ? `업무 ${taskCount}건` : '인수자 미정'].join(' · ')}
+                </span>
+                <button type="button" onClick={() => setWriting(it)}
+                  className="shrink-0 px-2.5 h-8 rounded-md text-[12px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-95">수정</button>
+              </div>
+            </Fold>
           </div>
         );
       })}
