@@ -18,6 +18,7 @@ import { ActionItems, SubtaskList } from './taskLists.jsx';
 import { useTaskSummary, usePolish, BodyHead } from './taskSummary.jsx';
 // TipTap/ProseMirror는 무거워 초기 번들에서 분리한다 (업무 창을 열 때 받는다)
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
+const TaskEventRow = lazy(() => import('../components/events.jsx').then(m => ({ default: m.TaskEventRow })));
 // 편집기 조각과 문서(같이 쓰기)를 받는 동안의 뼈대 — 서식 바 자리 + **글줄 모양 막대**가 차례로 숨 쉰다
 // (목업 · index.css `.dc-skel-line` — opacity만 움직이고 reduced-motion이면 멈춘다 · §4.2).
 // 서식 바 높이(37px)를 그대로 잡아 두어 편집기가 서는 순간 아래가 밀리지 않는다.
@@ -984,6 +985,8 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
         {task.startDate && !ongoing && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">시작일</span><span className="font-semibold text-fg">{fullDate(task.startDate)}</span></div>}
         {task.dueDate && !ongoing && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">마감일</span><span className="font-semibold text-fg">{fullDate(task.dueDate)}</span></div>}
         <DependsViewRow dependsOn={task.dependsOn} />
+        {/* 일정 추가 · 행사 일정(목업 ④) — 행사 칸 부품은 열 때 받는다(달력 코드가 업무 창 조각에 실리지 않게) */}
+        {!closed && <Suspense fallback={null}><TaskEventRow task={task} /></Suspense>}
       </div>
 
       {lockNotice}

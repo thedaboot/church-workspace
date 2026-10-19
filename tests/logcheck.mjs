@@ -736,6 +736,12 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.ok(/value\.slice\(0, FOLD_AT\)/.test(picker) && /\+ \$\{value\.length - FOLD_AT\}개 더 보기/.test(picker), '관련 업무는 넷까지 · 나머지는 더 보기');
   assert.ok(!/<select/.test(picker) && /placeholder="업무 이름으로 찾기"/.test(picker) && /✓ 선택/.test(picker), '추가는 찾기 판(✓ 고름)');
   assert.ok(/place\(\); \}, \[value\.length, q\]\)/.test(picker), '판이 버튼을 따라 다시 선다');
+  // 업무 창 '일정 추가' 줄(목업 ④ 3안 2026-10-19) — 채운 새 일정 · 이어지면 칩 · 고칠 수 없고 이어진 것도 없으면 없음 · 읽기 시각은 둘째 줄 통째로.
+  // 되돌리기: TaskEventRow의 taskIds: [task.id]나 '!linked.length && !canEdit' 거르기, ViewWhen의 whitespace-nowrap을 지우면 깨진다.
+  const row = evUi.slice(evUi.indexOf('export function TaskEventRow'), evUi.indexOf('// ── 일정 창: 읽기 상태'));
+  assert.ok(/taskIds: \[task\.id\]/.test(row) && /if \(!linked\.length && !canEdit\) return null;/.test(row) && /'행사 일정' : '일정 추가'/.test(row), '일정 추가 줄 배선');
+  assert.ok(/<TaskEventRow task=\{task\} \/>/.test(readFileSync(new URL('../src/modals/modals.jsx', import.meta.url), 'utf8')), '업무 창 보기 상태에 일정 추가 줄');
+  assert.ok(/block whitespace-nowrap font-semibold" data-event-view-time/.test(evUi), '읽기 상태 시각은 한 줄 통째로');
   console.log('PASS  행사 일정 — 추가·수정 권한 · 종류 차례 · 기간 · 띠 자리 · 다듬기 · 관련 업무 · 내 달력 고르기 · 배선');
 }
 

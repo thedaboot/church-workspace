@@ -19,9 +19,10 @@ import { useStore } from '../store/workspaceStore.js';
 import { imeComposing, localDate, byNewest } from '../utils.js';
 import { failText } from '../services/errorText.js';
 import { supabase } from '../services/supabaseClient.js';
+import { useAuth } from '../services/auth.jsx';
 import {
   EVENT_KINDS, kindOf, eventPaint, eventDot, eventCalItems, eventRangeLabel, eventTimeLabel, koTime,
-  monthEvents, togglePick, livePicks, eventFeedSentence,
+  monthEvents, togglePick, livePicks, eventFeedSentence, canEditEvents,
 } from '../services/events.js';
 import {
   useEvents, useEventsSync, saveEvent, deleteEvent, useEventFeed, setEventPicks, loadEventFeed, flushEventFeed, onEventFeedFail,
@@ -168,6 +169,14 @@ const dateText = (iso) => {
   return `${y}. ${m}. ${d}. (${WD[new Date(y, m - 1, d).getDay()]})`;
 };
 
+// 읽기 상태의 날짜 + 시각 — 시각은 둘째 줄에 통째로(폰 반 칸에서 '오전'만 줄이 바뀌어 '오전 / 11:00'으로 갈렸다 · 2026-10-19)
+const ViewWhen = ({ text, date, time }) => (
+  <p className={`${text} tabular-nums`}>
+    <span className="block whitespace-nowrap">{dateText(date)}</span>
+    {time && <span className="block whitespace-nowrap font-semibold" data-event-view-time="">{koTime(time)}</span>}
+  </p>
+);
+
 // 종료 시각을 처음 열 자리 — 시작 + 1시간(23시 뒤는 23:50)
 const plusHour = (hm) => {
   const m = /^(\d{2}):(\d{2})$/.exec(hm || '');
@@ -184,6 +193,51 @@ const kindChipStyle = (k, on) => ({
   fontWeight: on ? 700 : 500,
 });
 
+// ── 업무 창의 '일정 추가' 줄(사용자 승인 목업 ④ 3안 2026-10-19) ─────────────────────────
+// 업무 창 보기 상태의 속성 표(담당자·시작일·마감일) 아래 한 줄 — 왼쪽 '일정 추가' · 값 자리에 '행사 일정에 추가' 글자 버튼(리더진·마스터).
+// 누르면 그 자리(업무 창 위)에 새 일정 창이 업무 값으로 채워져 열린다 — 제목 · 시작 = 시작일(없으면 마감일 · 둘 다 없으면 오늘) ·
+// 종료 = 마감일 · 관련 업무 = 이 업무 · 종류 '행사'. 채운 칸은 모두 고칠 수 있고, 닫으면 업무 창으로 돌아온다.
+// 이미 이 업무를 관련 업무로 둔 행사가 있으면 같은 줄이 '행사 일정' + 그 행사 칩(누르면 그 일정 창이 그 자리에서 · 둘 이상이면 나란히).
+// 고칠 수 없고 이어진 행사도 없으면 줄이 없다. 목록은 행사 칸과 같은 한 벌(eventStore · 실시간 'events').
+export function TaskEventRow({ task }) {
+  useEventsSync(null);
+  const { isMaster } = useAuth();
+  const events = useEvents();
+  const amLeader = useStore(s => s.amLeader);
+  const canEdit = canEditEvents({ isMaster, amLeader });
+  const [win, setWin] = useState(null);
+  const linked = events.filter(e => (e.taskIds || []).includes(task.id));
+  if (!linked.length && !canEdit) return null;
+  const add = () => {
+    const start = task.startDate || task.dueDate || localDate();
+    const end = task.dueDate && task.dueDate >= start ? task.dueDate : start;
+    setWin({ draft: { title: task.title || '', start, end, startTime: '', endTime: '', timed: false, place: '', memo: '', kind: 'event', taskIds: [task.id] } });
+  };
+  return (
+    <div className="flex items-center gap-0 py-2" data-task-event-row="">
+      <span className="w-24 shrink-0 text-fg-muted">{linked.length ? '행사 일정' : '일정 추가'}</span>
+      {linked.length ? (
+        <span className="flex flex-wrap gap-1.5 min-w-0">
+          {linked.map(ev => (
+            <button key={ev.id} type="button" onClick={() => setWin({ id: ev.id })} data-task-event={ev.id}
+              className="inline-flex items-center gap-1.5 max-w-full h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition active:scale-95 hover:brightness-95"
+              style={{ background: eventPaint(ev).background, color: eventPaint(ev).color }}>
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: eventDot(ev) }} />
+              <span className="truncate">{[ev.title, eventRangeLabel(ev)].filter(Boolean).join(' · ')}</span>
+            </button>
+          ))}
+        </span>
+      ) : (
+        <button type="button" onClick={add} data-task-event-add=""
+          className="inline-flex items-center gap-1 -ml-2 h-7 md:h-6 px-2 rounded-md text-[12px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-95">
+          <Plus size={13} />행사 일정에 추가
+        </button>
+      )}
+      {win && <EventWindow initialId={win.id || null} initialDraft={win.draft || null} canEdit={canEdit} onClose={() => setWin(null)} />}
+    </div>
+  );
+}
+
 // ── 일정 창: 읽기 상태 ↔ 수정 상태(같은 창 · 같은 칸 차례) ───────────────────────
 function EventWindow({ initialId, initialDraft, canEdit, onClose }) {
   const isMobile = useIsMobile();
@@ -198,9 +252,14 @@ function EventWindow({ initialId, initialDraft, canEdit, onClose }) {
   const set = (k) => (v) => setDraft(prev => ({ ...prev, [k]: v }));
   const downOnScrim = useRef(false);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !document.querySelector('[data-datepicker]')) close(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    // 캡처 + 멈춤 — 업무 창 위에 겹쳐 열렸을 때(TaskEventRow) Esc가 아래 업무 창까지 닫지 않게
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || document.querySelector('[data-datepicker], [data-timepicker]')) return;
+      e.stopPropagation();
+      close();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
   }, [close]);
   // 읽던 일정이 사라졌으면(다른 탭에서 지움) 창을 닫는다
   useEffect(() => { if (!editing && id && !ev) onClose(); }, [editing, id, ev, onClose]);
@@ -249,28 +308,28 @@ function EventWindow({ initialId, initialDraft, canEdit, onClose }) {
         {/* 시작 · 종료(사용자 승인 목업 ① 2026-10-19) — '하루 종일'을 끄면 날짜 칸 아래 시간 칸이 펼쳐진다(접고 펴기 Fold · quint).
             종료 시각은 처음 열 때 시작 + 1시간 자리 · 같은 날이면 시작보다 앞 칸은 흐리다. 읽기 상태는 날짜 뒤에 시각. */}
         <div className="grid grid-cols-2 gap-2.5">
-          <LabeledField label="시작" className="[&>div]:flex [&>div]:flex-col [&>div]:gap-1.5">
+          <LabeledField label="시작" className="[&>div]:flex [&>div]:flex-col">
             {editing ? (
               <>
                 <DatePicker value={d.start} onChange={(v) => setDraft(prev => ({ ...prev, start: v, end: prev.end && prev.end < v ? v : prev.end }))}
                   allowClear={false} ariaLabel="시작일" triggerClassName={dateTrigger} />
                 <Fold open={!!d.timed}>
-                  <div className="flex pt-0.5"><TimePicker value={d.startTime || ''} ariaLabel="시작 시각" triggerClassName={dateTrigger} openAt="10:00"
+                  <div className="flex pt-2 [&>div]:w-full"><TimePicker value={d.startTime || ''} ariaLabel="시작 시각" triggerClassName={dateTrigger} openAt="10:00"
                     onChange={(v) => setDraft(prev => ({ ...prev, startTime: v, endTime: prev.endTime && (prev.end || prev.start) === prev.start && prev.endTime <= v ? '' : prev.endTime }))} /></div>
                 </Fold>
               </>
-            ) : <p className={`${text} tabular-nums`}>{dateText(d.start)}{d.startTime ? ` ${koTime(d.startTime)}` : ''}</p>}
+            ) : <ViewWhen text={text} date={d.start} time={d.startTime} />}
           </LabeledField>
-          <LabeledField label="종료" className="[&>div]:flex [&>div]:flex-col [&>div]:gap-1.5">
+          <LabeledField label="종료" className="[&>div]:flex [&>div]:flex-col">
             {editing ? (
               <>
                 <DatePicker value={d.end} onChange={set('end')} ariaLabel="종료일" triggerClassName={dateTrigger} />
                 <Fold open={!!d.timed}>
-                  <div className="flex pt-0.5"><TimePicker value={d.endTime || ''} onChange={set('endTime')} ariaLabel="종료 시각" triggerClassName={dateTrigger}
+                  <div className="flex pt-2 [&>div]:w-full"><TimePicker value={d.endTime || ''} onChange={set('endTime')} ariaLabel="종료 시각" triggerClassName={dateTrigger}
                     openAt={plusHour(d.startTime) || '11:00'} minHM={(d.end || d.start) === d.start ? (d.startTime || '') : ''} /></div>
                 </Fold>
               </>
-            ) : <p className={`${text} tabular-nums`}>{dateText(d.end || d.start)}{d.endTime ? ` ${koTime(d.endTime)}` : ''}</p>}
+            ) : <ViewWhen text={text} date={d.end || d.start} time={d.endTime} />}
           </LabeledField>
         </div>
         {editing && (
