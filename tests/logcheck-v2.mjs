@@ -1580,6 +1580,14 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.deepStrictEqual(pairs.map(p => p.slot).slice(0, 3), ['president', 'treasurer', 'lead_team'], '자리 순서는 칩 묶음 순서');
   const fixed = H.pairRoles(old, nu, { 'team_lead:미디어팀<hjm': 'pjh', 'president<yde': null });
   assert.ok(fixed.find(p => p.slot === 'team_lead:미디어팀').to === 'pjh' && fixed.find(p => p.slot === 'president').kind === 'open', '마스터가 짝을 고친다');
+  // 사라질 직분(목업 ⑥ 2026-10-19) — 2027에 없는 직분은 저절로 'drop'(인계 없음) · '직분 제거'도 'drop' · 사람을 고르면 다시 넘김.
+  // 되돌리기: pairRoles의 endsBy 갈래나 DROP_SEAT 갈래를 지우면 깨진다.
+  const ended = H.pairRoles(old, nu, {}, [], { toYear: 2027 });
+  assert.strictEqual(ended.find(p => p.slot === 'lead_team').kind, 'drop', '2027에 없는 리더팀장은 사라질 직분');
+  const dropped = H.pairRoles(old, nu, { 'treasurer<msy': H.DROP_SEAT, 'lead_team<bhw': 'jhr' }, [], { toYear: 2027 });
+  assert.ok(dropped.find(p => p.slot === 'treasurer').kind === 'drop' && dropped.find(p => p.slot === 'treasurer').to === null, '직분 제거');
+  assert.ok(dropped.find(p => p.slot === 'lead_team').kind === 'pass', '사라질 직분에도 인계할 사람을 고를 수 있다');
+  assert.ok(!H.buildHandovers(ended, []).some(i => i.slots.includes('lead_team')), '사라질 직분은 인계 건이 없다');
 
   assert.ok(!H.rolesOffered(2027).flat().includes('lead_team') && H.rolesOffered(2026).flat().includes('lead_team'), '리더팀장은 2026까지만 고른다');
   assert.ok(H.rolesOffered(2027, new Set(['lead_team'])).flat().includes('lead_team'), '그 해 이미 가진 사람에게는 칩이 남는다');

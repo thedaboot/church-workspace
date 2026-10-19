@@ -89,8 +89,16 @@ const bySlot = (teamOrder) => (a, b) => {
 
 // 직분 짝을 맞춘다. 나가는 사람마다 한 줄 — 같은 자리의 새 사람(여럿이면 첫째)이 기본값이고
 // overrides[key]로 고친다(null = 받는 사람 미정). 새 해에만 있는 자리는 from 없이 한 줄(새로 맡음).
-//   kind: 'pass' 넘김 · 'same' 그대로(같은 사람) · 'open' 받는 사람 미정 · 'new' 새로 맡음
-export function pairRoles(oldRoles = [], newRoles = [], overrides = {}, teamOrder = []) {
+//   kind: 'pass' 넘김 · 'same' 그대로(같은 사람) · 'open' 받는 사람 미정 · 'new' 새로 맡음 · 'drop' 사라질 직분(인계 없음)
+// 사라질 직분(사용자 승인 목업 ⑥ 2026-10-19): ① toYear에 고르는 줄에서 빠지는 직분(LAST_OFFERED_YEAR — 리더팀장·예배팀장)은
+// 받는 사람이 없으면 저절로 'drop' ② 어느 직분이든 인수자 메뉴의 '직분 제거'(overrides[key] = DROP_SEAT)도 'drop'.
+// 'drop'에 사람을 고르면 다시 'pass'(하던 일을 넘길 사람이 있을 때). 'drop'은 buildHandovers가 인계 건을 만들지 않는다.
+export const DROP_SEAT = '-';
+const endsBy = (slot, toYear) => {
+  const role = slot.split(':')[0];
+  return !!toYear && role in LAST_OFFERED_YEAR && Number(toYear) > LAST_OFFERED_YEAR[role];
+};
+export function pairRoles(oldRoles = [], newRoles = [], overrides = {}, teamOrder = [], { toYear = null } = {}) {
   const olds = new Map(); const news = new Map();
   for (const r of oldRoles) { const s = slotOf(r); olds.set(s, [...(olds.get(s) || []), r.person_id]); }
   for (const r of newRoles) { const s = slotOf(r); news.set(s, [...(news.get(s) || []), r.person_id]); }
@@ -106,7 +114,8 @@ export function pairRoles(oldRoles = [], newRoles = [], overrides = {}, teamOrde
       const key = `${slot}<${f}`;
       const auto = to[i] ?? to[0] ?? null;
       const t = key in overrides ? overrides[key] : auto;
-      out.push({ key, slot, from: f, to: t ?? null, auto, kind: !t ? 'open' : t === f ? 'same' : 'pass' });
+      const drop = t === DROP_SEAT || (!t && !(key in overrides) && endsBy(slot, toYear));
+      out.push({ key, slot, from: f, to: drop ? null : (t ?? null), auto, kind: drop ? 'drop' : !t ? 'open' : t === f ? 'same' : 'pass' });
     });
   }
   return out;

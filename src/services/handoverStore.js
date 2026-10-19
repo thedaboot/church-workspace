@@ -240,7 +240,7 @@ const putRows = (rows) => write({ ...snap, rows, ...handoverRowsView(rows, TO_YE
 function liveItems(st = snap) {
   const roles = st.roster?.roles || [];
   const people = (st.roster?.people || []).filter(p => !p.removed_at);
-  const pairs = pairRoles(roles.filter(r => r.year === FROM_YEAR), roles.filter(r => r.year === TO_YEAR), st.overrides || {}, LEAD_TEAMS);
+  const pairs = pairRoles(roles.filter(r => r.year === FROM_YEAR), roles.filter(r => r.year === TO_YEAR), st.overrides || {}, LEAD_TEAMS, { toYear: TO_YEAR });
   const grads = st.grads ?? graduatesOf(people, TO_YEAR).map(p => p.id);
   return buildHandovers(pairs, grads, st.gradTo || {});
 }

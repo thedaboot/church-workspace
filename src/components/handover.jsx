@@ -16,7 +16,7 @@ import { selectTasksList, selectProjectsList, selectCurrentUser } from '../store
 import { CONFIG } from '../config.js';
 import { objectParticle, failText, errorReason } from '../services/errorText.js';
 import { ROLE_LABEL, GRAD_LABEL, teamLeadLabel, teamLeadPhrase } from '../services/roster.js';
-import { pairRoles, graduatesOf, buildHandovers, openTasksOf, TEAM_LEAD } from '../services/handover.js';
+import { pairRoles, graduatesOf, buildHandovers, openTasksOf, TEAM_LEAD, DROP_SEAT } from '../services/handover.js';
 import {
   useHandover, applyHandover, resetHandover, viewAs, viewBack, guestRoster, handoverOn, FROM_YEAR, TO_YEAR,
   setOverride, setGrads, setGradTo, saveNote, markSeen, loadHandover, myPersonIds,
@@ -66,7 +66,7 @@ export function useHandoverModel() {
     const people = all.filter(p => !p.removed_at);
     const byId = new Map(all.map(p => [p.id, p]));
     const nameOf = (id) => byId.get(id)?.name || '';
-    const pairs = pairRoles(roles.filter(r => r.year === FROM_YEAR), roles.filter(r => r.year === TO_YEAR), hv.overrides || {}, LEAD_TEAMS);
+    const pairs = pairRoles(roles.filter(r => r.year === FROM_YEAR), roles.filter(r => r.year === TO_YEAR), hv.overrides || {}, LEAD_TEAMS, { toYear: TO_YEAR });
     const autoGrads = graduatesOf(people, TO_YEAR);
     const grads = hv.grads ?? autoGrads.map(p => p.id);
     const live = buildHandovers(pairs, grads, hv.gradTo || {});
@@ -80,7 +80,10 @@ export function useHandoverModel() {
     for (const it of items) for (const t of hv.notes?.[it.id]?.taskIds || []) takenBy.set(t, it.id);
     const newHolders = [...new Set(roles.filter(r => r.year === TO_YEAR).map(r => r.person_id))]
       .map(id => byId.get(id)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-    return { hv, people, byId, nameOf, pairs, autoGrads, grads, items, tasks, projectOf, openOf, takenBy, newHolders };
+    // 인수자 메뉴의 나머지 — 다음 해 직분이 없는 명단 사람도 고를 수 있다(사용자 승인 목업 ⑥ · 직분자 다음에 이름순)
+    const holderIds = new Set(newHolders.map(p => p.id));
+    const others = people.filter(p => !holderIds.has(p.id)).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    return { hv, people, byId, nameOf, pairs, autoGrads, grads, items, tasks, projectOf, openOf, takenBy, newHolders, others };
   }, [hv, tasks, projects]);
 }
 
@@ -112,7 +115,9 @@ const Head = ({ title, count, children }) => (
 // ── ① 직분 짝 ───────────────────────────────────────────────────────────────
 function PairStep({ m, onEditRoster }) {
   const setTo = (key, id) => tryWrite(setOverride(key, id));
-  const options = [...m.newHolders.map(p => ({ id: p.id, name: p.name })), { id: '', name: '미정' }];
+  // 2027 직분자 → 나머지 명단 → 미정 → 직분 제거(사라질 직분으로 · 인계 없음 — 목업 ⑥)
+  const options = [...m.newHolders, ...m.others].map(p => ({ id: p.id, name: p.name }))
+    .concat([{ id: '', name: '미정' }, { id: DROP_SEAT, name: '직분 제거' }]);
   return (
     <section data-hv-step="1">
       {/* 데스크톱 두 열의 머리 — 지난해 | 다음 해 */}
@@ -124,9 +129,10 @@ function PairStep({ m, onEditRoster }) {
           const from = m.byId.get(p.from);
           const to = m.byId.get(p.to);
           const changed = p.from && p.to !== p.auto;
+          const drop = p.kind === 'drop';
           const pick = !m.hv.applied && p.kind !== 'new' && (
-            <MenuPick label="인수자" items={options.filter(o => o.id !== (p.to || ''))} onPick={(id) => setTo(p.key, id)}>
-              {to ? '변경' : '선택'}
+            <MenuPick label="인수자" items={options.filter(o => (drop ? o.id !== DROP_SEAT : o.id !== (p.to || '')))} onPick={(id) => setTo(p.key, id)}>
+              {drop ? '인계할 사람 선택' : to ? '변경' : '선택'}
             </MenuPick>
           );
           return (
@@ -136,8 +142,9 @@ function PairStep({ m, onEditRoster }) {
               <span className="col-span-3 md:col-span-1 flex items-center gap-1.5"><Badge label={slotLabel(p.slot)} /></span>
               <span className="min-w-0">{from ? <Who person={from} /> : <Quiet>새로 맡음</Quiet>}</span>
               <span className="flex justify-center text-fg-faint"><ArrowRight size={14} /></span>
-              <span className="min-w-0 flex items-center gap-1.5">
+              <span className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                 {p.kind === 'same' ? <><Who person={to} muted /><span className="shrink-0 text-[11px] text-fg-muted">유지</span></>
+                  : drop ? <span data-seat-drop="" className="shrink-0 px-2 py-0.5 rounded-xs text-[11px] font-semibold bg-tag-gray text-tag-gray-fg">사라질 직분</span>
                   : to ? <Who person={to} /> : <span className="text-[12.5px] font-semibold text-tag-orange-fg">미정</span>}
                 {changed && <span aria-hidden className="shrink-0 w-1.5 h-1.5 rounded-full bg-accent" />}
                 <span className="ml-auto shrink-0">{pick}</span>
