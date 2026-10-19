@@ -703,6 +703,12 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.ok(/\{canEdit && \(\s*<button type="button" onClick=\{startEdit\}/.test(evUi) && /const startEdit = \(\) => \{ if \(canEdit/.test(evUi), '수정은 canEdit일 때만 · 아니면 읽기 상태뿐');
   assert.ok(!evUi.includes('data-event-add'), '고른 날 목록의 + 새 일정은 뺐다(2차)');
   assert.ok(viewsUi.includes('canEditEvents({ isMaster, amLeader })'), '전체 일정이 판정 한 곳을 쓴다');
+  // 관련 업무 고르기(목업 ③ 2026-10-19) — 줄 목록 · 넷 넘으면 접기 · 찾기 판(네이티브 select 없음) · 판은 줄이 늘거나 찾기가 바뀌면 버튼에 다시 붙는다.
+  // 되돌리기: FOLD_AT 접기나 place() 다시 붙이기를 지우거나 <select>로 돌리면 깨진다.
+  const picker = evUi.slice(evUi.indexOf('function RelatedTasksPicker'), evUi.indexOf('// ── 내 달력 ──'));
+  assert.ok(/value\.slice\(0, FOLD_AT\)/.test(picker) && /\+ \$\{value\.length - FOLD_AT\}개 더 보기/.test(picker), '관련 업무는 넷까지 · 나머지는 더 보기');
+  assert.ok(!/<select/.test(picker) && /placeholder="업무 이름으로 찾기"/.test(picker) && /✓ 고름/.test(picker), '추가는 찾기 판(✓ 고름)');
+  assert.ok(/place\(\); \}, \[value\.length, q\]\)/.test(picker), '판이 버튼을 따라 다시 선다');
   console.log('PASS  행사 일정 — 추가·수정 권한 · 종류 차례 · 기간 · 띠 자리 · 다듬기 · 관련 업무 · 내 달력 고르기 · 배선');
 }
 

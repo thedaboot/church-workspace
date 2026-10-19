@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarPlus, Link as LinkIcon, MapPin, Plus, Trash2, X } from 'lucide-react';
 import { CalendarBoard } from './calendar.jsx';
@@ -346,46 +346,131 @@ function EventWindow({ initialId, initialDraft, canEdit, onClose }) {
   ), document.body);
 }
 
-// 관련 업무 고르기 — 업무 창의 선행 업무 고르기(modals/taskFields DependsRow)와 같은 모양: 칩(빼기 X) + 네이티브 <select>(더하기).
-// 후보는 내가 볼 수 있는 업무 전부(스토어에 있는 것 — 클라우드는 RLS가 이미 걸렀다) · 프로젝트별 묶음(optgroup) · 최근 것이 위.
-// 지운 업무·못 보는 업무를 가리키면 제목이 없다 — 그래도 칩은 남겨서 뺄 수 있게 한다('업무 링크').
+// 관련 업무 고르기(사용자 승인 목업 ③ 2026-10-19 — 칩 덩어리가 줄바꿈으로 흩어져 읽기 어려웠다):
+//   고른 업무는 한 줄씩(제목 · 프로젝트 이름 · 빼기 X) · 넷이 넘으면 '+ N개 더 보기'로 접는다.
+//   추가는 '+ 관련 업무 추가' → 찾기 칸 있는 판(데스크톱 · 버튼 쪽 .dc-pop) / 아래 시트(폰 · .dc-sheet-up) —
+//   프로젝트별 묶음 · 최근 것이 위 · 이미 고른 것은 '✓ 고름'(누르면 빠짐) · 판을 닫지 않고 연달아 고른다.
+// 후보는 내가 볼 수 있는 업무 전부(스토어 — 클라우드는 RLS가 이미 걸렀다). 지운·못 보는 업무는 제목이 없어 '업무 링크'로 남는다(뺄 수 있게).
+const FOLD_AT = 4;
 function RelatedTasksPicker({ value, onChange, big }) {
   const tasksState = useStore(s => s.tasks);
   const projectsState = useStore(s => s.projects);
-  const groups = useMemo(() => {
-    const m = new Map();
-    tasksState.allIds.map(id => tasksState.byId[id]).filter(t => t && !value.includes(t.id)).sort(byNewest).forEach(t => {
-      const p = projectsState.byId[t.projectId];
-      if (!p) return;
-      if (!m.has(p.id)) m.set(p.id, { title: p.title, list: [] });
-      m.get(p.id).list.push(t);
-    });
-    return [...m.values()];
-  }, [tasksState, projectsState, value]);
-  const add = (id) => { if (id) onChange([...value, id]); };
-  const remove = (id) => onChange(value.filter(x => x !== id));
-  const size = big ? 'text-[13px] py-1.5' : 'text-[11px] py-1';
+  const isMobile = useIsMobile();
+  const [open, setOpen] = useState(false);
+  const [more, setMore] = useState(false);
+  const toggle = (id) => onChange(value.includes(id) ? value.filter(x => x !== id) : [...value, id]);
+  const shown = more ? value : value.slice(0, FOLD_AT);
+  const rowText = big ? 'text-[14px]' : 'text-[13px]';
   return (
-    <div className="flex flex-wrap items-center gap-1.5 min-w-0" data-event-task-picker="">
-      {value.map(id => (
-        <span key={id} className={`inline-flex items-center gap-1 pl-2.5 pr-1.5 ${size} rounded-full font-semibold bg-surface-hover text-fg max-w-[240px]`}>
-          <span className="truncate">{tasksState.byId[id]?.title || '업무 링크'}</span>
-          <button type="button" onClick={() => remove(id)} title="관련 업무 삭제" aria-label="관련 업무 삭제"
-            className="text-fg-faint hover:text-tag-red-fg transition-colors shrink-0"><X size={big ? 13 : 11} /></button>
-        </span>
-      ))}
-      {groups.length > 0 && (
-        <select value="" onChange={(e) => add(e.target.value)} aria-label="관련 업무"
-          className={`${size} text-fg-muted bg-surface border border-line rounded-full px-2 outline-none focus:border-accent max-w-[220px]`}>
-          <option value="">{value.length ? '+ 더 추가' : '+ 관련 업무 추가'}</option>
-          {groups.map(g => (
-            <optgroup key={g.title} label={g.title}>
-              {g.list.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-            </optgroup>
-          ))}
-        </select>
+    <div className="flex flex-col items-start gap-2 min-w-0" data-event-task-picker="">
+      {value.length > 0 && (
+        <div className="w-full rounded-md border border-line overflow-hidden" data-event-task-list="">
+          {shown.map((id, i) => {
+            const t = tasksState.byId[id];
+            const p = t && projectsState.byId[t.projectId];
+            return (
+              <div key={id} className="flex items-center gap-2.5 px-2.5 py-2" style={i ? { borderTop: '1px solid var(--app-line)' } : undefined}>
+                <span className="flex-1 min-w-0">
+                  <span className={`block ${rowText} font-semibold text-fg truncate`}>{t?.title || '업무 링크'}</span>
+                  {p && <span className="block text-[11px] text-fg-muted truncate">{p.title}</span>}
+                </span>
+                <button type="button" onClick={() => toggle(id)} title="관련 업무 삭제" aria-label="관련 업무 삭제"
+                  className="shrink-0 p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95"><X size={14} /></button>
+              </div>
+            );
+          })}
+          {value.length > FOLD_AT && (
+            <button type="button" onClick={() => setMore(m => !m)} data-event-task-more=""
+              className="w-full py-2 text-[12px] font-semibold text-accent-text hover:bg-surface-hover transition-colors" style={{ borderTop: '1px solid var(--app-line)' }}>
+              {more ? '접기' : `+ ${value.length - FOLD_AT}개 더 보기`}
+            </button>
+          )}
+        </div>
       )}
+      <TaskAddButton open={open} setOpen={setOpen} isMobile={isMobile} big={big} value={value} onToggle={toggle}
+        tasksState={tasksState} projectsState={projectsState} />
     </div>
+  );
+}
+
+function TaskAddButton({ open, setOpen, isMobile, big, value, onToggle, tasksState, projectsState }) {
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+  const [q, setQ] = useState('');
+  const [pos, place] = useAnchoredPos(btnRef, open && !isMobile, 320, 360, 8, popRef, { align: 'start' });
+  // 고를 때마다 목록 줄이 늘어 버튼이 아래로 밀리고, 찾기로 판 높이가 바뀐다 — 그때마다 버튼에 다시 붙인다(위로 뒤집혀 선 판이 떠 있지 않게)
+  useLayoutEffect(() => { if (open && !isMobile) place(); }, [value.length, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  useDismiss(open && !isMobile, () => setOpen(false), [btnRef, popRef]);
+  useEffect(() => { if (!open) setQ(''); }, [open]);
+  useEffect(() => {
+    if (!open) return undefined;
+    // 판이 떠 있는 동안의 Esc는 판만 닫는다(일정 창의 Esc 닫기보다 먼저 — 캡처)
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [open, setOpen]);
+  const groups = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const m = new Map();
+    tasksState.allIds.map(id => tasksState.byId[id])
+      .filter(t => t && (!needle || String(t.title || '').toLowerCase().includes(needle)))
+      .sort(byNewest).forEach(t => {
+        const p = projectsState.byId[t.projectId];
+        if (!p) return;
+        if (!m.has(p.id)) m.set(p.id, { id: p.id, title: p.title, list: [] });
+        m.get(p.id).list.push(t);
+      });
+    return [...m.values()];
+  }, [tasksState, projectsState, q]);
+  const list = (
+    <>
+      <input value={q} onChange={e => setQ(e.target.value)} autoFocus={!isMobile} aria-label="업무 찾기"
+        placeholder="업무 이름으로 찾기" className={`${FIELD} w-full ${big ? 'text-[15px] py-2' : ''}`} />
+      <div className={`mt-1.5 overflow-y-auto overscroll-contain ${isMobile ? 'flex-1 min-h-0' : 'max-h-[300px]'}`} data-event-task-options="">
+        {groups.length === 0 && <p className="py-6 text-center text-[12px] text-fg-muted">찾는 업무가 없어요</p>}
+        {groups.map(g => (
+          <div key={g.id}>
+            <p className="px-2 pt-2.5 pb-1 text-[10.5px] font-bold text-fg-muted truncate">{g.title}</p>
+            {g.list.map(t => {
+              const on = value.includes(t.id);
+              return (
+                <button key={t.id} type="button" onClick={() => onToggle(t.id)} aria-pressed={on} data-event-task-option={t.id}
+                  className={`w-full flex items-center gap-2 px-2 ${isMobile ? 'min-h-10' : 'min-h-8'} rounded-md text-left transition-colors ${on ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}>
+                  <span className={`flex-1 min-w-0 truncate ${big ? 'text-[14px]' : 'text-[12.5px]'} ${on ? 'text-fg-muted' : 'text-fg'}`}>{t.title}</span>
+                  {on && <span className="shrink-0 text-[11px] font-semibold text-tag-green-fg">✓ 고름</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} data-event-task-add=""
+        className={`inline-flex items-center gap-1 ${big ? 'min-h-10 px-3 text-[13px]' : 'h-[34px] px-3 text-[12.5px]'} rounded-md font-semibold bg-accent-weak text-accent-text hover:brightness-95 transition active:scale-95`}>
+        <Plus size={14} />관련 업무 추가
+      </button>
+      {open && createPortal(isMobile ? (
+        // 폰 — 일정 시트 위에 한 겹 더(보이는 창 안 · 뒤판 누르면 닫힘)
+        <div className="fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-[90] flex items-end bg-black/30 dc-scrim"
+          onPointerDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <div ref={popRef} role="dialog" aria-label="관련 업무 추가"
+            className="w-full h-[72%] flex flex-col px-4 pt-2.5 rounded-t-2xl bg-surface dc-sheet-up"
+            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+            <span className="self-center w-9 h-1 rounded-full bg-line mb-3 shrink-0" />
+            {list}
+          </div>
+        </div>
+      ) : (
+        <div ref={popRef} role="dialog" aria-label="관련 업무 추가"
+          style={{ position: 'fixed', left: pos.left, top: pos.top, ...popMotion(pos) }}
+          className="z-[90] w-[320px] bg-surface border border-line rounded-lg shadow-elevated p-2 transition-none dc-pop">
+          {list}
+        </div>
+      ), document.body)}
+    </>
   );
 }
 
