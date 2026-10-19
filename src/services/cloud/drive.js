@@ -368,7 +368,8 @@ export async function grantCopyEditors(row, emails = []) {
 // 한 벌로 둔다. 두 벌로 두면 고칠 때마다 한쪽만 고쳐진다(§6-29 머리말의 그 함정).
 // ============================================================================
 //
-// `net`(세 번째 · 없어도 된다) — 업무 첨부의 올리는 중 줄이 넘긴다(uploadQueue · C2·C3): 진행·멈춤. 송폼·모임 보고서는 안 넘긴다.
+// `net`(세 번째 · 없어도 된다) — 올리는 중 줄이 넘긴다(업무 첨부·모임 보고서는 uploadQueue · 송폼·큐시트는 worshipView · C2·C3): 진행·멈춤.
+// 표지 사진(cover)은 안 넘긴다(2026-10-19 — 진행·취소를 넓힐 때 표지는 줄이 아니라 그림 자리라 뺐다).
 // **멈춘 줄이 다 올라와 버렸으면**(바이트를 다 넘긴 뒤 X — '올라가면 곧 지움') 행을 세우지 않고 실체를 되돌린다 — 사본도 만들지 않는다.
 async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder, awaitCopy = false }, net = null) {
   // 이름은 **NFC로 한 번 맞춘 것**을 이 흐름 전체가 쓴다. 맥(사파리·파인더)에서 고른 파일은
@@ -513,7 +514,7 @@ export async function ensureServiceFolder(service) {
 // `kind`를 안 주면 'songform'이다 — 0047부터 이 함수를 부른 자리가 전부 송폼이었고,
 // 0054가 옛 행을 그 값으로 백필했다. null로 두면 업무 첨부(card_id)와 구분이 없어진다.
 export const SERVICE_FILE_KINDS = ['songform', 'cuesheet', 'cover'];   // cover = 표지 사진(0081)
-export async function uploadServiceFile(file, { serviceId, serviceDate, serviceFolderId, kind = 'songform', awaitCopy = false }) {
+export async function uploadServiceFile(file, { serviceId, serviceDate, serviceFolderId, kind = 'songform', awaitCopy = false }, net = null) {
   const folderHint = serviceFolderId
     ? { folderId: serviceFolderId }
     : { path: serviceFolderPath(serviceDate) };
@@ -523,7 +524,7 @@ export async function uploadServiceFile(file, { serviceId, serviceDate, serviceF
     prefix: `services/${serviceId}`,
     rememberFolder: serviceFolderId ? null : (folderId) => setServiceFolder(serviceId, folderId),
     awaitCopy,
-  });
+  }, net);
 }
 
 // ── 동아리 모임에 붙는 파일 — 활동 보고서 (0093) ─────────────────────────────
@@ -555,7 +556,7 @@ export async function ensureMeetingFolder(meeting, clubName) {
   }
 }
 
-export async function uploadMeetingFile(file, { meetingId, clubName, meetingDate, meetingFolderId, awaitCopy = false }) {
+export async function uploadMeetingFile(file, { meetingId, clubName, meetingDate, meetingFolderId, awaitCopy = false }, net = null) {
   const folderHint = meetingFolderId
     ? { folderId: meetingFolderId }
     : { path: meetingFolderPath(clubName, meetingDate) };
@@ -565,7 +566,7 @@ export async function uploadMeetingFile(file, { meetingId, clubName, meetingDate
     prefix: `meetings/${meetingId}`,
     rememberFolder: meetingFolderId ? null : (folderId) => setMeetingFolder(meetingId, folderId),
     awaitCopy,
-  });
+  }, net);
 }
 
 // 첨부에서 뽑은 글자(0030). 그 한 칸만 건드린다 — 파일 행을 통째로 보내면

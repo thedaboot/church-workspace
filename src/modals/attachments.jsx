@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Paperclip, UploadCloud, Loader2, AlertTriangle, Eye, Trash2, X, Lock, LockOpen } from 'lucide-react';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 // 크기 표기·종류 칩은 주보 송폼(0047)과 **같은 한 벌**이다 — components/fileRow.jsx
-import { formatBytes, fileKind, fileMeta } from '../components/fileRow.jsx';
+import { formatBytes, fileKind, fileMeta, UploadTrack } from '../components/fileRow.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, setFilePassword, checkFilePassword, driveImageUrl, setFileExcerpt, grantCopyEditors } from '../services/cloud.js';
@@ -438,16 +438,6 @@ function InlineSheet({ row }) {
 }
 
 // thumb(서명 URL)은 상위에서 일괄 발급받아 주입 — 행마다 개별 요청하지 않는다
-// 올리는 중 줄의 막대(2px · 바탕 --p-track · 채움 accent · 폭은 .42s quint로 따라간다 · 2026-10-15 시안 C2).
-// 바이트 진행을 알기 전(사진 줄이기·폴더 확보 중)에는 막대도 퍼센트도 없다 · 다 보낸 뒤('드라이브로 옮기는 중')는 가득 찬 채 퍼센트만 걷힌다.
-const UploadTrack = ({ pct }) => (
-  <span role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} data-upload-track
-    className="block rounded-full overflow-hidden" style={{ height: 2, marginTop: 5, background: 'var(--p-track)' }}>
-    <span className="block h-full rounded-full bg-accent motion-reduce:transition-none"
-      style={{ width: `${pct}%`, transition: 'width .42s var(--ease-out-quint)' }} />
-  </span>
-);
-
 // meta — 올라간 줄의 '크기 · 올린 날 · 올린 사람'(fileRow.fileMeta · C5) · onCancel — 올리는 중 줄의 X(C3 · 수정 화면만)
 const AttachmentRow = ({ row, meta, canDelete, thumb, thumbFailed, onOpen, onRemove, onCancel, embedded, onToggleEmbed, locked, onToggleLockUI, canLock }) => {
   // 이미지 썸네일 — 스토리지는 200px 서명 URL, 드라이브는 구글 이미지 CDN이

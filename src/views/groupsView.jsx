@@ -24,6 +24,7 @@ import {
   leaderPlan, dupReason, duplicateName, dupNameText,
 } from '../services/groups.js';
 import { runUploads, stagedRow, failedRow } from '../modals/uploadQueue.js';
+import { cancelledError } from '../services/transfer.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 import { Segmented } from '../components/segmented.jsx';
@@ -513,8 +514,14 @@ export function GroupsView() {
         folderId = await ensureMeetingDriveFolder(club, meeting);
         if (folderId && !meeting.drive_folder_id) patchMeeting(meeting.id, m => ({ ...m, drive_folder_id: folderId }));
       },
-      send: async (file) => {
-        const row = await uploadMeetingReport(club, meeting, file, folderId, { awaitCopy });
+      // ctl — 진행(줄의 퍼센트·막대)과 멈춤(줄의 X)을 드라이브 길까지 넘긴다(업무 첨부와 같은 길 · 2026-10-19 사용자 요청)
+      send: async (file, _ctx, ctl) => {
+        const row = await uploadMeetingReport(club, meeting, file, folderId, { awaitCopy, net: ctl });
+        // 행이 선 뒤에 멈춘 줄 — 목록에 넣지 않고 그 자리에서 거둔다(업무 첨부 send와 같은 자리)
+        if (ctl?.isCancelled()) {
+          removeMeetingReport(row).catch(e => console.error('[groups] 멈춘 보고서를 거두지 못했다:', e));
+          throw cancelledError();
+        }
         // 폴더를 미리 못 잡았으면(스크립트가 path로 판 경우) 첫 파일에서 받아 둔다 — DB에는 rememberFolder가 적었다
         if (!folderId && row._driveFolderId) {
           folderId = row._driveFolderId;

@@ -9,7 +9,7 @@ import { FIELD } from './groupsParts.jsx';
 import { Skeleton } from './media.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { isBlankCanvas } from '../services/shareImage.js';
+import { isBlankCanvas, corsImageUrl, toDataUrl } from '../services/shareImage.js';
 import { deviceOf, screenOf, shotScale } from '../services/opsCore.js';
 import { sendFeedback } from '../services/ops.js';
 import { buildId } from '../services/errorReport.js';
@@ -32,6 +32,7 @@ import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 // 지금 보이는 화면 그대로(스크롤한 자리 · 떠 있는 창·시트 포함 · 이 창만 뺀다) — body를 보이는 창 크기로 굽는다.
 //   · 배율은 기기 화소 비(최소 2배 — 글자가 또렷하게) · 긴 변 2560px 상한(데스크톱 1440×900은 1.78배로 깎인다)
 //   · restoreScrollPosition: 안에서 구르는 칸(main · 창 안 목록)이 구른 자리 그대로 그려진다(modern-screenshot)
+//   · 카카오 프로필 사진(CORS 없음)은 fetchFn이 썸네일 주소로 받는다 — 빠지면 얼굴 자리가 빈다(사용자 지적 2026-10-19)
 //   · WebP 0.9(사파리처럼 WebP로 못 굽는 브라우저는 JPEG 0.9) · 한 색뿐인 그림은 실패로 본다(shareImage.isBlankCanvas)
 const SHOT_MAX = 2560;
 async function captureViewport() {
@@ -46,6 +47,15 @@ async function captureViewport() {
     backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff',
     filter: (n) => !(n instanceof Element && n.hasAttribute('data-feedback-scrim')),
     features: { restoreScrollPosition: true },
+    // CORS 없는 카카오 프로필 사진은 썸네일 주소로 받는다(shareImage.corsImageUrl) — 그 밖은 false로 기본 길에 맡긴다
+    fetchFn: async (url) => {
+      const via = corsImageUrl(url);
+      if (via === url) return false;
+      try {
+        const res = await fetch(via, { mode: 'cors', credentials: 'omit' });
+        return res.ok ? await toDataUrl(await res.blob()) : false;
+      } catch { return false; }
+    },
   });
   if (!canvas || isBlankCanvas(canvas)) throw new Error('빈 그림');
   const webp = canvas.toDataURL('image/webp', 0.9);

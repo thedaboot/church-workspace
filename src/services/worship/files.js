@@ -51,7 +51,8 @@ export async function ensureServiceDriveFolder(service) {
 
 // `kind`를 안 주면 송폼이다 — 0047부터의 호출부를 그대로 두기 위해서다.
 // `awaitCopy` — 구글 편집 사본이 설 때까지 기다린다(`지난 큐시트로 바로 편집`이 곧바로 편집 화면을 연다)
-export async function uploadServiceFile(service, file, folderId = null, { kind = SONGFORM, awaitCopy = false } = {}) {
+// net — 올리는 중 줄의 진행·멈춤(worshipView uploadFiles · cloud/drive uploadOwnedFile 머리말)
+export async function uploadServiceFile(service, file, folderId = null, { kind = SONGFORM, awaitCopy = false, net = null } = {}) {
   const k = SERVICE_FILE_KINDS.includes(kind) ? kind : SONGFORM;   // 갈래 목록은 cloud 한 벌(송폼·큐시트·표지)
   if (!supabase) {
     const row = {
@@ -72,7 +73,7 @@ export async function uploadServiceFile(service, file, folderId = null, { kind =
     serviceFolderId: folderId || service.drive_folder_id || null,
     kind: k,
     awaitCopy,
-  });
+  }, net);
   // 큐시트는 **올리는 순간** 요지를 뽑아 둔다 — 브라우저가 바이트를 이미 쥐고 있어 다운로드가
   // 없고, 순모임 가이드가 그 한 칸(files.text_excerpt)만 읽는다(services/cueDigest.js · 결정 12).
   // 기다리지 않는다 — 업무 첨부의 fillExcerpt와 같은 판단(발췌 때문에 업로드가 늦어지면 안 된다).

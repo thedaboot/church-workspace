@@ -1,10 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Paperclip, UploadCloud, FilePen, X, Loader2, AlertTriangle } from 'lucide-react';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
-import { formatBytes, fileKind } from './fileRow.jsx';
+import { formatBytes, fileKind, UploadTrack } from './fileRow.jsx';
 import { BTN, BTN_SOFT } from './buttons.js';
 import { WITH_ICON, ICON_BTN } from './groupsParts.jsx';
-import { uploadingByCard, uploadWatchers, unstageUpload } from '../modals/uploadQueue.js';
+import { uploadingByCard, uploadWatchers, unstageUpload, cancelUpload } from '../modals/uploadQueue.js';
 import { meetingQueueKey, REPORT_ACCEPT, splitNameTail } from '../services/groups.js';
 import { previewCopyOf } from '../services/previewKind.js';
 
@@ -51,7 +51,7 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
 
   const files = meeting.files || [];
   if (!manage && !files.length) return null;
-  const has = files.length > 0 || pending.length > 0;
+  const has = files.length > 0 || pending.some(r => !r._cancel);
   const nameOf = (uid) => (uid && people.find(p => p.profile_id === uid)?.name) || '';
   const copyLast = async () => {
     if (copying) return;
@@ -106,7 +106,8 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
           </ReportRow>
         );
       })}
-      {pending.map(row => (row._failed ? (
+      {/* 멈춘 줄(_cancel — 다 보낸 뒤 X · 올라오는 대로 거둔다)은 그 순간 화면에서 빠진다(업무 첨부와 같다) */}
+      {pending.filter(row => !row._cancel).map(row => (row._failed ? (
         // 못 올린 파일 — 업무 첨부와 같은 빨간 줄(2026-10-09). 다시 시도는 고른 파일 그대로 같은 길로 간다.
         <div key={row.id} className="club-meet-report-failed flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-tag-red text-tag-red-fg min-w-0">
           <span className="w-[26px] h-[26px] rounded-md flex items-center justify-center shrink-0"><AlertTriangle size={15} /></span>
@@ -121,8 +122,14 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
         </div>
       ) : (
         // 아직 드라이브에 안 올라간 줄 — 고르자마자 선다(§6-29-k). 편집·지우기는 없다(DB에 행이 아직 없다).
+        // 진행 퍼센트·막대와 멈춤 X는 업무 첨부 줄과 같다(2026-10-19 사용자 요청 · uploadQueue 머리말)
         <ReportRow key={row.id} row={row} pending onOpen={() => setPreview({ row, edit: false })}
-          meta={`드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}`} />
+          meta={`${row._phase === 'move' ? '드라이브로 옮기는 중' : '드라이브에 올리는 중'} · ${formatBytes(row.size_bytes)}`}>
+          {manage && (
+            <button type="button" onClick={() => cancelUpload(key, row.id)} title="올리기 취소" aria-label="올리기 취소"
+              className={`club-meet-report-cancel ${ICON_BTN} hover:text-tag-red-fg`}><X size={12} /></button>
+          )}
+        </ReportRow>
       )))}
       {preview && (
         <Suspense fallback={null}>
@@ -153,6 +160,8 @@ function MiddleName({ name, className = '' }) {
 // 파일 한 줄 — 종류 칩 · 이름(가운데 말줄임) · 올린 사람 · 날짜 · 크기. 줄을 누르면 미리보기.
 function ReportRow({ row, meta, pending = false, onOpen, children = null }) {
   const kind = fileKind(row.name, row.mime_type);
+  const moving = pending && row._phase === 'move';
+  const pct = moving ? 100 : (pending && Number.isFinite(row._pct) ? row._pct : null);
   return (
     <div className={`club-meet-report-row${pending ? ' club-meet-report-pending' : ''} flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-canvas min-w-0`}>
       <span className={`w-[26px] h-[26px] rounded-md flex items-center justify-center shrink-0 ${pending ? 'bg-surface-hover text-fg-faint' : kind.chip}`}>{kind.icon}</span>
@@ -161,7 +170,9 @@ function ReportRow({ row, meta, pending = false, onOpen, children = null }) {
         <p className="club-meet-report-meta mt-px flex items-center gap-1 text-[10.5px] text-fg-muted min-w-0">
           {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
           <span className="truncate">{meta}</span>
+          {pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">{pct}%</span>}
         </p>
+        {pct !== null && <UploadTrack pct={pct} />}
       </button>
       {children}
     </div>

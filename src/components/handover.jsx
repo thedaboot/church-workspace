@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, GraduationCap, Handshake, PencilLine, RotateCcw, X } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
+import { Skeleton } from './media.jsx';
 import { profileAvatar } from '../services/cloudSync.js';
 import { Segmented } from './segmented.jsx';
 import { BTN, BTN_SOFT, BTN_CONFIRM, BTN_CONFIRM_QUIET } from './buttons.js';
@@ -417,6 +418,27 @@ export function HandoverSheet({ m, item, onClose }) {
   );
 }
 
+// 처음 읽는 동안(클라우드 · 마스터 읽기 전) — 명단 줄 모양 그대로. 홈 카드가 먼저 읽은 '내 줄'(master: false)로는
+// 짝이 비어 '직분 수정' 버튼만 먼저 서고 명단이 뒤에 툭 들어왔다(사용자 지적 2026-10-19)
+function HandoverSkeleton() {
+  return (
+    <div data-hv-skeleton="" aria-busy="true">
+      <div className={`${CARD} overflow-hidden`} style={CARD_STYLE}>
+        {[0, 1, 2, 3, 4, 5].map(i => (
+          <div key={i} className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] md:grid-cols-[7.5rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)] items-center gap-x-2 md:gap-x-3 gap-y-1.5 px-3 py-2.5"
+            style={i ? { borderTop: '1px solid var(--app-line)' } : undefined}>
+            <Skeleton className="col-span-3 md:col-span-1 w-12 h-4 rounded-xs" />
+            <span className="flex items-center gap-1.5"><Skeleton className="w-6 h-6 rounded-full shrink-0" /><Skeleton className="w-14 h-3.5" /></span>
+            <span />
+            <span className="flex items-center gap-1.5"><Skeleton className="w-6 h-6 rounded-full shrink-0" /><Skeleton className="w-14 h-3.5" /></span>
+          </div>
+        ))}
+      </div>
+      <Skeleton className="mt-3 w-40 h-8" />
+    </div>
+  );
+}
+
 // ── 탭 한 장 ────────────────────────────────────────────────────────────────
 export function HandoverPanel({ onEditRoster, onNavigate }) {
   const m = useHandoverModel();
@@ -443,6 +465,8 @@ export function HandoverPanel({ onEditRoster, onNavigate }) {
       {!handoverOn() && m.hv.error ? (
         <FailLeft className="handover-load-failed" title="인수인계를 받지 못했어요" reason={errorReason(m.hv.error)}
           onRetry={() => loadHandover({ master: true })} />
+      ) : !handoverOn() && !(m.hv.loaded && m.hv.master) ? (
+        <HandoverSkeleton />
       ) : (
       <div key={step} className="dc-screen">
         {step === 1 && <PairStep m={m} onEditRoster={onEditRoster} />}

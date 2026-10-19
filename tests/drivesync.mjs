@@ -703,8 +703,8 @@ check('큐시트 파일이 송폼과 같은 길을 지나고 갈래는 kind 한 
   assert.strictEqual(ups, 1, `worshipView에 uploadServiceFile 호출이 ${ups}군데다 — 첨부를 올리는 길은 하나여야 한다`);
   assert.match(view, /uploadServiceFile\(service, file, folderId, \{ kind(, \.\.\.opts)? \}\)/,
     '업로드가 갈래를 안 싣는다 — 큐시트로 고른 파일이 송폼으로 저장된다');
-  assert.match(view, /sendServiceFile\(ok\[i\], folderId, kind(, \{ awaitCopy \})?\)/, '송폼·큐시트 업로드가 갈래를 안 넘긴다');
-  assert.match(wsvc, /export async function uploadServiceFile\(service, file, folderId = null, \{ kind = SONGFORM(, awaitCopy = false)? \} = \{\}\)/,
+  assert.match(view, /sendServiceFile\(ok\[i\], folderId, kind(, \{ awaitCopy(, net)? \})?\)/, '송폼·큐시트 업로드가 갈래를 안 넘긴다');
+  assert.match(wsvc, /export async function uploadServiceFile\(service, file, folderId = null, \{ kind = SONGFORM(, awaitCopy = false)?(, net = null)? \} = \{\}\)/,
     'worship.uploadServiceFile의 기본 갈래가 송폼이 아니다 — 옛 호출부의 뜻이 바뀐다');
   // 게스트 저장 자리도 갈래를 들고 있어야 브라우저 검사가 두 줄을 갈라 볼 수 있다
   const svcUp = wsvc.slice(wsvc.indexOf('export async function uploadServiceFile'));
@@ -1675,13 +1675,26 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
   check('C2 올리는 중 진행 — 퍼센트(메타 줄 끝) · 2px 막대(--p-track · accent · .42s quint) · 다 보내면 드라이브로 옮기는 중', () => {
     assert.match(row, /\{pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">\{pct\}%<\/span>\}/, '메타 줄 끝 퍼센트가 없다');
     assert.match(row, /\{pct !== null && <UploadTrack pct=\{pct\} \/>\}/, '막대가 없다');
-    const track = /const UploadTrack = [\s\S]*?\n\);/.exec(att)?.[0] || '';
+    const track = /export const UploadTrack = [\s\S]*?\n\);/.exec(read('src/components/fileRow.jsx'))?.[0] || '';
     assert.ok(/height: 2/.test(track) && /background: 'var\(--p-track\)'/.test(track) && /bg-accent/.test(track) && /transition: 'width \.42s var\(--ease-out-quint\)'/.test(track), '막대 모양이 시안과 다르다');
     assert.match(row, /moving \? '드라이브로 옮기는 중' : '드라이브에 올리는 중'/, '다 보낸 뒤의 단계 글자가 없다');
-    // 진행은 드라이브 길까지 이어진다 — 업무 첨부만 ctl을 넘기고, 송폼·모임 보고서는 예전 모양 그대로
+    // 진행은 드라이브 길까지 이어진다 — 업무 첨부 · 모임 보고서 · 송폼·큐시트(2026-10-19 사용자 요청 — 첨부 밖에서도 진행·취소)
     assert.match(att, /send: async \(file, _ctx, ctl\) => \{[\s\S]{0,700}?\}, ctl\);/, '업무 첨부가 진행·멈춤(ctl)을 드라이브 길에 안 넘긴다');
     assert.match(cloud, /export async function uploadAttachment\([^)]*\}, net = null\)/, 'uploadAttachment가 net을 안 받는다');
-    assert.ok(!/uploadServiceFile[\s\S]{0,700}\}, net\)/.test(cloud.slice(cloud.indexOf('export async function uploadServiceFile'), cloud.indexOf('export async function uploadServiceFile') + 700)), '송폼이 net을 넘긴다(바뀌면 안 된다)');
+    const fnBody = (name) => cloud.slice(cloud.indexOf(`export async function ${name}`), cloud.indexOf(`export async function ${name}`) + 900);
+    assert.match(fnBody('uploadServiceFile'), /\}, net = null\) \{[\s\S]*?\}, net\);/, '송폼·큐시트 길이 net을 안 받거나 안 넘긴다');
+    assert.match(fnBody('uploadMeetingFile'), /\}, net = null\) \{[\s\S]*?\}, net\);/, '모임 보고서 길이 net을 안 받거나 안 넘긴다');
+    const gv = read('src/views/groupsView.jsx');
+    assert.match(gv, /send: async \(file, _ctx, ctl\) => \{\s*const row = await uploadMeetingReport\([^)]*net: ctl \}\);\s*\/\/[^\n]*\n\s*if \(ctl\?\.isCancelled\(\)\) \{\s*removeMeetingReport\(row\)/, '모임 보고서가 ctl을 안 넘기거나 행이 선 뒤 멈춘 줄을 안 거둔다');
+    assert.match(read('src/services/groups.js'), /awaitCopy,\s*\}, net\);/, 'uploadMeetingReport가 net을 안 넘긴다');
+    const mr = read('src/components/meetingReport.jsx');
+    assert.ok(/\{pct !== null && <UploadTrack pct=\{pct\} \/>\}/.test(mr) && /cancelUpload\(key, row\.id\)/.test(mr) && /pending\.filter\(row => !row\._cancel\)/.test(mr), '모임 보고서 줄에 막대·X·숨긴 줄이 없다');
+    const wv = read('src/views/worshipView.jsx');
+    assert.match(wv, /sendServiceFile\(ok\[i\], folderId, kind, \{ awaitCopy, net \}\)/, '송폼·큐시트가 net을 안 넘긴다');
+    assert.match(wv, /if \(n\.isCancelled\(\)\) \{ removeServiceFile\(row\)/, '송폼·큐시트가 행이 선 뒤 멈춘 줄을 안 거둔다');
+    assert.match(read('src/services/worship/files.js'), /awaitCopy,\s*\}, net\);/, 'worship uploadServiceFile이 net을 안 넘긴다');
+    const wp = read('src/components/worshipParts.jsx');
+    assert.ok(/\{pct !== null && <UploadTrack pct=\{pct\} \/>\}/.test(wp) && /\{pending && canDelete && row\._stop && \(/.test(wp), '송폼·큐시트 줄에 막대·X가 없다');
     // 작은 파일(함수로 base64)과 큰 파일(Storage 서명 올리기 주소) 둘 다 XHR — fetch는 올리는 진행을 안 준다
     assert.match(cloud, /if \(wantsXhr\(net\)\) \{[\s\S]{0,200}?r = await xhrSend\(\{\s*url: '\/api\/drive'/, '작은 파일 길이 XHR이 아니다');
     assert.match(cloud, /createSignedUploadUrl\(path\)[\s\S]{0,500}?xhrSend\(\{\s*url: signedUrl, method: 'PUT', body: form/, '큰 파일(Storage) 길이 XHR이 아니다');

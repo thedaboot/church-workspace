@@ -815,19 +815,43 @@ export function WorshipView({ onOpenBible } = {}) {
       .forEach(f => showToast(`'${f.name}'은(는) ${MAX_UPLOAD_MB}MB를 넘어 첨부하지 못했어요.`));
     const ok = picked.filter(f => f.size <= MAX_UPLOAD_BYTES);
     if (!ok.length) return done;
+    // 진행·멈춤(2026-10-19 사용자 요청 — 업무 첨부와 같은 퍼센트·막대·X · cloud/drive uploadOwnedFile의 net).
+    // 멈춤은 줄에 `_stop`으로 싣는다 — 줄을 그리는 자리(송폼 · 큐시트 수정)가 둘이라 콜백을 따로 내려보내지 않는다.
+    const patchRow = (id, fn) => setFiles(prev => prev.map(x => (x.id === id ? fn(x) : x)));
+    const nets = ok.map(() => {
+      const ac = new AbortController();
+      let stopped = false, last = null;
+      return {
+        signal: ac.signal,
+        isCancelled: () => stopped,
+        stop: (id) => { stopped = true; ac.abort(); setFiles(prev => prev.filter(x => x.id !== id)); },
+        progress: (id) => (loaded, total) => {
+          const pct = total > 0 ? Math.min(100, Math.floor((loaded / total) * 100)) : null;
+          if (pct !== last) { last = pct; patchRow(id, x => ({ ...x, _pct: pct })); }
+        },
+      };
+    });
     const staged = ok.map(f => ({
       id: `local:${f.name}:${f.size}:${f.lastModified}:${Math.random().toString(36).slice(2, 8)}`,
       // 갈래를 **올리는 중인 줄에도** 실어 둔다 — 안 실으면 그 줄이 fileKindOf의 기본값
       // 때문에 송폼으로 읽혀, 큐시트에 고른 파일이 올라가는 동안 찬양 탭에 가서 선다.
       service_id: service.id, kind, name: f.name, size_bytes: f.size, mime_type: f.type || null,
-      source: 'local', _pending: true, _file: f,
-    }));
+      source: 'local', _pending: true, _file: f, _pct: null,
+    })).map((r, i) => ({ ...r, _stop: () => nets[i].stop(r.id) }));
     setFiles(prev => [...prev, ...staged]);
     const folderId = await serviceFolder();
     for (let i = 0; i < ok.length; i += 1) {
       const stagedId = staged[i].id;
+      const n = nets[i];
+      if (n.isCancelled()) continue;   // 차례가 오기 전에 멈춘 줄
+      const net = { signal: n.signal, isCancelled: n.isCancelled, onProgress: n.progress(stagedId),
+        onSent: () => patchRow(stagedId, x => ({ ...x, _phase: 'move' })) };
       await attempt('주보 파일 올리기', `'${ok[i].name}'을(를) 올리지 못했어요`, { 42501: NEED_EDIT_FILE }, async () => {
-        const row = await sendServiceFile(ok[i], folderId, kind, { awaitCopy });
+        let row;
+        try { row = await sendServiceFile(ok[i], folderId, kind, { awaitCopy, net }); }
+        catch (e) { if (n.isCancelled()) return; throw e; }   // 멈춘 줄의 실패는 실패가 아니다 — 토스트 없음
+        // 행이 선 뒤에 멈춘 줄 — 목록에 넣지 않고 거둔다(업무 첨부 send와 같은 자리)
+        if (n.isCancelled()) { removeServiceFile(row).catch(e => console.error('[worship] 멈춘 파일을 거두지 못했다:', e)); return; }
         setFiles(prev => prev.map(x => (x.id === stagedId ? row : x)));
         done.push(row);
       }, { undo: () => setFiles(prev => prev.filter(x => x.id !== stagedId)) });

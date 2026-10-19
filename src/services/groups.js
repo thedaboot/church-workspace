@@ -587,7 +587,8 @@ export async function ensureMeetingDriveFolder(club, meeting) {
 }
 
 // 보고서 한 장을 올린다 — 돌려주는 행은 fetchMeetings의 files 한 줄과 같은 모양이다.
-export async function uploadMeetingReport(club, meeting, file, folderId = null, { awaitCopy = false } = {}) {
+// net — 올리는 중 줄의 진행·멈춤(uploadQueue ctl · cloud/drive uploadOwnedFile 머리말)
+export async function uploadMeetingReport(club, meeting, file, folderId = null, { awaitCopy = false, net = null } = {}) {
   if (!supabase) {
     const row = {
       id: generateId(), meeting_id: meeting.id, name: file.name, size_bytes: file.size ?? null,
@@ -602,7 +603,7 @@ export async function uploadMeetingReport(club, meeting, file, folderId = null, 
   return uploadMeetingFile(sending, {
     meetingId: meeting.id, clubName: club?.name, meetingDate: meeting.meeting_date,
     meetingFolderId: folderId || meeting.drive_folder_id || null, awaitCopy,
-  });
+  }, net);
 }
 
 // '지난 보고서 가져오기'의 파일 — **편집 사본의 최신 글**을 .xlsx로 받는다(주보 worship.lastCueFile과 같은 길 ·

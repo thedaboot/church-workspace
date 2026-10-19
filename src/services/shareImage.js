@@ -172,7 +172,15 @@ export function isBlankCanvas(canvas) {
 const isOutsideImage = (src) => /^https?:\/\//i.test(src)
   && !src.startsWith(`${window.location.origin}/`);
 
-const toDataUrl = (blob) => new Promise((ok, no) => {
+// **카카오 프로필 사진 `k.kakaocdn.net`(·`t1`)에는 CORS 머리가 없다**(2026-10-19 실측 — 라이브 사진 26장 중 12장) —
+// 받지 못해 그림에서 빈 자리가 됐다(사용자 지적: 피드백 화면 사진에 프로필 사진이 안 나온다). 같은 사진을 카카오
+// 썸네일 주소 `img1.kakaocdn.net/thumb/…?fname=`으로 받으면 `access-control-allow-origin: *`이 붙어 온다.
+// 받는 주소만 바꾼다(화면의 src는 그대로).
+export const corsImageUrl = (src) => (/^https?:\/\/(k|t1)\.kakaocdn\.net\//i.test(src)
+  ? `https://img1.kakaocdn.net/thumb/R640x640.q70/?fname=${encodeURIComponent(src)}`
+  : src);
+
+export const toDataUrl = (blob) => new Promise((ok, no) => {
   const fr = new FileReader();
   fr.onload = () => ok(fr.result);
   fr.onerror = () => no(fr.error || new Error('사진을 읽지 못했어요'));
@@ -187,7 +195,7 @@ async function inlineImages(node) {
   await Promise.all(list.map(async (img) => {
     const src = img.currentSrc || img.src;
     try {
-      const res = await fetch(src, { mode: 'cors', credentials: 'omit' });
+      const res = await fetch(corsImageUrl(src), { mode: 'cors', credentials: 'omit' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const dataUrl = await toDataUrl(await res.blob());
       const { srcset } = img;

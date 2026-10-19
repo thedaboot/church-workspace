@@ -42,3 +42,13 @@ export const fileDay = (iso) => {
 // 같은 이름의 파일이 두 줄 서도 언제·누가 올린 것인지로 갈린다. 모르는 칸은 빠진다(이름을 못 찾으면 크기·날짜만).
 export const fileMeta = (row, nameOf = () => '') =>
   [formatBytes(row?.size_bytes), fileDay(row?.created_at), nameOf(row?.uploaded_by) || ''].filter(Boolean).join(' · ');
+
+// 올리는 중 줄의 막대(업무 첨부 · 활동 보고서 · 송폼·큐시트가 같이 쓴다 · 2px · 바탕 --p-track · 채움 accent · 폭은 .42s quint로 따라간다 · 2026-10-15 시안 C2).
+// 바이트 진행을 알기 전(사진 줄이기·폴더 확보 중)에는 막대도 퍼센트도 없다 · 다 보낸 뒤('드라이브로 옮기는 중')는 가득 찬 채 퍼센트만 걷힌다.
+export const UploadTrack = ({ pct }) => (
+  <span role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} data-upload-track
+    className="block rounded-full overflow-hidden" style={{ height: 2, marginTop: 5, background: 'var(--p-track)' }}>
+    <span className="block h-full rounded-full bg-accent motion-reduce:transition-none"
+      style={{ width: `${pct}%`, transition: 'width .42s var(--ease-out-quint)' }} />
+  </span>
+);

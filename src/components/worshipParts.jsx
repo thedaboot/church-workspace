@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Trash2, Eye, Loader2, Paperclip, UploadCloud } from 'lucide-react';
+import { Trash2, Eye, Loader2, Paperclip, UploadCloud, X } from 'lucide-react';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
-import { formatBytes, fileKind } from './fileRow.jsx';
+import { formatBytes, fileKind, UploadTrack } from './fileRow.jsx';
 import { EmptyBookMark } from './wordBible.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, WITH_ICON } from './groupsParts.jsx';
@@ -190,6 +190,9 @@ export function ServiceFileRow({ row, cls = 'worship-songform', what = '송폼',
   // DB에 행이 없어서 지울 것이 없고, 버튼을 내놓으면 화면이 거짓말을 한다.
   const pending = !!row._pending;
   const kind = fileKind(row.name, row.mime_type);
+  // 바이트 진행 — 업무 첨부 줄과 같다(보내는 중 퍼센트 · 다 보낸 뒤 가득 찬 막대 '드라이브로 옮기는 중')
+  const moving = pending && row._phase === 'move';
+  const pct = moving ? 100 : (pending && Number.isFinite(row._pct) ? row._pct : null);
   return (
     <li className={`${cls}-row flex items-center gap-2.5 py-2.5`} style={line ? ROW_LINE : undefined}>
       <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>
@@ -198,8 +201,10 @@ export function ServiceFileRow({ row, cls = 'worship-songform', what = '송폼',
         {/* 올리는 중에도 크기는 그대로 말해 준다 — '올리는 중'은 상태이지 안내가 아니다 */}
         <p className={`${cls}-meta mt-0.5 flex items-center gap-1 text-[10.5px] text-fg-muted`}>
           {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
-          {pending ? `드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}
+          <span className="truncate">{pending ? `${moving ? '드라이브로 옮기는 중' : '드라이브에 올리는 중'} · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}</span>
+          {pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">{pct}%</span>}
         </p>
+        {pct !== null && <UploadTrack pct={pct} />}
       </div>
       {/* 보기 카드에서는 옆에 선 링크 줄의 '열기'와 짝이 되게 글자 버튼이고,
           편집 목록에서는 삭제와 나란히 서므로 첨부·송폼과 같은 아이콘 버튼이다 */}
@@ -207,6 +212,11 @@ export function ServiceFileRow({ row, cls = 'worship-songform', what = '송폼',
         className={`${cls}-open shrink-0 ${openLabel ? BTN_SOFT : ICON_BTN}`}>
         {openLabel || <Eye size={14} />}
       </button>
+      {/* 올리기 멈춤 — 업무 첨부 줄의 X와 같다(확인은 묻지 않는다 — 고른 파일은 기기에 그대로다) */}
+      {pending && canDelete && row._stop && (
+        <button type="button" onClick={row._stop} title="올리기 취소" aria-label="올리기 취소"
+          className={`${cls}-cancel shrink-0 p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95`}><X size={14} /></button>
+      )}
       {!pending && canDelete && <TrashConfirm what={what} label={`${row.name} 삭제`} onConfirm={onRemove} shrink />}
     </li>
   );

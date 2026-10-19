@@ -1646,6 +1646,9 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   // 되돌리기: 적용 버튼의 handoverOn() 갈래를 지우면 깨진다.
   assert.ok(/\{handoverOn\(\) && <button type="button" data-hv-apply/.test(hvUi), '적용해 보기는 게스트 시연에서만');
   assert.ok(/\{handoverOn\(\) && \(\s*<button[^\n]*resetHandover\(\)/.test(hvUi), '처음으로는 게스트 시연에서만');
+  // 처음 읽는 동안은 스켈레톤(사용자 지적 2026-10-19 — '직분 수정' 버튼만 먼저 서고 명단이 뒤에 들어왔다).
+  // 홈 카드가 먼저 읽은 내 줄(master: false)로는 짝이 비므로 마스터 읽기까지 기다린다. 되돌리기: 조건을 !m.hv.loaded로 돌리면 깨진다.
+  assert.ok(/!handoverOn\(\) && !\(m\.hv\.loaded && m\.hv\.master\) \? \(\s*<HandoverSkeleton \/>/.test(hvUi), '인수인계 탭은 마스터 읽기 전에 스켈레톤');
   const store = readSrc('src/services/handoverStore.js');
   assert.ok(/if \(snap\.seeded \|\| navigator\.webdriver\) return;/.test(store) && /if \(!handoverOn\(\) \|\| typeof window === 'undefined'\) return;/.test(store), '씨앗·?demo=handover는 게스트에서만');
 
