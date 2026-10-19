@@ -11,7 +11,7 @@ import { isOpen } from '../services/taskCounts.js';
 import { Avatar } from './Avatar.jsx';
 import { DaboutiPill, DaboutiFace } from './dabooti.jsx';
 import { useIsNarrowDesk } from '../hooks/useIsMobile.js';
-import { CONFIG } from '../config.js';
+import { CONFIG, teamLine } from '../config.js';
 // 바깥 클릭 / Esc 로 닫히는 팝오버(프로필 메뉴·프로젝트 더보기·연도·알림) 껍데기 한 벌
 import { usePopover } from '../hooks/usePopover.js';
 import {
@@ -148,7 +148,7 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
       {pop.panel('z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5', <>
           <div className="px-2.5 py-2 mb-1 border-b border-line">
             <p className="text-[13px] font-semibold text-fg truncate">{currentUser.name}</p>
-            <p className="text-[11px] text-fg-muted truncate">{(currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean).join(' · ') || '팀 미지정'}</p>
+            <p className="text-[11px] text-fg-muted truncate">{teamLine(currentUser.teams?.length ? currentUser.teams : [currentUser.team], { primary: currentUser.team }).join(' · ') || '팀 미지정'}</p>
           </div>
           <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 설정</button>
           {/* 멤버는 관리자에게만. 하단 탭 네 자리는 핸드오프 규격이라 다섯 번째를

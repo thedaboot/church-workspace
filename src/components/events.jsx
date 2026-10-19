@@ -349,7 +349,7 @@ function EventWindow({ initialId, initialDraft, canEdit, onClose }) {
 // 관련 업무 고르기(사용자 승인 목업 ③ 2026-10-19 — 칩 덩어리가 줄바꿈으로 흩어져 읽기 어려웠다):
 //   고른 업무는 한 줄씩(제목 · 프로젝트 이름 · 빼기 X) · 넷이 넘으면 '+ N개 더 보기'로 접는다.
 //   추가는 '+ 관련 업무 추가' → 찾기 칸 있는 판(데스크톱 · 버튼 쪽 .dc-pop) / 아래 시트(폰 · .dc-sheet-up) —
-//   프로젝트별 묶음 · 최근 것이 위 · 이미 고른 것은 '✓ 고름'(누르면 빠짐) · 판을 닫지 않고 연달아 고른다.
+//   프로젝트별 묶음 · 최근 것이 위 · 이미 고른 것은 '✓ 선택'(누르면 빠짐) · 판을 닫지 않고 연달아 고른다.
 // 후보는 내가 볼 수 있는 업무 전부(스토어 — 클라우드는 RLS가 이미 걸렀다). 지운·못 보는 업무는 제목이 없어 '업무 링크'로 남는다(뺄 수 있게).
 const FOLD_AT = 4;
 function RelatedTasksPicker({ value, onChange, big }) {
@@ -437,7 +437,7 @@ function TaskAddButton({ open, setOpen, isMobile, big, value, onToggle, tasksSta
                 <button key={t.id} type="button" onClick={() => onToggle(t.id)} aria-pressed={on} data-event-task-option={t.id}
                   className={`w-full flex items-center gap-2 px-2 ${isMobile ? 'min-h-10' : 'min-h-8'} rounded-md text-left transition-colors ${on ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}>
                   <span className={`flex-1 min-w-0 truncate ${big ? 'text-[14px]' : 'text-[12.5px]'} ${on ? 'text-fg-muted' : 'text-fg'}`}>{t.title}</span>
-                  {on && <span className="shrink-0 text-[11px] font-semibold text-tag-green-fg">✓ 고름</span>}
+                  {on && <span className="shrink-0 text-[11px] font-semibold text-tag-green-fg">✓ 선택</span>}
                 </button>
               );
             })}

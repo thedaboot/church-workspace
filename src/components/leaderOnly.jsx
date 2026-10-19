@@ -10,7 +10,7 @@ import { Segmented } from './segmented.jsx';
 import { Avatar } from './Avatar.jsx';
 import { BTN_CONFIRM_QUIET } from './buttons.js';
 import { FIELD } from './groupsParts.jsx';
-import { CONFIG } from '../config.js';
+import { CONFIG, teamLine } from '../config.js';
 import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly, isRestricted, canSetVisibility, toggleViewerTeam } from '../services/visibility.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectMembers } from '../store/selectors.js';
@@ -236,7 +236,7 @@ function ViewersPicker({ project, onSet, big = false, foot = null }) {
                 className={`w-full flex items-center gap-2.5 px-1.5 rounded-md hover:bg-surface-hover text-left ${row}`}>
                 <Avatar name={p.name} className={`flex ${face}`} />
                 <span className="font-semibold text-fg truncate">{p.name}</span>
-                <span className="flex-1 min-w-0 truncate text-[11px] text-fg-muted">{(p.teams || []).join(' · ')}</span>
+                <span className="flex-1 min-w-0 truncate text-[11px] text-fg-muted">{teamLine(p.teams, { primary: p.team }).join(' · ')}</span>
                 <Plus size={14} className="shrink-0 text-accent-text" aria-hidden />
               </button>
             ))

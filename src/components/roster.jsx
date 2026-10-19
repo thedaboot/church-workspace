@@ -6,7 +6,7 @@ import { Skeleton } from './media.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
 import { BTN as BTN_BASE, BTN_QUIET as BTN_QUIET_BASE, FIELD as FIELD_BASE, WITH_ICON, LabeledField, FailLeft } from './groupsParts.jsx';
-import { CONFIG, teamColor, teamBgColor } from '../config.js';
+import { CONFIG, teamColor, teamBgColor, teamLine } from '../config.js';
 import { TEAM_CHIP_ROW } from '../views/viewParts.jsx';
 import { objectParticle } from '../services/errorText.js';
 import {
@@ -448,7 +448,10 @@ function PersonRow({ person, linked, sun, badges, open, busy, right, children, d
   const meta = [];
   const bday = birthdayLabel(person.birthday);
   if (bday) meta.push(bday);
-  if (person.teams?.length) meta.push(person.teams.join(' · '));
+  // 생일 다음은 소속 한 줄(config.teamLine — 대표 소속 → 나머지 팀 → 순 이름 순장/순원 · 사용자 결정 2026-10-19)
+  const line = teamLine(person.teams, { sun });
+  const sunPart = sun ? line.pop() : null;
+  meta.push(...line);
 
   return (
     <div data-person={person.id} className="dc-row py-2.5" style={{ ...ROW, animationDelay: `${delay}ms` }}>
@@ -465,7 +468,7 @@ function PersonRow({ person, linked, sun, badges, open, busy, right, children, d
           </p>
           <p className="text-[10.5px] text-fg-muted truncate">
             {meta.join(' · ')}
-            {sun && <>{meta.length ? ' · ' : ''}<span data-sun={sun}>{sun}</span></>}
+            {sunPart && <>{meta.length ? ' · ' : ''}<span data-sun={sun}>{sunPart}</span></>}
           </p>
         </div>
         {right ?? (

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { teamColor } from '../config.js';
+import { teamColor, teamLine } from '../config.js';
 import { Avatar } from './Avatar.jsx';
 import { visitOrder, agoLabel, lastVisitOf } from '../utils.js';
 import { usePresence } from '../services/presence.js';
@@ -150,7 +150,7 @@ export function MembersModal({ members, myName, onClose }) {
                       색은 첫 팀(대표) 것 하나만: 글자마다 딴 색이면 태그 잔치가 된다 */}
                   {(m.teams?.length || m.team) && (
                     <span className="block text-[11px] truncate" style={{ color: teamColor((m.teams?.[0]) || m.team) }}>
-                      {[...new Set(m.teams?.length ? m.teams : [m.team])].join(' · ')}
+                      {teamLine(m.teams?.length ? m.teams : [m.team], { primary: m.team }).join(' · ')}
                     </span>
                   )}
                 </span>

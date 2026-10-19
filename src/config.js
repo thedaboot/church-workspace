@@ -120,6 +120,21 @@ export const teamPaint = (teams = [], strong = false) => {
 };
 
 // 팀 색 한 가지를 실제 색값으로 (대시보드 막대 등). 팀이 없으면 회색.
+// 한 사람의 소속 한 줄 — 어디서나 같은 차례(사용자 결정 2026-10-19 · 목업 ⑤): 대표 소속 → 나머지 팀(위 TEAMS 차례) → 순 이름 + 순장/순원.
+// 대표 소속은 primary(계정의 대표 팀)가 있으면 그것, 없으면 teams의 첫 팀(설정·명단이 고른 차례 그대로 저장한다 — 0111).
+// 순 이름(sun)을 주면 '꼬순 순원'처럼 한 칸으로 붙는다. 명단의 생일은 이 줄 앞에 그대로 선다(부르는 쪽).
+const SUN_TAGS = ['순장', '순원'];
+export const teamLine = (teams = [], { primary = '', sun = '' } = {}) => {
+  const order = Object.keys(CONFIG.TEAMS);
+  const at = (t) => { const i = order.indexOf(t); return i < 0 ? order.length : i; };
+  const list = [...new Set((teams || []).filter(Boolean))];
+  const plain = list.filter(t => !SUN_TAGS.includes(t));
+  const head = primary && plain.includes(primary) ? primary : plain[0];
+  const rest = plain.filter(t => t !== head).sort((a, b) => at(a) - at(b));
+  const sunPart = [sun, list.find(t => SUN_TAGS.includes(t))].filter(Boolean).join(' ');
+  return [head, ...rest, sunPart].filter(Boolean);
+};
+
 export const teamColor = (team) => {
   const token = CONFIG.TEAM_TOKENS[team];
   return token ? `var(--app-tag-${token}-fg)` : 'var(--app-tag-gray-fg)';

@@ -508,6 +508,13 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   process.env.SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || 'test-secret';
   const F = await import(new URL('../src/services/calendarFeed.js', import.meta.url).href);
   const { CONFIG } = await import(new URL('../src/config.js', import.meta.url).href);
+  // 소속 한 줄 차례(사용자 결정 2026-10-19 · 목업 ⑤) — 대표 → 나머지 팀(TEAMS 차례) → 순 이름 순장/순원.
+  // 되돌리기: teamLine의 rest 정렬이나 sunPart를 지우면 깨진다.
+  const { teamLine } = await import(new URL('../src/config.js', import.meta.url).href);
+  assert.deepStrictEqual(teamLine(['미디어팀', '순원', '웰컴팀'], { sun: '꼬순' }), ['미디어팀', '웰컴팀', '꼬순 순원'], '명단: 대표 → 팀 → 순 순원');
+  assert.deepStrictEqual(teamLine(['순원', '미디어팀', '웰컴팀', '찬양팀']), ['미디어팀', '웰컴팀', '찬양팀', '순원'], '대표가 없으면 첫 팀 · 나머지는 TEAMS 차례');
+  assert.deepStrictEqual(teamLine(['웰컴팀', '찬양팀', '순장'], { primary: '찬양팀' }), ['찬양팀', '웰컴팀', '순장'], '계정 대표 팀이 앞');
+  assert.deepStrictEqual(teamLine([], { sun: '고구마순' }), ['고구마순'], '소속이 없어도 순 이름');
 
   // 설명 문장(목업 문구 그대로)
   assert.strictEqual(F.feedSentence([]), '내 달력에 넣을 업무를 골라 주세요.');
@@ -707,7 +714,7 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   // 되돌리기: FOLD_AT 접기나 place() 다시 붙이기를 지우거나 <select>로 돌리면 깨진다.
   const picker = evUi.slice(evUi.indexOf('function RelatedTasksPicker'), evUi.indexOf('// ── 내 달력 ──'));
   assert.ok(/value\.slice\(0, FOLD_AT\)/.test(picker) && /\+ \$\{value\.length - FOLD_AT\}개 더 보기/.test(picker), '관련 업무는 넷까지 · 나머지는 더 보기');
-  assert.ok(!/<select/.test(picker) && /placeholder="업무 이름으로 찾기"/.test(picker) && /✓ 고름/.test(picker), '추가는 찾기 판(✓ 고름)');
+  assert.ok(!/<select/.test(picker) && /placeholder="업무 이름으로 찾기"/.test(picker) && /✓ 선택/.test(picker), '추가는 찾기 판(✓ 고름)');
   assert.ok(/place\(\); \}, \[value\.length, q\]\)/.test(picker), '판이 버튼을 따라 다시 선다');
   console.log('PASS  행사 일정 — 추가·수정 권한 · 종류 차례 · 기간 · 띠 자리 · 다듬기 · 관련 업무 · 내 달력 고르기 · 배선');
 }
