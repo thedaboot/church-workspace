@@ -703,6 +703,26 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.strictEqual(E.eventFeedSentence([]), '내 달력에 추가할 일정을 선택해 주세요.');
   assert.strictEqual(E.eventFeedSentence(['대림절 예배', '대림절 예배', '성탄 예배', '송구영신 예배']), '대림절 예배, 성탄 예배 외 1건이 내 달력에 추가돼요.', '같은 제목은 한 번만 부르고 나머지를 센다');
   assert.strictEqual(E.eventFeedSentence(['성탄 예배']), '성탄 예배 일정이 내 달력에 추가돼요.');
+  // 시각(0116 · 목업 ① 2026-10-19) — 오전/오후 글자 · 시간 줄 · 다듬기(종료만 있음 · 같은 날 거꾸로) · 띠 앞 시각 · 내 달력 UTC 시각(KST −9)
+  // 되돌리기: normalizeEvent의 endTime 거르기, eventCalItem의 barLabel, eventFeedEvent의 startAt을 지우면 깨진다.
+  assert.deepStrictEqual(['11:00', '12:00', '00:30', '19:30'].map(E.koTime), ['오전 11:00', '오후 12:00', '오전 12:30', '오후 7:30']);
+  assert.strictEqual(E.eventTimeLabel({ startTime: '11:00', endTime: '12:00' }), '오전 11:00~오후 12:00');
+  assert.strictEqual(E.eventTimeLabel({ startTime: '', endTime: '12:00' }), '', '시작 시각이 없으면 하루 종일');
+  const tn = E.normalizeEvent({ title: 'x', start: '2026-10-18', startTime: '11:00', endTime: '10:00' });
+  assert.ok(tn.startTime === '11:00' && tn.endTime === '', '같은 날 거꾸로 된 종료 시각은 버린다');
+  assert.strictEqual(E.normalizeEvent({ title: 'x', start: '2026-10-18', endTime: '10:00' }).endTime, '', '종료 시각만은 없다');
+  assert.strictEqual(E.normalizeEvent({ title: 'x', start: '2026-10-18', end: '2026-10-19', startTime: '20:00', endTime: '09:00' }).endTime, '09:00', '이틀이면 종료가 앞 시각이어도 된다');
+  assert.strictEqual(E.eventCalItem({ id: 'a', title: '리더 설거지', start: '2026-10-18', startTime: '11:00' }).barLabel, '11시 리더 설거지');
+  assert.strictEqual(E.eventCalItem({ id: 'a', title: '저녁', start: '2026-10-18', startTime: '19:30' }).barLabel, '19시 30분 저녁');
+  const fe = E.eventFeedEvent({ id: 'a', title: '리더 설거지', start: '2026-10-18', end: '2026-10-18', startTime: '11:00', endTime: '12:00' });
+  assert.ok(fe.startAt === '20261018T020000Z' && fe.endAt === '20261018T030000Z', `KST → UTC: ${fe.startAt} ${fe.endAt}`);
+  assert.strictEqual(E.eventFeedEvent({ id: 'a', title: 'x', start: '2026-10-18', startTime: '23:30' }).endAt, '20261018T153000Z', '종료 시각이 없으면 1시간');
+  assert.ok(!('startAt' in E.eventFeedEvent({ id: 'a', title: 'x', start: '2026-10-18' })), '하루 종일은 그대로');
+  {
+    const CF = await import(new URL('../src/services/calendarFeed.js', import.meta.url).href);
+    const ics = CF.buildFeedIcs({ calName: 'x', events: [fe] });
+    assert.ok(ics.includes('DTSTART:20261018T020000Z') && ics.includes('DTEND:20261018T030000Z') && !ics.includes('VALUE=DATE'), '피드에 시각이 실린다');
+  }
   // 화면 배선 — 추가 길(오른쪽 클릭·길게 누르기·+ 새 일정)은 canEdit일 때만
   const evUi = readFileSync(new URL('../src/components/events.jsx', import.meta.url), 'utf8');
   const viewsUi = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');

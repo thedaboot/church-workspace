@@ -4,6 +4,9 @@ import { CalendarPlus, Link as LinkIcon, MapPin, Plus, Trash2, X } from 'lucide-
 import { CalendarBoard } from './calendar.jsx';
 import { Avatar } from './Avatar.jsx';
 import { DatePicker } from './DatePicker.jsx';
+import { TimePicker } from './TimePicker.jsx';
+import { ShareSwitch } from './bibleParts.jsx';
+import { Fold } from './Fold.jsx';
 import { ConfirmPopover, useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { FIELD, LabeledField, DATE_TRIGGER } from './groupsParts.jsx';
 import { BTN_CONFIRM, BTN_CONFIRM_QUIET } from './buttons.js';
@@ -17,7 +20,7 @@ import { imeComposing, localDate, byNewest } from '../utils.js';
 import { failText } from '../services/errorText.js';
 import { supabase } from '../services/supabaseClient.js';
 import {
-  EVENT_KINDS, kindOf, eventPaint, eventDot, eventCalItems, eventRangeLabel,
+  EVENT_KINDS, kindOf, eventPaint, eventDot, eventCalItems, eventRangeLabel, eventTimeLabel, koTime,
   monthEvents, togglePick, livePicks, eventFeedSentence,
 } from '../services/events.js';
 import {
@@ -70,7 +73,7 @@ export function EventCalendar({ canEdit, bdayPeople }) {
     setWin({ id: hit.id });
   }, [want, items]);
 
-  const openNew = useCallback((iso) => setWin({ draft: { title: '', start: iso, end: iso, place: '', memo: '', kind: 'event', taskIds: [] } }), []);
+  const openNew = useCallback((iso) => setWin({ draft: { title: '', start: iso, end: iso, startTime: '', endTime: '', timed: false, place: '', memo: '', kind: 'event', taskIds: [] } }), []);
   const openView = useCallback((item) => setWin({ id: item.id }), []);
 
   const renderDay = useCallback(({ iso, list, birthdays, tight }) => (
@@ -135,7 +138,8 @@ function EventDaySheet({ iso, list, birthdays = [], tight, onOpen }) {
       {list.length === 0
         ? (birthdays.length ? null : <p data-event-empty="" className="py-4 text-center text-[11px] text-fg-muted">일정 없음</p>)
         : list.map((ev, i) => {
-          const meta = [ev.place, eventRangeLabel(ev)].filter(Boolean).join(' · ');
+          // 시각이 있으면 맨 앞(0116 · 목업 ① '오전 11:00~오후 12:00 · 교육관')
+          const meta = [eventTimeLabel(ev), ev.place, eventRangeLabel(ev)].filter(Boolean).join(' · ');
           return (
             <button key={ev.id} type="button" onClick={() => onOpen(ev)} data-event-row={ev.id}
               className="dc-row w-[calc(100%+16px)] flex items-start gap-2.5 py-2 text-left rounded-md px-2 -mx-2 border-t border-line/60 first-of-type:border-t-0 hover:bg-surface-hover transition-colors"
@@ -162,6 +166,14 @@ const dateText = (iso) => {
   if (!iso) return '';
   const [y, m, d] = iso.split('-').map(Number);
   return `${y}. ${m}. ${d}. (${WD[new Date(y, m - 1, d).getDay()]})`;
+};
+
+// 종료 시각을 처음 열 자리 — 시작 + 1시간(23시 뒤는 23:50)
+const plusHour = (hm) => {
+  const m = /^(\d{2}):(\d{2})$/.exec(hm || '');
+  if (!m) return '';
+  const h = Number(m[1]) + 1;
+  return h > 23 ? '23:50' : `${String(h).padStart(2, '0')}:${m[2]}`;
 };
 
 // 종류 칩 하나 — 수정 상태의 고르기 칩과 같은 모양(읽기 상태는 고른 것 하나만 · 누르지 않는다)
@@ -193,10 +205,11 @@ function EventWindow({ initialId, initialDraft, canEdit, onClose }) {
   // 읽던 일정이 사라졌으면(다른 탭에서 지움) 창을 닫는다
   useEffect(() => { if (!editing && id && !ev) onClose(); }, [editing, id, ev, onClose]);
 
-  const ok = editing && !!draft.title.trim() && !!draft.start;
+  // 하루 종일을 끈 채 시작 시각이 비었으면 저장을 막는다(시각을 고르거나 하루 종일을 다시 켠다)
+  const ok = editing && !!draft.title.trim() && !!draft.start && (!draft.timed || !!draft.startTime);
   const submit = () => {
     if (!ok) return;
-    const saved = saveEvent(draft, { onFail: SAVE_FAIL });
+    const saved = saveEvent(draft.timed ? draft : { ...draft, startTime: '', endTime: '' }, { onFail: SAVE_FAIL });
     if (!saved) return;
     showToast(isNew ? '일정을 추가했어요' : '일정을 수정했어요');
     setId(saved.id);
@@ -204,7 +217,7 @@ function EventWindow({ initialId, initialDraft, canEdit, onClose }) {
   };
   const cancel = () => { if (isNew) close(); else setDraft(null); };
   const remove = () => { deleteEvent(id, { onFail: DELETE_FAIL }); showToast('일정을 삭제했어요'); close(); };
-  const startEdit = () => { if (canEdit && ev) setDraft({ ...ev, taskIds: ev.taskIds || [] }); };
+  const startEdit = () => { if (canEdit && ev) setDraft({ ...ev, timed: !!ev.startTime, taskIds: ev.taskIds || [] }); };
   const onEnter = (e) => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); submit(); } };
   const out = leaving ? ' dc-out' : '';
   const big = isMobile;
@@ -233,19 +246,40 @@ function EventWindow({ initialId, initialDraft, canEdit, onClose }) {
                 placeholder="예: 겨울 수련회" autoFocus={!big && isNew} enterKeyHint="done" className={input} data-event-title="" />
             : <p className={`${text} font-semibold`} data-event-view-title="">{d.title}</p>}
         </LabeledField>
+        {/* 시작 · 종료(사용자 승인 목업 ① 2026-10-19) — '하루 종일'을 끄면 날짜 칸 아래 시간 칸이 펼쳐진다(접고 펴기 Fold · quint).
+            종료 시각은 처음 열 때 시작 + 1시간 자리 · 같은 날이면 시작보다 앞 칸은 흐리다. 읽기 상태는 날짜 뒤에 시각. */}
         <div className="grid grid-cols-2 gap-2.5">
-          <LabeledField label="시작일" className="[&>div]:flex">
-            {editing
-              ? <DatePicker value={d.start} onChange={(v) => setDraft(prev => ({ ...prev, start: v, end: prev.end && prev.end < v ? v : prev.end }))}
+          <LabeledField label="시작" className="[&>div]:flex [&>div]:flex-col [&>div]:gap-1.5">
+            {editing ? (
+              <>
+                <DatePicker value={d.start} onChange={(v) => setDraft(prev => ({ ...prev, start: v, end: prev.end && prev.end < v ? v : prev.end }))}
                   allowClear={false} ariaLabel="시작일" triggerClassName={dateTrigger} />
-              : <p className={`${text} tabular-nums`}>{dateText(d.start)}</p>}
+                <Fold open={!!d.timed}>
+                  <div className="flex pt-0.5"><TimePicker value={d.startTime || ''} ariaLabel="시작 시각" triggerClassName={dateTrigger} openAt="10:00"
+                    onChange={(v) => setDraft(prev => ({ ...prev, startTime: v, endTime: prev.endTime && (prev.end || prev.start) === prev.start && prev.endTime <= v ? '' : prev.endTime }))} /></div>
+                </Fold>
+              </>
+            ) : <p className={`${text} tabular-nums`}>{dateText(d.start)}{d.startTime ? ` ${koTime(d.startTime)}` : ''}</p>}
           </LabeledField>
-          <LabeledField label="종료일" className="[&>div]:flex">
-            {editing
-              ? <DatePicker value={d.end} onChange={set('end')} ariaLabel="종료일" triggerClassName={dateTrigger} />
-              : <p className={`${text} tabular-nums`}>{dateText(d.end || d.start)}</p>}
+          <LabeledField label="종료" className="[&>div]:flex [&>div]:flex-col [&>div]:gap-1.5">
+            {editing ? (
+              <>
+                <DatePicker value={d.end} onChange={set('end')} ariaLabel="종료일" triggerClassName={dateTrigger} />
+                <Fold open={!!d.timed}>
+                  <div className="flex pt-0.5"><TimePicker value={d.endTime || ''} onChange={set('endTime')} ariaLabel="종료 시각" triggerClassName={dateTrigger}
+                    openAt={plusHour(d.startTime) || '11:00'} minHM={(d.end || d.start) === d.start ? (d.startTime || '') : ''} /></div>
+                </Fold>
+              </>
+            ) : <p className={`${text} tabular-nums`}>{dateText(d.end || d.start)}{d.endTime ? ` ${koTime(d.endTime)}` : ''}</p>}
           </LabeledField>
         </div>
+        {editing && (
+          <button type="button" role="switch" aria-checked={!d.timed} data-event-allday=""
+            onClick={() => setDraft(prev => ({ ...prev, timed: !prev.timed }))}
+            className={`self-start inline-flex items-center gap-2 ${big ? 'min-h-10 text-[14px]' : 'min-h-8 text-[12.5px]'} text-fg-secondary`}>
+            <ShareSwitch on={!d.timed} />하루 종일
+          </button>
+        )}
         <LabeledField label="종류">
           {editing ? (
             <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="종류">

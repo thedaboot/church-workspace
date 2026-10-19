@@ -20,7 +20,7 @@ import { approvedFacts, factEvidence, saveFact, decideFact, rebuildLearned, rebu
 import { openGroups } from './_wiki/faq.js';
 import { trashedIds } from './_trash.js';
 import { dropTrashed } from '../src/services/trashItems.js';
-import { kindOf, eventSpan } from '../src/services/events.js';
+import { kindOf, eventSpan, eventTimeLabel } from '../src/services/events.js';
 
 export { serviceLine };
 
@@ -620,7 +620,8 @@ export function eventEvidence(rows = [], { today, cardById = new Map(), max = EV
     const tasks = [...(r.event_tasks || [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(t => cardById.get(t.card_id)).filter(Boolean);
     const place = String(r.place || '').trim();
     const memo = plain(String(r.memo || '')).trim().slice(0, 500);
-    const text = [`[행사 일정] '${title}' · 종류 ${kindOf(r.kind).label} · 날짜 ${when} · ${state}`, place && `장소 ${place}`, memo && `메모: ${memo}`,
+    const time = eventTimeLabel({ startTime: r.start_time, endTime: r.end_time });   // 0116 — 시각이 있으면 날짜 뒤에
+    const text = [`[행사 일정] '${title}' · 종류 ${kindOf(r.kind).label} · 날짜 ${when}${time ? ` ${time}` : ''} · ${state}`, place && `장소 ${place}`, memo && `메모: ${memo}`,
       tasks.length && `관련 업무: ${tasks.map(c => `'${c.title}'`).join(', ')}`].filter(Boolean).join(' · ');
     return { text, cite: { t: 'event', id: r.id, label: title, end: s.end }, cardIds: tasks.map(c => c.id) };
   });
@@ -653,7 +654,7 @@ export async function collectAll(db, today, { admin = null } = {}) {
     db === admin ? [] : readAll(() => db.from('card_secrets').select('card_id, description, subtasks').order('card_id'), 'card_secrets').catch(() => []),
     db === admin ? trashedIds(db) : null,
     // 행사 일정(0112) — 못 읽으면 행사 없이 답한다(다른 기록은 그대로 · 표가 없던 때와 같다)
-    db.from('events').select('id, title, start_date, end_date, kind, place, memo, event_tasks(card_id, position)')
+    db.from('events').select('id, title, start_date, end_date, start_time, end_time, kind, place, memo, event_tasks(card_id, position)')
       .lte('start_date', win.to).gte('end_date', win.from).order('start_date').order('id').limit(EVENT_MAX * 4)
       .then(r => { if (r.error) { console.error('[dabooti] 행사 일정 읽기 실패:', r.error.message); return []; } return r.data || []; }, () => []),
   ]);

@@ -389,7 +389,7 @@ function CalBar({ bar, onClick, paint = null }) {
         borderTopRightRadius: clippedRight ? 2 : 4, borderBottomRightRadius: clippedRight ? 2 : 4,
       }}
     >
-      <span className="text-[10.5px] font-semibold truncate">{continued ? '↳ ' : ''}{task.title}</span>
+      <span className="text-[10.5px] font-semibold truncate">{continued ? '↳ ' : ''}{task.barLabel || task.title}</span>
     </button>
   );
 }

@@ -35,6 +35,30 @@ export const eventPaint = (ev, strong = false) => {
 export const eventDot = (ev) => `var(--app-tag-${kindOf(ev?.kind).token}-fg)`;
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
+// 시각(0116 · 사용자 승인 목업 ① 2026-10-19) — 'HH:MM' KST 벽시계. 비면 하루 종일이다.
+const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const hmOf = (v) => { const t = String(v || '').slice(0, 5); return HM.test(t) ? t : ''; };
+// '오전 11:00' · '오후 12:00' · '오전 12:30'(자정 30분)
+export function koTime(hm) {
+  const t = hmOf(hm);
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
+  return `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}:${String(m).padStart(2, '0')}`;
+}
+// 고른 날 목록·읽기 상태의 시각 — '오전 11:00~오후 12:00' · 종료가 없으면 시작만 · 하루 종일이면 ''
+export function eventTimeLabel(ev) {
+  const s = hmOf(ev?.startTime);
+  if (!s) return '';
+  const e = hmOf(ev?.endTime);
+  return e ? `${koTime(s)}~${koTime(e)}` : koTime(s);
+}
+// 달력 띠 앞 시각 — '11시' · '19시 30분'(띠는 좁아 24시 꼴 · 목업 ①)
+const barTime = (hm) => {
+  const t = hmOf(hm);
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
+  return m ? `${h}시 ${m}분` : `${h}시`;
+};
 // 기간 — 종료일이 없으면 시작일 하루, 거꾸로 적혔으면 뒤집는다. 시작일이 없으면 달력에 얹지 않는다(null).
 export function eventSpan(ev) {
   const s = ISO.test(ev?.start || '') ? ev.start : null;
@@ -49,7 +73,8 @@ export function eventSpan(ev) {
 export function eventCalItem(ev) {
   const s = eventSpan(ev);
   if (!s) return null;
-  return { ...ev, startDate: s.start, dueDate: s.end, isEvent: true };
+  const bt = barTime(ev.startTime);
+  return { ...ev, startDate: s.start, dueDate: s.end, isEvent: true, ...(bt ? { barLabel: `${bt} ${ev.title}` } : {}) };
 }
 export const eventCalItems = (list = []) => list.map(eventCalItem).filter(Boolean)
   .sort((a, b) => (a.startDate === b.startDate ? b.dueDate.localeCompare(a.dueDate) : a.startDate.localeCompare(b.startDate)));
@@ -72,9 +97,13 @@ export function normalizeEvent(draft = {}) {
   if (!title || !start) return null;
   let end = ISO.test(draft.end || '') ? draft.end : start;
   if (end < start) end = start;
+  // 종료 시각은 시작 시각이 있을 때만 · 하루 일정이면 시작보다 뒤여야 한다(0116 events_time_check와 같은 규칙)
+  const startTime = hmOf(draft.startTime);
+  let endTime = startTime ? hmOf(draft.endTime) : '';
+  if (endTime && end === start && endTime <= startTime) endTime = '';
   return {
     id: draft.id || `ev_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-    title, start, end,
+    title, start, end, startTime, endTime,
     place: String(draft.place || '').trim(),
     memo: String(draft.memo || '').trim(),
     kind: kindOf(draft.kind).key,
@@ -115,12 +144,22 @@ const nextDayCompact = (iso) => {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10).replace(/-/g, '');
 };
+// 시각이 있으면(0116) 하루 종일이 아니라 그 시각으로 — startAt·endAt('YYYYMMDDTHHMMSSZ' · KST를 UTC로). 종료 시각이 없으면 1시간짜리.
+const utcStamp = (iso, hm, plusMin = 0) => {
+  const [y, mo, d] = iso.split('-').map(Number);
+  const [h, mi] = hm.split(':').map(Number);
+  return new Date(Date.UTC(y, mo - 1, d, h - 9, mi + plusMin)).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+};
 export function eventFeedEvent(ev) {
   const s = eventSpan(ev);
   const title = String(ev?.title || '').trim();
   if (!s || !title || !ev?.id) return null;
-  return { uid: `event-${ev.id}@thedaboot`, title, start: s.start, end: nextDayCompact(s.end),
+  const base = { uid: `event-${ev.id}@thedaboot`, title, start: s.start, end: nextDayCompact(s.end),
     location: String(ev.place || '').trim(), description: String(ev.memo || '').trim() };
+  const st = hmOf(ev.startTime);
+  if (!st) return base;
+  const et = hmOf(ev.endTime);
+  return { ...base, startAt: utcStamp(s.start, st), endAt: et ? utcStamp(s.end, et) : utcStamp(s.end, st, 60) };
 }
 // 달력 앱에 보이는 이 구독의 이름
 export const EVENT_FEED_NAME = '더다붓 · 행사 일정';

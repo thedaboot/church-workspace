@@ -7,12 +7,14 @@
 // ============================================================================
 import { client, unwrap, authedPost } from './core.js';
 
-const COLS = 'id, title, start_date, end_date, kind, place, memo, event_tasks(card_id, position)';
+const COLS = 'id, title, start_date, end_date, start_time, end_time, kind, place, memo, event_tasks(card_id, position)';
 
 // DB 행 → 앱 모양(관련 업무는 position 차례)
 export const eventFromRow = (r) => ({
   id: r.id, title: r.title || '', start: r.start_date || '', end: r.end_date || r.start_date || '',
   place: r.place || '', memo: r.memo || '', kind: r.kind || 'event',
+  // 시각(0116) — DB는 'HH:MM:SS' · 앱은 'HH:MM' · 없으면 '' (하루 종일)
+  startTime: (r.start_time || '').slice(0, 5), endTime: (r.end_time || '').slice(0, 5),
   taskIds: [...(r.event_tasks || [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(x => x.card_id),
 });
 
@@ -20,6 +22,7 @@ export const eventFromRow = (r) => ({
 export const saveEventArgs = (ev) => ({
   p_id: ev.id, p_title: ev.title, p_start: ev.start, p_end: ev.end || ev.start, p_kind: ev.kind,
   p_place: ev.place || '', p_memo: ev.memo || '', p_cards: ev.taskIds || [],
+  p_start_time: ev.startTime || null, p_end_time: (ev.startTime && ev.endTime) || null,
 });
 
 export async function listEvents() {

@@ -221,13 +221,13 @@ async function eventFeedGet(req, res, f) {
   if (!feed || !(await ownerApproved(supabase, feed.owner))) { gone(res); return; }
   let rows = [];
   if (feed.event_ids?.length) {
-    const { data, error } = await supabase.from('events').select('id, title, start_date, end_date, place, memo');
+    const { data, error } = await supabase.from('events').select('id, title, start_date, end_date, start_time, end_time, place, memo');
     if (error) { console.error('[ics] 행사 구독 읽기 실패:', error); res.status(500).end(); return; }
     const picked = new Set(feed.event_ids);
     // 지워진 행사는 표에 없어 저절로 빠진다(event_ids는 그대로 둔다)
     rows = (data || []).filter(r => picked.has(r.id)).sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
   }
-  const events = rows.map(r => eventFeedEvent({ id: r.id, title: r.title, start: r.start_date, end: r.end_date, place: r.place, memo: r.memo }));
+  const events = rows.map(r => eventFeedEvent({ id: r.id, title: r.title, start: r.start_date, end: r.end_date, startTime: r.start_time, endTime: r.end_time, place: r.place, memo: r.memo }));
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
   res.setHeader('Content-Disposition', 'inline; filename="thedaboot-events.ics"');
   res.setHeader('Cache-Control', 'public, max-age=300');
