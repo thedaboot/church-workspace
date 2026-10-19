@@ -48,10 +48,21 @@ export function recentSongs(services, { onDate, weeks = 8 } = {}) {
       const prev = seen.get(key);
       // 링크도 같이 물려준다(사용자 요청 2026-09-22) — 칩으로 넣고 나서 같은 영상을
       // 다시 찾아 붙이는 일이 없어야 한다. 가장 최근 것의 링크를 쓴다.
-      if (!prev || weeksAgo < prev.weeksAgo) seen.set(key, { title, weeksAgo, link: String(song?.link || '').trim() });
+      if (!prev || weeksAgo < prev.weeksAgo) seen.set(key, { title, weeksAgo, date: String(s.service_date).slice(0, 10), link: String(song?.link || '').trim() });
     }
   }
   return [...seen.values()].sort((a, b) => a.weeksAgo - b.weeksAgo || a.title.localeCompare(b.title));
+}
+
+// 주마다 한 줄(사용자 승인 목업 ② 2026-10-19 — 칩이 줄바꿈으로 흘러 읽기 어려웠다) — [{ weeksAgo, date, songs }] · 가까운 주 먼저.
+// 한 곡은 가장 최근 주에만 선다(recentSongs가 이미 그렇게 거른다).
+export function recentByWeek(recent = []) {
+  const m = new Map();
+  for (const r of recent || []) {
+    if (!m.has(r.weeksAgo)) m.set(r.weeksAgo, { weeksAgo: r.weeksAgo, date: r.date || '', songs: [] });
+    m.get(r.weeksAgo).songs.push(r);
+  }
+  return [...m.values()].sort((a, b) => a.weeksAgo - b.weeksAgo);
 }
 
 // 곡 제목 → 최근에 부른 적이 있으면 그 주 수. 없으면 0. (화면의 '3주 전에 했던 곡' 표)

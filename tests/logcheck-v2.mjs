@@ -91,7 +91,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     ...['serviceView.js', 'noteTemplate.js', 'honorific.js', 'cueDigest.js'].map(f => `src/services/${f}`),
   ];
   const { honorific, honorificsOf } = await loadSource('src/services/people.js', { src: strip(readSrc('src/services/people.js')), dir, siblings });
-  const { pastSunday, recentSongs, weeksAgoOf, songKey, prefillRoles, PREFILL_ROLES, cueNameFor, pickLastCue } = await loadSource('src/services/worship/pure.js', { src: strip(readSrc('src/services/worship/pure.js')).replace(/from '\.\.\//g, "from './"), dir });
+  const { pastSunday, recentSongs, recentByWeek, weeksAgoOf, songKey, prefillRoles, PREFILL_ROLES, cueNameFor, pickLastCue } = await loadSource('src/services/worship/pure.js', { src: strip(readSrc('src/services/worship/pure.js')).replace(/from '\.\.\//g, "from './"), dir });
 
   // 지난 큐시트로 바로 편집(2026-10-02) — 이름의 날짜는 이 주보 날짜로, 고르는 것은 이 날짜 **앞**의 가장 가까운 큐시트
   assert.strictEqual(cueNameFor('20260920_더다붓청년예배 큐시트.docx', '2026-09-20', '2026-10-04'), '20261004_더다붓청년예배 큐시트.docx');
@@ -230,6 +230,10 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     recentSongs([{ status: 'published', service_date: '2026-09-13',
       songs: [{ title: '오직 예수', link: 'https://youtu.be/abc' }] }], { onDate: '2026-09-20' })[0].link,
     'https://youtu.be/abc', '곡 이력이 유튜브 링크를 함께 들고 온다');
+  // 주마다 한 줄(목업 ② 2026-10-19) — 그 주 날짜 · 가까운 주 먼저 · 한 곡은 가장 최근 주에만. 되돌리기: recentSongs의 date를 빼면 깨진다.
+  const byWeek = recentByWeek(recent);
+  assert.deepStrictEqual(byWeek.map(w => [w.weeksAgo, w.songs.length]), [[1, 3], [2, 1]], '주마다 묶는다');
+  assert.strictEqual(byWeek[1].date, '2026-09-06', '그 주 날짜');
   console.log('PASS  최근에 부른 곡 10가지');
 
   // ── 다음 주 예배 위원 물려받기 (2026-09-22에 재료를 바꿨다) ───────────────

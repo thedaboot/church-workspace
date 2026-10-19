@@ -1114,7 +1114,7 @@ check('상단 집계 전체 n/m', att.total === '전체 1/8', att.total);
 // 전도사님(임성빈 자리의 양민혁)·부장님(그 해 director 조해리)이 **맨 위 두 묶음**이고,
 // 그 둘이 빠지면서 '순 미지정'은 빌 사람이 없어 아예 그려지지 않는다(2026-09-07).
 check('전도사님·부장님 묶음이 순 묶음 위에 선다',
-  att.groups.length === 4 && att.groups[0].includes('전도사님 0/1') && att.groups[1].includes('부장님 0/1')
+  att.groups.length === 4 && att.groups[0].includes('전도사님 0/1') && att.groups[1].includes('부장님 · 비전 메이커 0/1')
   && att.groups[2].includes('꼬순 1/3') && att.groups[3].includes('TT순 0/3'), JSON.stringify(att.groups));
 check('이미 체크된 사람이 켜져 있다', JSON.stringify(att.on) === '["천진영"]', JSON.stringify(att.on));
 // 순장(김윤주·노준석)이 맨 앞, 나머지는 가나다순 — 시드가 준 순서와 다르다
@@ -2377,7 +2377,7 @@ const sunjang = await ev(`(() => {
 })()`);
 // 전도사님·부장님 묶음도 남의 순과 같다 — 순장은 자기 순 청년만 만진다(0053)
 check('순장은 자기 순만 누를 수 있고 나머지는 보이되 비활성',
-  JSON.stringify(sunjang) === '[["전도사님",false],["부장님",false],["꼬순",true],["TT순",false]]', JSON.stringify(sunjang));
+  JSON.stringify(sunjang) === '[["전도사님",false],["부장님 · 비전 메이커",false],["꼬순",true],["TT순",false]]', JSON.stringify(sunjang));
 
 // **순장도 출석 메모를 남긴다**(사용자 결정 2026-09-06: "출석 메모는 주보를 편집하는
 // 건 아니라고 생각해서"). 잠깐 주보 편집 자격자에게만 세웠던 칸이다 — 저장 자리가 주보

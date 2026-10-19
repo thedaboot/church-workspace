@@ -8,7 +8,8 @@ import { useDismiss } from '../hooks/useDismiss.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
 import { docEmbedKind } from './DocEmbed.jsx';
 import { BTN, WITH_ICON, FIELD } from './groupsParts.jsx';
-import { youtubeListId, youtubePlaylistUrl, PRAISE_TEAM, songKey, weeksAgoOf } from '../services/worship.js';
+import { youtubeListId, youtubePlaylistUrl, PRAISE_TEAM, songKey, weeksAgoOf, recentByWeek } from '../services/worship.js';
+import { Fold } from './Fold.jsx';
 import { ROW_LINE, CARD_BOX, NUM, ROLE_VIEW, ICON_BTN, LIST, TrashConfirm, ServiceFiles } from './worshipParts.jsx';
 
 // ============================================================================
@@ -322,6 +323,86 @@ export function RolesEdit({ rows, people, onChange, seeded = [], onClearPrefill 
 const SONG_TITLE_BOX = 'basis-[calc(100%-1.625rem)] sm:basis-0 flex-1 min-w-0';
 const SONG_LINK_BOX = 'flex-1 basis-32 sm:basis-0 min-w-0 ml-[1.625rem] sm:ml-0';
 //
+// 최근 8주 내에 고백한 곡 — 주마다 한 줄(사용자 승인 목업 ② 2026-10-19). 한 주 = 높이 44px 한 줄, 곡이 넘치면 그 줄만 옆으로
+// 밀린다(오른쪽 끝은 옅게 · 세로 휠도 가로로) — 아래로 접히지 않는다. 처음엔 2주, '더 보기'로 나머지(접고 펴기 Fold).
+// 이미 찬양 목록에 있는 곡은 회색 '✓' 칩 — 누르면 지금처럼 하나 더 붙는다(막지 않는다 · 부러 다시 부르는 곡이 있다).
+const FIRST_WEEKS = 2;
+function RecentSongs({ recent, rows, onAdd }) {
+  const weeks = useMemo(() => recentByWeek(recent), [recent]);
+  const [more, setMore] = useState(false);
+  const inList = new Set(rows.map(s => songKey(s.title || '')));
+  const rest = weeks.slice(FIRST_WEEKS);
+  const restCount = rest.reduce((n, w) => n + w.songs.length, 0);
+  const row = (w) => <RecentWeek key={w.weeksAgo} week={w} inList={inList} onAdd={onAdd} />;
+  return (
+    <div className="worship-song-recent pb-2.5">
+      <div className="flex items-center gap-2 pb-1.5">
+        <span className="text-[11.5px] font-bold text-fg-secondary">최근 8주 내에 고백한 곡</span>
+        <span className="text-[11px] text-fg-muted tabular-nums">{recent.length}곡</span>
+      </div>
+      {weeks.slice(0, FIRST_WEEKS).map(row)}
+      {rest.length > 0 && (
+        <>
+          <Fold open={more}>{rest.map(row)}</Fold>
+          <button type="button" onClick={() => setMore(m => !m)} aria-expanded={more} data-recent-more=""
+            className="w-full h-[38px] text-left text-[12px] font-semibold text-accent-text" style={{ borderTop: '1px solid var(--app-line)' }}>
+            {more ? '접기' : `더 보기 · ${rest[0].weeksAgo}~${rest[rest.length - 1].weeksAgo}주 전 ${restCount}곡`}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+function RecentWeek({ week, inList, onAdd }) {
+  const lane = useRef(null);
+  const [fade, setFade] = useState(false);
+  const measure = () => { const el = lane.current; if (el) setFade(el.scrollLeft + el.clientWidth < el.scrollWidth - 1); };
+  useLayoutEffect(() => {
+    measure();
+    const el = lane.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [week]);
+  // 세로 휠을 가로로 — 밀 게 있을 때만(없으면 화면이 그대로 구른다) · React의 wheel은 passive라 막을 수 없어 직접 건다
+  useLayoutEffect(() => {
+    const el = lane.current;
+    if (!el) return undefined;
+    const onWheel = (e) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || el.scrollWidth <= el.clientWidth) return;
+      const before = el.scrollLeft;
+      el.scrollLeft += e.deltaY;
+      if (el.scrollLeft !== before) e.preventDefault();
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+  const [, m, d] = week.date.split('-').map(Number);
+  return (
+    <div className="flex items-center gap-3 h-11" style={{ borderTop: '1px solid var(--app-line)' }} data-recent-week={week.weeksAgo}>
+      <span className="w-[58px] md:w-[84px] shrink-0 flex flex-col leading-tight">
+        <span className="text-[11.5px] font-bold text-fg-secondary">{week.weeksAgo}주 전</span>
+        {m > 0 && <span className="text-[10.5px] text-fg-faint tabular-nums"><span className="md:hidden">{`${m}/${d}`}</span><span className="hidden md:inline">{`${m}월 ${d}일`}</span></span>}
+      </span>
+      <div ref={lane} onScroll={measure}
+        className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto scrollbar-hide x-scroll-lock"
+        style={fade ? { maskImage: 'linear-gradient(to right, #000 calc(100% - 40px), transparent)', WebkitMaskImage: 'linear-gradient(to right, #000 calc(100% - 40px), transparent)' } : undefined}>
+        {week.songs.map(r => {
+          const on = inList.has(songKey(r.title));
+          return (
+            <button key={songKey(r.title)} type="button" onClick={() => onAdd(r)}
+              className={`worship-song-chip shrink-0 inline-flex items-center h-7 px-[11px] rounded-full text-[12.5px] whitespace-nowrap transition active:scale-95
+                ${on ? 'bg-surface-hover text-fg-faint border border-transparent' : 'border border-line bg-surface text-fg-secondary hover:bg-surface-hover'}`}>
+              {on ? `✓ ${r.title}` : r.title}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Thumb — 링크 칸 앞의 썸네일 부품(worshipDetail의 SongThumb · 보기 줄과 같은 한 벌). 그 파일이 이 파일을
 // import하므로 거꾸로 import하지 않고(고리) 부르는 쪽이 넘긴다.
 export function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [], onLeader, onPlaylist, onChange, onPullPlaylist, onLookupTitle, Thumb }) {
@@ -420,20 +501,7 @@ export function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [],
           폰에서는 한 줄로 가로 스크롤한다 — 줄바꿈하면 곡 목록이 화면 밖으로 밀린다
           (`x-scroll-lock`은 가로로 미는 동안 세로가 흔들리지 않게 한다 · 탭 줄과 같은 짜임).
           누르면 목록 끝에 붙는다 — **막지 않는다**(부러 다시 부르는 곡이 있다). */}
-      {recent.length > 0 && (
-        <div className="worship-song-recent pb-2.5">
-          <div className="text-[11.5px] font-bold text-fg-secondary pb-1.5">최근 8주 내에 고백한 곡</div>
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide x-scroll-lock md:flex-wrap md:overflow-visible">
-            {recent.map(r => (
-              <button key={songKey(r.title)} type="button"
-                onClick={() => onChange([...rows, { title: r.title, link: r.link || '' }])}
-                className="worship-song-chip shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-line bg-surface text-[12.5px] text-fg-secondary transition active:scale-95 hover:bg-surface-hover">
-                {r.title}<span className="text-fg-faint">{r.weeksAgo}주 전</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {recent.length > 0 && <RecentSongs recent={recent} rows={rows} onAdd={(r) => onChange([...rows, { title: r.title, link: r.link || '' }])} />}
       <ul style={{ borderTop: rows.length ? '1px solid var(--app-line)' : 'none' }}>
         {rows.map((s, i) => (
           <li key={list.keys[i]} className="worship-song-row group flex flex-wrap items-center gap-1.5 py-2.5" style={ROW_LINE}>
