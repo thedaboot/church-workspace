@@ -4,7 +4,7 @@ import dns from 'node:dns';
 import zlib from 'node:zlib';
 import { readJson, requireApprovedUser } from './_lib.js';
 import { cleanTitle } from '../src/services/titleText.js';
-import { isYoutube, linkUrlProblem, isPrivateAddress, pageTitle } from '../src/services/linkTitle.js';
+import { isYoutube, linkUrlProblem, isPrivateAddress, pageTitle, pageMeta } from '../src/services/linkTitle.js';
 
 // ============================================================================
 // /api/link-title — 참고 링크 이름 받기(2026-10-15 · UX 다듬기 2차 C10 · PITFALLS 60).
@@ -84,21 +84,24 @@ function getOnce(url, signal) {
   });
 }
 
-export async function titleOfPage(start, signal) {
+// meta: true면 링크 카드 재료(pageMeta — 제목·설명·그림·사이트) · 아니면 제목 글자만(참고 링크 이름)
+export async function titleOfPage(start, signal, { meta = false } = {}) {
+  const none = meta ? { title: '', description: '', image: '', site: '' } : '';
   let url = start;
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
-    if (linkUrlProblem(url)) return '';
+    if (linkUrlProblem(url)) return none;
     const r = await getOnce(url, signal);
     if (r.status >= 300 && r.status < 400 && r.headers.location) {
       url = new URL(r.headers.location, url).href;
       continue;
     }
-    if (r.status !== 200) return '';
-    if (!/html|xml/i.test(String(r.headers['content-type'] || 'text/html'))) return '';
+    if (r.status !== 200) return none;
+    if (!/html|xml/i.test(String(r.headers['content-type'] || 'text/html'))) return none;
     const html = textOf(decode(r.body, String(r.headers['content-encoding'] || '').toLowerCase()), r.headers['content-type']);
+    if (meta) { const m = pageMeta(html, url); return { ...m, title: cleanTitle(m.title) }; }
     return cleanTitle(pageTitle(html, url));
   }
-  return '';
+  return none;
 }
 
 async function titleOfYoutube(url, signal) {
@@ -111,12 +114,14 @@ async function titleOfYoutube(url, signal) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
   if (!(await requireApprovedUser(req, res))) return;
-  const { url } = await readJson(req);
+  const { url, meta = false } = await readJson(req);
   const why = linkUrlProblem(url);
   // 막은 이유는 로그에만 — 화면은 이름을 짓는 것으로 끝난다(앱이 fallbackTitle)
   if (why) { console.warn('[link-title] 받지 않는 주소:', why); res.status(400).json({ title: '' }); return; }
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   try {
+    // 링크 카드(meta · 목업 ⑦) — 응답은 글자 넷뿐(몸통을 중계하지 않는다 · 그림은 브라우저가 그 주소에서 직접 받는다)
+    if (meta && !isYoutube(url)) { res.status(200).json(await titleOfPage(new URL(url).href, signal, { meta: true })); return; }
     const title = isYoutube(url) ? await titleOfYoutube(url, signal) : await titleOfPage(new URL(url).href, signal);
     res.status(200).json({ title });
   } catch (e) {

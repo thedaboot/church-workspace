@@ -68,6 +68,27 @@ export function pageTitle(html, url = '') {
   return title.length > 200 ? `${title.slice(0, 199)}…` : title;
 }
 
+// 링크 카드(사용자 승인 목업 ⑦ 2026-10-19)의 재료 — 제목(pageTitle) · 설명 · 대표 그림 · 사이트 이름(og: 꼬리표 · 없으면 name=description).
+// 그림 주소는 http(s)만 · 상대 주소는 페이지 주소로 푼다 · 각 글은 줄여서(설명 200 · 사이트 60).
+const metaTag = (text, key) => {
+  const a = new RegExp(`<meta[^>]+(?:property|name)=["']${key}["'][^>]*content=["']([^"']*)["']`, 'i').exec(text)?.[1];
+  if (a != null) return a;
+  return new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${key}["']`, 'i').exec(text)?.[1] ?? '';
+};
+const clip = (s, n) => { const t = decodeEntities(String(s || '')).replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+export function pageMeta(html, url = '') {
+  const text = String(html || '');
+  const title = pageTitle(text, url);
+  // 구글 로그인 화면이면 제목처럼 나머지도 버린다(남의 문서 이름·설명이 아니다)
+  if (GOOGLE_HOST.test(hostOf(url)) && !title) return { title: '', description: '', image: '', site: '' };
+  const description = clip(metaTag(text, 'og:description') || metaTag(text, 'description'), 200);
+  let image = decodeEntities(metaTag(text, 'og:image') || metaTag(text, 'twitter:image')).trim();
+  try { image = image ? new URL(image, url).href : ''; } catch { image = ''; }
+  if (!/^https?:\/\//i.test(image)) image = '';
+  const site = clip(metaTag(text, 'og:site_name'), 60);
+  return { title, description, image, site };
+}
+
 // ── 서버가 받으러 가도 되는 주소인가 (SSRF) ──────────────────────────────────
 // 돌려주는 값: 문제가 없으면 null, 있으면 이유(로그용 짧은 영어 낱말 — 화면에는 안 나간다).
 const INTERNAL_NAME = /(^|\.)(localhost|local|internal|intranet|lan|home|corp|home\.arpa|localdomain)$/;

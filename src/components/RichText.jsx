@@ -1,9 +1,12 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { ExternalLink, CheckSquare, Hash, Link2 } from 'lucide-react';
+import { ExternalLink, CheckSquare, Hash, Link2, Globe } from 'lucide-react';
 import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE, unescapeLine } from '../services/markdown.js';
 import { youtubeVideoId, youtubeThumb, fetchVideoTitle } from '../services/worship.js';
 import { SmartImage, ImageLightbox } from './media.jsx';
 import { docEmbedKind, DocEmbedModal, DocKindIcon } from './DocEmbed.jsx';
+import { DOC_KIND_LABEL } from '../services/docEmbed.js';
+import { fileKind } from './fileRow.jsx';
+import { authedPost } from '../services/cloud/core.js';
 import { splitMention } from '../utils.js';
 import { parseAppLink } from '../services/appLink.js';
 import { useStore } from '../store/workspaceStore.js';
@@ -267,6 +270,144 @@ const TaskLinkCards = ({ text }) => {
   return ids.map(id => <TaskLinkCard key={id} id={id} />);
 };
 
+// ── 링크 카드 (사용자 승인 목업 ⑦ 2026-10-19 · 유튜브·업무 카드와 같은 자리 — 댓글·업무 보기 본문만) ─────────────────────────────
+// **한 줄에 주소만 있을 때만** 그 줄 아래에 카드 한 장 — 글 속에 섞인 주소는 지금처럼 파란 글자다. 유튜브·우리 앱 주소는 위 카드들이 맡는다.
+//   일반 링크  서버(/api/link-title · meta)가 그 페이지의 대표 제목·설명·그림·사이트 이름을 받아 온다(SSRF 두 겹 그대로 · 글자만 돌려받는다).
+//             제목이 있으면 큰 카드(그림은 오른쪽 · 폰 72px · 설명은 데스크톱만), 못 받으면(자동 접근을 막는 곳 · 게스트) 한 줄 카드(사이트 주소 + 경로).
+//   파일 링크  구글 문서·시트·슬라이드 · 드라이브 파일 · .pdf/.docx/.xlsx/.pptx/.hwp 주소 — 종류 칩 + 이름 + 어디 파일인지.
+//             구글 문서류는 누르면 앱 안 창(DocEmbedModal — 본문 링크를 누를 때와 같은 창) · 그 밖은 새 탭.
+// 받은 것은 이 탭에 + 브라우저에 하루 둔다(같은 주소를 댓글마다 다시 묻지 않게). 받는 동안은 한 줄 카드 모양 뼈대.
+const META_TTL = 24 * 60 * 60 * 1000;
+const linkMetas = new Map();   // 주소 → { title, description, image, site } | Promise
+const META_KEY = (u) => `linkmeta:${u}`;
+function askMeta(url) {
+  const had = linkMetas.get(url);
+  if (had) return Promise.resolve(had);
+  try {
+    const saved = JSON.parse(localStorage.getItem(META_KEY(url)) || 'null');
+    if (saved && Date.now() - saved.at < META_TTL) { linkMetas.set(url, saved.meta); return Promise.resolve(saved.meta); }
+  } catch { /* 저장소를 못 쓰면 이번에 받는다 */ }
+  const empty = { title: '', description: '', image: '', site: '' };
+  const fake = import.meta.env?.DEV && typeof window !== 'undefined' ? window.__linkMetaFake : null;
+  const p = (fake ? Promise.resolve({ ...empty, ...(fake[url] || {}) })
+    : authedPost('/api/link-title', { url, meta: true }, { noToken: () => null, signal: AbortSignal.timeout(6000) })
+      .then(r => (r && r.ok ? r.json() : empty)))
+    .then(m => ({ ...empty, ...(m || {}) }), () => empty)
+    .then(m => {
+      linkMetas.set(url, m);
+      if (!fake) { try { localStorage.setItem(META_KEY(url), JSON.stringify({ at: Date.now(), meta: m })); } catch { /* 자리가 없으면 이 탭에서만 */ } }
+      return m;
+    });
+  linkMetas.set(url, p);
+  return p;
+}
+const BARE_URL = /^https?:\/\/\S+$/;
+const FILE_EXT = /\.(pdf|docx?|xlsx?|pptx?|hwpx?|csv)$/i;
+const DRIVE_FILE = /^https?:\/\/drive\.google\.com\/(file\/d\/|open\?id=)/i;
+// 파일 링크면 { ext(종류 칩용), where(어디 파일인지), doc(앱 안 창 종류 | null) } · 아니면 null
+export function fileLinkOf(url) {
+  const doc = docEmbedKind(url);
+  if (doc) return { ext: { doc: 'docx', sheet: 'xlsx', slide: 'pptx' }[doc], where: DOC_KIND_LABEL[doc], doc };
+  if (DRIVE_FILE.test(url)) return { ext: '', where: '구글 드라이브', doc: null };
+  let path = '';
+  try { path = decodeURIComponent(new URL(url).pathname); } catch { return null; }
+  const m = FILE_EXT.exec(path);
+  return m ? { ext: m[1].toLowerCase(), where: hostOfUrl(url), doc: null } : null;
+}
+const hostOfUrl = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+const pathOfUrl = (u) => { try { const x = new URL(u); return decodeURIComponent(x.pathname + x.search).replace(/\/$/, ''); } catch { return ''; } };
+const fileNameOf = (u) => pathOfUrl(u).split('?')[0].split('/').filter(Boolean).pop() || hostOfUrl(u);
+const CARD_BOX = 'mt-1.5 mb-1 rounded-md border border-line hover:bg-surface-hover transition-colors max-w-[520px] no-underline';
+
+function LinkCard({ url }) {
+  const cached = linkMetas.get(url);
+  const [meta, setMeta] = useState(cached && typeof cached.then !== 'function' ? cached : null);   // null = 받는 중
+  const [imgOk, setImgOk] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    askMeta(url).then(m => { if (alive) setMeta(m); });
+    return () => { alive = false; };
+  }, [url]);
+  const host = hostOfUrl(url);
+  if (meta === null) {
+    return <span className={`${CARD_BOX} flex items-center gap-2 px-3 h-10`} data-link-card-loading=""><span className="block h-2.5 w-2/3 rounded-full dc-skeleton" /></span>;
+  }
+  if (!meta.title) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" data-link-card={url} data-link-card-kind="line"
+        className={`${CARD_BOX} flex items-center gap-2 px-3 h-10 min-w-0`}>
+        <Globe size={14} className="shrink-0 text-fg-faint" />
+        <span className="shrink-0 text-[12.5px] font-semibold text-fg">{host}</span>
+        <span className="min-w-0 truncate text-[11.5px] text-fg-muted">{pathOfUrl(url).replace(/^\//, '')}</span>
+      </a>
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer" data-link-card={url} data-link-card-kind="rich" className={`${CARD_BOX} flex overflow-hidden min-w-0`}>
+      <span className="flex-1 min-w-0 px-3 py-2.5 flex flex-col gap-0.5">
+        <span className="flex items-center gap-1.5 text-[11px] text-fg-muted min-w-0"><Globe size={12} className="shrink-0 text-fg-faint" /><span className="truncate">{meta.site || host}</span></span>
+        <span className="text-[13px] font-bold text-fg leading-snug line-clamp-2 break-words">{meta.title}</span>
+        {meta.description && <span className="hidden md:block text-[11.5px] text-fg-muted truncate">{meta.description}</span>}
+        {meta.site && <span className="text-[10.5px] text-fg-faint truncate">{host}</span>}
+      </span>
+      {meta.image && imgOk && (
+        <span className="shrink-0 w-[72px] md:w-24 self-stretch min-h-[72px]" style={{ background: 'var(--app-surface-hover)' }}>
+          <img src={meta.image} alt="" loading="lazy" referrerPolicy="no-referrer" draggable={false} onError={() => setImgOk(false)} className="w-full h-full object-cover" />
+        </span>
+      )}
+    </a>
+  );
+}
+
+function FileLinkCard({ url, file }) {
+  const [open, setOpen] = useState(false);
+  const cached = linkMetas.get(url);
+  const [meta, setMeta] = useState(cached && typeof cached.then !== 'function' ? cached : null);
+  useEffect(() => {
+    // 구글 문서·드라이브는 제목을 받아 본다(공개 문서만 온다 · 못 받으면 주소의 이름) · 그 밖의 파일 주소는 이름이 주소에 있다
+    if (!file.doc && !DRIVE_FILE.test(url)) return undefined;
+    let alive = true;
+    askMeta(url).then(m => { if (alive) setMeta(m); });
+    return () => { alive = false; };
+  }, [url, file.doc]);
+  const kind = fileKind(`x.${file.ext}`, '', 16);
+  const name = meta?.title || (file.doc ? DOC_KIND_LABEL[file.doc] : fileNameOf(url));
+  const body = (
+    <>
+      <span className={`w-9 h-9 ml-2.5 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>
+      <span className="flex-1 min-w-0 px-2.5 py-2">
+        <span className="block text-[13px] font-bold text-fg truncate">{name}</span>
+        <span className="block text-[11px] text-fg-muted truncate">{file.doc ? `${file.where} · 눌러서 미리보기` : file.where}</span>
+      </span>
+      <span className="shrink-0 mr-3 text-[11.5px] font-semibold text-accent-text">열기</span>
+    </>
+  );
+  if (file.doc) {
+    return (
+      <>
+        <a href={url} target="_blank" rel="noreferrer" data-file-link-card={url}
+          onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return; e.preventDefault(); setOpen(true); }}
+          className={`${CARD_BOX} flex items-center min-w-0`}>{body}</a>
+        {open && <DocEmbedModal url={url} title={meta?.title || ''} onClose={() => setOpen(false)} />}
+      </>
+    );
+  }
+  return <a href={url} target="_blank" rel="noreferrer" data-file-link-card={url} className={`${CARD_BOX} flex items-center min-w-0`}>{body}</a>;
+}
+
+// 그 줄이 주소 하나뿐일 때만 — 유튜브·우리 앱 주소는 다른 카드가 맡는다
+const linkCardTakesLine = (text) => {
+  const url = String(text || '').trim();
+  if (!BARE_URL.test(url) || youtubeVideoId(url)) return false;
+  return !(typeof window !== 'undefined' && parseAppLink(url, window.location.href));
+};
+const LinkCards = ({ text }) => {
+  const url = String(text || '').trim();
+  if (!linkCardTakesLine(url)) return null;
+  const file = fileLinkOf(url);
+  return file ? <FileLinkCard url={url} file={file} /> : <LinkCard url={url} />;
+};
+
 // 마크 → 태그·클래스 (에디터 .tiptap 스타일과 같은 톤)
 const MARK_TAG = { bold: 'strong', italic: 'em', underline: 'u', strike: 's', highlight: 'mark' };
 const MARK_CLS = {
@@ -390,11 +531,13 @@ function ContentImage({ src }) {
 // 넘긴다(하위 업무처럼 보기에서 바로 눌린다). 안 넘기면(댓글·요약 등) 읽기 전용이다.
 // lineAttrs: 줄마다 `data-line`(마크다운 줄 번호)을 단다 — 업무 창 보기 화면이 '누가 어느 줄을 고치는 중인가'를
 // 그 줄 옆에 세우는 좌표다(modals/coedit.jsx PresenceMarks · 엔진 core.caretLine과 같은 번호). 모양은 안 바뀐다.
-// ytCards: 유튜브 영상 주소·우리 업무 주소가 있는 줄 아래에 카드(위 '유튜브 링크 카드'·'업무 링크 카드') — 댓글·업무 보기 본문만 넘긴다.
+// ytCards: 유튜브 영상 주소·우리 업무 주소가 있는 줄 아래에 카드(위 '유튜브 링크 카드'·'업무 링크 카드') · 주소만 있는 줄은 링크 카드(위 '링크 카드') — 댓글·업무 보기 본문만 넘긴다.
 export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false, ytCards = false }) => {
   const blocks = useMemo(() => parseBlocks(content), [content]);
   const ln = (k) => (lineAttrs ? { 'data-line': k } : null);
-  const yt = (value) => (ytCards ? <><TaskLinkCards text={value} /><YtCards text={value} /></> : null);
+  const yt = (value) => (ytCards ? <><TaskLinkCards text={value} /><YtCards text={value} /><LinkCards text={value} /></> : null);
+  // 링크 카드가 그 줄을 대신하면(주소만 있는 줄 · 목업 ⑦ '그 자리에 카드') 주소 글자는 다시 쓰지 않는다 — 폰에서 긴 주소가 두 줄로 카드 위에 겹쳐 섰다
+  const inl = (value, key) => (ytCards && linkCardTakesLine(value) ? null : renderInline(value, key));
   return (
     <>
       {blocks.map(block => {
@@ -423,22 +566,22 @@ export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false, 
                         <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
                       )}
                     </button>
-                    <span className={`min-w-0 ${it.checked ? 'text-fg-faint line-through' : 'text-fg'}`}>{renderInline(it.value, it.key)}{yt(it.value)}</span>
+                    <span className={`min-w-0 ${it.checked ? 'text-fg-faint line-through' : 'text-fg'}`}>{inl(it.value, it.key)}{yt(it.value)}</span>
                   </div>
                 ))}
               </div>
             );
           case 'heading': {
             const Tag = `h${block.level}`;
-            return <Tag key={block.key} {...ln(block.key)} className={HEADING_CLS[block.level]}>{renderInline(block.value, block.key)}{yt(block.value)}</Tag>;
+            return <Tag key={block.key} {...ln(block.key)} className={HEADING_CLS[block.level]}>{inl(block.value, block.key)}{yt(block.value)}</Tag>;
           }
           // 글자 크기는 호출부가 정한다 — 여기서 text-sm을 박아 두면 댓글(11px 이름 옆),
           // 요약(text-xs 래퍼) 안에서도 14px로 커져서 주변과 어긋났다(실제 지적).
           // 본문은 TaskViewer 래퍼가 text-sm을 준다.
           case 'ul':
-            return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{renderInline(it.value, it.key)}{yt(it.value)}</li>)}</ul>;
+            return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{inl(it.value, it.key)}{yt(it.value)}</li>)}</ul>;
           case 'ol':
-            return <ol key={block.key} start={block.start || 1} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{renderInline(it.value, it.key)}{yt(it.value)}</li>)}</ol>;
+            return <ol key={block.key} start={block.start || 1} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{inl(it.value, it.key)}{yt(it.value)}</li>)}</ol>;
           // **빈 줄은 글자 한 줄 높이 · 들여쓰기는 그대로**(사용자 결정 2026-09-25 · 목업 A1 —
           // 편집 화면과 같게). 예전에는 빈 줄이 8px(h-2)이고 앞 공백이 접혀서, 엔터 두 번으로
           // 나눈 문단이 보기에서 붙고 수정↔보기 때 줄이 뛰었다. 빈 줄은 빈 문단 하나라 어느
@@ -446,7 +589,7 @@ export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false, 
           case 'gap':
             return <p key={block.key} {...ln(block.key)} className="mb-1 text-fg leading-relaxed"><br /></p>;
           default:
-            return <p key={block.key} {...ln(block.key)} className="mb-1 text-fg leading-relaxed whitespace-break-spaces">{renderInline(block.value, block.key)}{yt(block.value)}</p>;
+            return <p key={block.key} {...ln(block.key)} className="mb-1 text-fg leading-relaxed whitespace-break-spaces">{inl(block.value, block.key)}{yt(block.value)}</p>;
         }
       })}
     </>

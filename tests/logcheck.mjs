@@ -952,6 +952,19 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.strictEqual(L.pageTitle('<html><head><title>대림절, 브레인스토밍 - Google Slides</title>', 'https://docs.google.com/presentation/d/x/edit'), '대림절, 브레인스토밍');
   assert.strictEqual(L.pageTitle('<title>2027 회장 추천 투표 - Google 설문지</title>', 'https://docs.google.com/forms/d/e/x/viewform'), '2027 회장 추천 투표');
   assert.strictEqual(L.pageTitle('<title>Google Docs: Sign-in</title>', 'https://docs.google.com/document/d/x/edit'), '', '로그인 화면 제목은 이름이 아니다');
+  // 링크 카드 재료(목업 ⑦ 2026-10-19) — og 꼬리표 · 상대 그림 주소 풀기 · http(s) 그림만 · 구글 로그인 화면은 통째로 빈 값.
+  // 되돌리기: pageMeta의 new URL(image, url)이나 로그인 화면 거르기를 지우면 깨진다.
+  const pm = L.pageMeta('<title>마음이발소 대화카드</title><meta property="og:description" content="질문 카드"><meta content="/img/a.jpg" property="og:image"><meta property="og:site_name" content="폴앤마크">', 'https://paulnmark.com/24/?idx=46');
+  assert.deepStrictEqual(pm, { title: '마음이발소 대화카드', description: '질문 카드', image: 'https://paulnmark.com/img/a.jpg', site: '폴앤마크' });
+  assert.strictEqual(L.pageMeta('<title>x</title><meta property="og:image" content="javascript:alert(1)">', 'https://a.com/').image, '', 'http(s) 그림만');
+  assert.deepStrictEqual(L.pageMeta('<title>Google Docs: Sign-in</title><meta name="description" content="로그인">', 'https://docs.google.com/document/d/x/edit'), { title: '', description: '', image: '', site: '' });
+  {
+    const rt = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
+    const api = readFileSync(new URL('../api/link-title.js', import.meta.url), 'utf8');
+    assert.ok(/<LinkCards text=\{value\} \/>/.test(rt) && /ytCards && linkCardTakesLine\(value\) \? null : renderInline/.test(rt), '주소만 있는 줄은 링크 카드가 그 줄을 대신한다');
+    assert.ok(/if \(!BARE_URL\.test\(url\) \|\| youtubeVideoId\(url\)\) return false;/.test(rt), '글 속 주소 · 유튜브는 링크 카드가 아니다');
+    assert.ok(/authedPost\('\/api\/link-title', \{ url, meta: true \}/.test(rt) && /if \(meta && !isYoutube\(url\)\)/.test(api), '카드 재료는 link-title meta 갈래(같은 SSRF 길)');
+  }
   assert.strictEqual(L.pageTitle('<title>\n  A &amp; B &#8211; &#xD55C;  </title>', 'https://a.com/'), 'A & B – 한');
   assert.strictEqual(L.pageTitle('<meta property="og:title" content="오지 제목">', 'https://a.com/'), '오지 제목', '<title>이 없으면 og:title');
   const bad = ['file:///etc/passwd', 'ftp://a.com/x', 'http://user:pw@a.com/', 'http://a.com:8080/', 'http://localhost/', 'http://foo.localhost/', 'http://intranet/',
