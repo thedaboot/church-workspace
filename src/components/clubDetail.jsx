@@ -310,7 +310,8 @@ export function ClubDetail({
                             prev={manage && !(m.files || []).length ? lastReportOf(meetings, m) : null}
                             onPick={files => report.onPick(club, m, files)} onRetry={id => report.onRetry(club, m, id)}
                             onRemove={row => report.onRemove(m, row)} onCopyLast={prev => report.onCopyLast(club, m, prev)}
-                            onGrantEdit={report.onGrantEdit} />
+                            onGrantEdit={report.onGrantEdit} club={club}
+                            onSaveForm={report.onSaveForm ? (draft, opt) => report.onSaveForm(club, m, draft, opt) : null} />
                         )} />
                     );
                     return (

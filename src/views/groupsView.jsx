@@ -28,6 +28,10 @@ import { cancelledError } from '../services/transfer.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 import { Segmented } from '../components/segmented.jsx';
+import { saveReportForm, canCheckSupport } from '../services/clubReport.js';
+import { ClubReportBoard } from '../components/clubReportBoard.jsx';
+import { ClipboardList } from 'lucide-react';
+import { demoOn } from '../services/opsDemo.js';
 // ============================================================================
 // v2 모임 화면 — 내 순 · 동아리 · 순 편성 (docs/V2.md §1 결정 1·2·3·7 · §2 · §3)
 // ----------------------------------------------------------------------------
@@ -125,6 +129,7 @@ export function GroupsView() {
   const [year, setYear] = useState(THIS_YEAR);
   const [tab, setTab] = useState('mine');
   const [openClubId, setOpenClubId] = useState(null);
+  const [board, setBoard] = useState(false);   // 보고서 현황(시안 mock/b4 · 마스터 · 총무)
   const [meetings, setMeetings] = useState([]);
   const [clubOrder, setClubOrder] = useState(null);  // 끌어 놓은 직후의 순서(아래 주석)
   const [creating, setCreating] = useState(null);    // null | 'club' | 'sun' — 만들기 칸은 머리줄에서 연다
@@ -576,7 +581,15 @@ export function GroupsView() {
       return done[0] || null;
     },
     onGrantEdit: (row) => grantReportEditors(row),
-  }), [sendReports, patchMeeting]);
+    // 작성 화면 저장·제출(시안 mock/b4 · 게스트 시연만 — 실제로 붙일 때 0117) — 엑셀을 새로 만들어 보고서 칸을 덮는다
+    onSaveForm: !demoOn() ? null : async (club, meeting, draft, { submit }) => {
+      const people = state?.people || [];
+      const { form, row } = await saveReportForm(club, meeting, people, draft, {
+        submit, upload: (c, m, file) => uploadMeetingReport(c, m, file), remove: (old) => removeMeetingReport(old),
+      });
+      patchMeeting(meeting.id, m => ({ ...m, report_form: form, files: [...(m.files || []).filter(f => !f.generated), row] }));
+    },
+  }), [sendReports, patchMeeting, state]);
 
   // 새 순의 순장도 같은 판정을 거친다(사용자 지시 2026-09-03). 피커가 이미 '어느 순에도
   // 없는 사람'만 올리므로 화면에서는 걸릴 일이 없고, 목록이 낡았을 때의 마지막 방어선이다.
@@ -763,7 +776,13 @@ export function GroupsView() {
         <span className="flex-1" />
         {/* 아이콘과 글자 사이는 gap 하나로만 벌린다 — 글자를 span으로 감싸지 않으면
             JSX의 앞 공백이 그대로 남아 버튼마다 사이가 달라진다(groupsParts WITH_ICON) */}
-        {active === 'club' && !openClub && perms.canCreateClub && !creating && (
+        {active === 'club' && !openClub && !board && !creating && demoOn() && canCheckSupport(perms) && (
+          <button type="button" onClick={() => setBoard(true)} data-report-board-open=""
+            className={`${WITH_ICON} px-3 py-1.5 rounded-md border border-line bg-surface text-[11.5px] font-semibold text-fg hover:bg-surface-hover transition active:scale-95`}>
+            <ClipboardList size={13} /><span>보고서 현황</span>
+          </button>
+        )}
+        {active === 'club' && !openClub && !board && perms.canCreateClub && !creating && (
           <button type="button" onClick={() => setCreating('club')}
             className={`club-new-open ${WITH_ICON} px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95`}>
             <Plus size={13} /><span>새 동아리</span>
@@ -819,7 +838,12 @@ export function GroupsView() {
         </>
       )}
 
-      {active === 'club' && !baseFailed && (
+      {active === 'club' && !baseFailed && board && !openClub && (
+        <ClubReportBoard year={Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4))}
+          me={perms?.myPerson?.name || ''} onBack={() => setBoard(false)}
+          onOpenClub={(c) => { setOpenClubId(c.id); }} />
+      )}
+      {active === 'club' && !baseFailed && !(board && !openClub) && (
         <ClubsPanel clubs={clubs} people={state.people} members={state.members} apps={state.apps}
           nextMeet={state.nextMeet || {}}
           perms={perms} openClub={openClub} meetings={meetings}

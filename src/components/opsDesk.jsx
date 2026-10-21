@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Wrench, ChevronLeft, ChevronDown, Bell, ImageOff } from 'lucide-react';
+import { X, Wrench, ChevronLeft, ChevronDown, Bell, ImageOff, Download } from 'lucide-react';
+import { yearReportSheets, yearReportFile } from '../services/yearReport.js';
+import { demoOn } from '../services/opsDemo.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -411,6 +413,69 @@ function SpeedTab() {
   );
 }
 
+// ── 연말 보고(시안 mock/b4 · 문구 임시) ─────────────────────────────────────
+// 연도를 골라 표 다섯 장을 미리 보고 한 파일로 받는다(services/yearReport · services/xlsxWrite.buildWorkbook).
+function YearTab() {
+  const now = Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4));
+  const [year, setYear] = useState(now);
+  const sheets = useMemo(() => yearReportSheets(year), [year]);
+  const sum = Object.fromEntries((sheets[0]?.rows || []).slice(1));
+  const save = () => {
+    try {
+      const file = yearReportFile(year, sheets);
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) {
+      console.error('[ops] 연말 보고를 만들지 못했어요:', e);
+      showToast(failText('연말 보고를 만들지 못했어요', e));
+    }
+  };
+  const cell = (v) => (typeof v === 'number' ? v.toLocaleString('ko-KR') : String(v ?? ''));
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 md:px-5 py-3" data-year-report="">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Filter label="연도" value={year} onPick={setYear} items={[[now, `${now}년`], [now - 1, `${now - 1}년`]]} />
+        <span className="flex-1" />
+        <button type="button" onClick={save} data-year-save=""
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95">
+          <Download size={13} />엑셀로 받기
+        </button>
+      </div>
+      <div key={year} className="dc-fade">
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2" data-year-tiles="">
+          <Tile label="업무" value={`${sum['업무'] ?? 0}건`} sub={`완료 ${sum['완료한 업무'] ?? 0}건 · 프로젝트 ${sum['프로젝트'] ?? 0}개`} />
+          <Tile label="예배 평균 출석" value={`${sum['예배 평균 출석'] ?? 0}명`} sub={`예배 ${sum['예배(주보)'] ?? 0}번`} />
+          <Tile label="동아리 지원금" value={`${(sum['동아리 지원금'] ?? 0).toLocaleString('ko-KR')}원`} sub={`지급 완료 ${(sum['지원금 지급 완료'] ?? 0).toLocaleString('ko-KR')}원`} />
+        </div>
+        {sheets.slice(1).map(sh => (
+          <section key={sh.name} className="mt-5" data-year-sheet={sh.name}>
+            <h4 className="mb-1.5 flex items-center gap-2 text-[12px] font-semibold text-fg-muted">
+              {sh.name}<span className="text-fg-faint tabular-nums">{`${sh.rows.length - 1}줄`}</span>
+            </h4>
+            {sh.rows.length > 1 ? (
+              <div className="overflow-x-auto rounded-md border border-line">
+                <table className="w-full text-[12px] tabular-nums">
+                  <thead><tr className="bg-canvas">{sh.rows[0].map(h => <th key={h} className="px-2.5 py-1.5 text-left font-semibold text-fg-muted whitespace-nowrap">{h}</th>)}</tr></thead>
+                  <tbody>
+                    {sh.rows.slice(1, 7).map((r, i) => (
+                      <tr key={i} className="border-t border-line/70">
+                        {r.map((v, j) => <td key={j} className={`px-2.5 py-1.5 whitespace-nowrap text-fg ${typeof v === 'number' ? 'text-right' : ''}`}>{cell(v)}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {sh.rows.length > 7 && <p className="px-2.5 py-1.5 border-t border-line/70 text-[11px] text-fg-muted">{`외 ${sh.rows.length - 7}줄 · 엑셀에 모두 들어가요`}</p>}
+              </div>
+            ) : <p className="py-3 text-[12.5px] text-fg-muted">기록 없음</p>}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── 기록 관리 ──────────────────────────────────────────────────────────────
 function AuditTab() {
   const res = useAuditList();
@@ -463,7 +528,7 @@ function AuditTab() {
 }
 
 // ── 창 ─────────────────────────────────────────────────────────────────────
-const TAB_ORDER = ['feedback', 'errors', 'speed', 'audit'];
+const TAB_ORDER = ['feedback', 'errors', 'speed', 'audit', 'year'];
 export function OpsDesk({ onClose }) {
   const isMobile = useIsMobile();
   const [leaving, leave] = useLeave();
@@ -489,6 +554,8 @@ export function OpsDesk({ onClose }) {
     ['errors', '앱 내 오류'],
     ['speed', '다붓이 답변 속도'],
     ['audit', '기록 관리'],
+    // 연말 보고(시안 mock/b4 · 게스트 시연만 — 실제로 붙일 때 클라우드 읽기)
+    ...(demoOn() ? [['year', '연말 보고']] : []),
   ];
 
   const body = (
@@ -510,6 +577,7 @@ export function OpsDesk({ onClose }) {
           {tab === 'errors' && <ErrorsTab />}
           {tab === 'speed' && <SpeedTab />}
           {tab === 'audit' && <AuditTab />}
+          {tab === 'year' && <YearTab />}
         </div>
       </div>
     </>
