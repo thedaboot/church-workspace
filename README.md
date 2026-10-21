@@ -240,6 +240,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0114_comment_pin_resolve` | 댓글 고정·해결(최상위 댓글만 · 사용자 승인 시안 mock/b3) — `comments.pinned_at·pinned_by·resolved_at·resolved_by` · `set_comment_pin`(쓴 사람·담당자·마스터·관리자) · `set_comment_resolved`(댓글 쓸 수 있는 사람) — 둘 다 definer · 잠긴 업무·숨은 업무 42501 · 답글 22023 · 칸은 보호 트리거가 지킨다(표 update로는 못 바꾼다) · 정책은 그대로. **푸시보다 먼저 적용** |
 | `0117_club_reports` | 동아리 활동 보고서 작성 · 지원비 지급(사용자 승인 시안 mock/b4 · v5 3묶음) — `club_reports`(모임마다 · 글 칸 넷 · 계좌 · 사진 경로 두 묶음 · `file_id` = 저장할 때마다 새로 만든 엑셀 · 읽기는 그 모임을 고칠 수 있는 사람 · 마스터 · 총무 — 계좌가 있어 구성원에게 닫는다) · `club_support_payments`(쓰기는 `set_support_paid` — 마스터·총무만 42501) · 비공개 버킷 `club-reports`(`<meeting_id>/<uuid>.jpg` · `club_report_meeting`) |
 | `0118_support_paid_message` | `set_support_paid` 거절 문구만 '지원비 지급은 총무만 체크할 수 있어요'(마스터는 직분이 아니다 · 사용자 결정 2026-10-21 · 판정은 그대로) |
+| `0119_people_newcomer` | `people.newcomer_at`(새신자로 온 날 · null = 아님) — 연말 보고의 새신자는 이 칸으로 센다(명단에 늦게 든 사람이 다 새신자는 아니다 · 사용자 결정 2026-10-21) · 데이터: 문정원 |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

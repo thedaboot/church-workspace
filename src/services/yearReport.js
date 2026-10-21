@@ -16,11 +16,11 @@ import { reportStatus, supportAmountOf, attachReports } from './clubReport.js';
 //   예배 출석  날짜 | 예배 | 명단 출석 | 명단 외 출석 | 전체 출석   (주보마다 수만 — 누가 왔는지는 없다 · 명단 외 = attendance_guests)
 //   동아리     동아리 | 동아리장 | 구성원 | 모임 | 참석 연인원 | 보고서 제출 | 지원금 | 지급 완료
 //   명단 변화  이름 | 상태 | 날짜                        (새신자 · 환송)
-// **새신자 = 그해 청년 명단에 새로 추가된 사람**(사용자 확정 2026-10-21 · 계정 가입이 아니다). 단 **명단을 처음 만든 날
-// 한꺼번에 옮겨 넣은 사람은 세지 않는다** — 라이브 명단 56명 중 53명이 2026-09-01 하루에 들어왔다(첫 이관). 그 날은
-// 명단 전체의 가장 이른 등록일로 잡는다(firstDay).
+// **새신자 = people.newcomer_at이 그해인 사람**(0119 · 사용자 결정 2026-10-21). 처음에는 '그해 명단에 새로 추가된 사람
+// (첫 이관 날 제외)'으로 셌는데, 첫 이관(2026-09-01) 뒤에 들어온 셋 중 문진우·김우한은 새신자가 아니었다 — 들어온 날로는
+// 못 가른다. 환송은 그대로 removed_at으로 센다.
 // 읽기: gatherYear(year)가 두 모드에서 같은 모양을 모으고(클라우드는 마스터 세션 — RLS가 마스터에게 다 연다), 표는 순수 함수
-// buildYearSheets가 짓는다(노드에서 검사 · tests/logcheck-v2 '연말 보고').
+// buildYearSheets가 짓는다(노드에서 검사 · tests/logcheck-v2 '연말 정산').
 // ============================================================================
 
 const worship = guestStore('church_worship_v1');
@@ -42,7 +42,7 @@ async function pageAll(build, size = 1000) {
 }
 
 // 표 다섯 장을 짓는 재료 — { projects[], tasks[], services[{service_date, kind, n, g}], clubs[], memberCount{group_id: n},
-//   meetings[모임 + files + report_form + support_paid_at], leaderName(person_id), people[{name, created_at, removed_at}] }
+//   meetings[모임 + files + report_form + support_paid_at], leaderName(person_id), people[{name, newcomer_at, removed_at}] }
 export async function gatherYear(year) {
   const today = kstToday();
   const st = store.getState();
@@ -74,7 +74,7 @@ export async function gatherYear(year) {
     supabase.from('groups').select('id, name, leader_person_id').eq('type', 'club').is('removed_at', null),
     supabase.from('group_meetings').select('id, group_id, meeting_date, title, attendance, files(id)')
       .gte('meeting_date', `${year}-01-01`).lt('meeting_date', today < end ? today : end),
-    pageAll(() => supabase.from('people').select('id, name, created_at, removed_at').order('created_at')),
+    pageAll(() => supabase.from('people').select('id, name, newcomer_at, removed_at').order('created_at')),
   ]);
   const services = unwrap(svc) ?? [];
   const ids = services.map(s => s.id);
@@ -116,11 +116,8 @@ export function buildYearSheets(year, d) {
     const paid = ms.filter(m => m.support_paid_at).reduce((n, m) => n + supportAmountOf(m), 0);
     return [c.name, d.leaderName(c.leader_person_id), d.memberCount[c.id] || 0, ms.length, heads, `${done}/${ms.length}`, money, paid];
   });
-  // 명단을 처음 만든 날 한꺼번에 들어온 사람은 새신자가 아니다(머리말)
-  const days = d.people.map(p => kstDay(p.created_at)).filter(Boolean).sort();
-  const firstDay = days[0] || '';
   const changeRows = [
-    ...d.people.filter(p => inYear(kstDay(p.created_at), year) && kstDay(p.created_at) !== firstDay).map(p => [p.name, '새신자', kstDay(p.created_at)]),
+    ...d.people.filter(p => inYear(p.newcomer_at, year)).map(p => [p.name, '새신자', String(p.newcomer_at).slice(0, 10)]),
     ...d.people.filter(p => inYear(kstDay(p.removed_at), year)).map(p => [p.name, '환송', kstDay(p.removed_at)]),
   ].sort((a, b) => a[2].localeCompare(b[2]));
 

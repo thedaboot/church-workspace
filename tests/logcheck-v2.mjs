@@ -1739,7 +1739,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
 
 // ── 연말 정산(v5 3묶음 첫 묶음 · 사용자 승인 시안 mock/b4 · 0117) — 엑셀 쓰기 · 보고서 양식 채우기 · 연말 보고 표 ──
 // 되돌리기: zipWrite의 crc32 표를 틀리게 하면 '왕복'이, xlsxWrite CELLS의 B4를 B5로 바꾸면 '양식 칸'이,
-// buildYearSheets의 `!== firstDay`를 빼면 '첫 이관 날은 새신자가 아니다'가, align을 빼면 '정렬'이 깨진다.
+// buildYearSheets가 newcomer_at 대신 들어온 날(created_at)을 세면 '새신자는 newcomer_at'이, align을 빼면 '정렬'이 깨진다.
 {
   const dir = tmpDir();
   const xw = await loadSource('src/services/xlsxWrite.js', { dir, as: 'xlsxWrite.mjs', siblings: ['src/services/ooxml.js', 'src/services/zipWrite.js'] });
@@ -1791,9 +1791,10 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
       { group_id: 'c1', attendance: ['a'], report_form: null }],
     leaderName: () => '노준석',
     people: [
-      { name: '첫 이관', created_at: '2026-08-31T16:00:00Z' },          // KST 2026-09-01 — 첫날
-      { name: '같은 날', created_at: '2026-09-01T03:00:00Z' },          // KST 2026-09-01
-      { name: '새 사람', created_at: '2026-10-13T02:00:00Z' },
+      { name: '첫 이관', created_at: '2026-08-31T16:00:00Z' },
+      { name: '늦게 든 사람', created_at: '2026-10-13T02:00:00Z' },                       // 명단에 늦게 들었지만 새신자는 아니다
+      { name: '새 사람', created_at: '2026-10-19T02:00:00Z', newcomer_at: '2026-10-19' },
+      { name: '지난해 새신자', created_at: '2025-03-01T02:00:00Z', newcomer_at: '2025-03-01' },
       { name: '떠난 사람', created_at: '2026-08-31T16:00:00Z', removed_at: '2026-11-02T01:00:00Z' },
     ],
   };
@@ -1802,7 +1803,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   const sum = Object.fromEntries(S['요약'].rows.slice(1));
   assert.deepStrictEqual(sheets.map(s => s.name), ['요약', '프로젝트', '예배 출석', '동아리', '명단 변화'], '표 다섯 장 · 차례');
   assert.deepStrictEqual(S['명단 변화'].rows.slice(1).map(r => [r[0], r[1]]), [['새 사람', '새신자'], ['떠난 사람', '환송']],
-    '첫 이관 날 들어온 사람은 새신자가 아니다 · 환송은 센다(사용자 확정 2026-10-21)');
+    '새신자는 newcomer_at이 그해인 사람만(명단에 늦게 든 사람 · 지난해 새신자는 아니다 · 0119) · 환송은 센다');
   assert.ok(sum['새신자'] === '1명' && sum['업무'] === '2건' && sum['예배 평균 출석 인원'] === '30명' && sum['동아리 지원금'] === '20,000원'
     && sum['지원금 지급 완료'] === '15,000원', '요약 값은 단위까지');
   assert.deepStrictEqual(S['예배 출석'].rows[0], ['날짜', '예배', '명단 출석', '명단 외 출석', '전체 출석'], "예배 출석 칸 이름('손님' 아님)");
@@ -1811,5 +1812,5 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.ok(S['동아리'].align.slice(2).every(a => a === 'right') && S['프로젝트'].align[0] === 'left', '숫자 칸은 머리·값 모두 오른쪽');
   assert.strictEqual(summary.avg, 30, '화면 숫자판도 같은 값');
   assert.ok(!/['"`]\$\{[^}]*\}줄/.test(readSrc('src/components/opsDesk.jsx')), "연말 보고 화면에 'N줄' 표현이 없다(사용자 지적 2026-10-21)");
-  console.log('PASS  연말 정산(zip 왕복 · 정렬 · 보고서 양식 칸·사진 · 연말 보고 표 다섯 장 · 새신자 = 그해 명단 추가(첫 이관 날 제외) · 단위)');
+  console.log('PASS  연말 정산(zip 왕복 · 정렬 · 보고서 양식 칸·사진 · 연말 보고 표 다섯 장 · 새신자 = newcomer_at(0119) · 단위)');
 }
