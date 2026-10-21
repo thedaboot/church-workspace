@@ -1,6 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeftRight, X, Check, Phone, Loader2 } from 'lucide-react';
+import { ArrowLeftRight, X, Check, Phone, Loader2, CalendarDays } from 'lucide-react';
+import { DatePicker } from './DatePicker.jsx';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDraggable, useDroppable,
 } from '@dnd-kit/core';
@@ -454,7 +455,7 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
 
             <div className="mt-4 rounded-md bg-canvas px-3 py-1.5">
               <Info label="연락처">{c.phone && <a href={`tel:${c.phone}`} className="inline-flex items-center gap-1 text-accent-text"><Phone size={12} />{c.phone}</a>}</Info>
-              <Info label="어떻게">{c.how}</Info>
+              <Info label="유입 경로">{c.how}</Info>
               <Info label="하고 싶은 말">{c.note}</Info>
             </div>
 
@@ -487,7 +488,13 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
                   {c.meets.map((d, i) => (
                     <div key={`${d}-${i}`} className="flex items-center gap-2.5 pl-2 pr-1 h-9 rounded-md hover:bg-surface-hover transition-colors">
                       <span className="text-[12.5px] font-semibold text-fg tabular-nums">{i + 1}회차</span>
-                      <span className="ml-auto text-[11.5px] text-fg-muted tabular-nums">{md(d)}</span>
+                      {/* 날짜는 앱 데이트피커로 고친다(사용자 2026-10-21 — 지우기만으로는 날짜를 못 바꾼다) */}
+                      <span className="ml-auto">
+                        <DatePicker value={d} allowClear={false} ariaLabel={`${i + 1}회차 교육 날짜`} onChange={(v) => v && W.setMeetDate(c.id, i, v)}
+                          triggerClassName="inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-[11.5px] text-fg-muted tabular-nums hover:bg-surface-hover hover:text-fg transition-colors">
+                          <CalendarDays size={12} className="shrink-0" />{md(d)}
+                        </DatePicker>
+                      </span>
                       <button type="button" onClick={() => W.removeMeet(c.id, i)} aria-label={`${i + 1}회차 교육 기록 지우기`} data-meet-remove={i}
                         className="w-7 h-7 rounded-md flex items-center justify-center text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
                         <X size={13} />

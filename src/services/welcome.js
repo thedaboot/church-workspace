@@ -163,6 +163,10 @@ export const removeMeet = (id, at) => patch(id, c => {
   const meets = c.meets.filter((_, i) => i !== at);
   return { meets, ...(meets.length === 0 && c.stage === 'meet' ? { stage: 'register' } : {}) };
 });
+// 교육 날짜 고치기 — 고친 뒤 날짜순으로 다시 세운다(회차 = 날짜 차례)
+export const setMeetDate = (id, at, date) => patch(id, c => ({
+  meets: c.meets.map((d, i) => (i === at ? date : d)).sort(),
+}));
 export const addMeet = (id) => patch(id, c => ({ meets: [...c.meets, kstToday()], stage: c.stage === 'register' ? 'meet' : c.stage }));
 
 // 카드 한 줄 아래 말(다음에 할 일 · 사용자 문구 2026-10-21)
