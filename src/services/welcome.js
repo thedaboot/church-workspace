@@ -109,7 +109,8 @@ function seed() {
   groupsGuest.set('group_members', [...groupsGuest.rows('group_members'),
     { group_id: suns[0].id, person_id: pid('오세훈') }, { group_id: (suns[1] || suns[0]).id, person_id: pid('윤채원') }]);
   // 새가족 카드 화면(로그인 없는 한 장)이 먼저 적어 둔 카드는 뒤에 그대로 둔다
-  const all = [...cards, ...(read() || [])];
+  // 1차 시안의 옛 카드(position이 없는 모양)는 버린다 — 같은 이름이 두 번 서지 않게
+  const all = [...cards, ...(read() || []).filter(x => 'position' in x)];
   write(all);
   try { localStorage.setItem(SEEDED, '1'); } catch { /* 막힌 저장소 */ }
   return all;
