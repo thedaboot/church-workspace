@@ -83,7 +83,7 @@ export function MeetingReport({ club = null, meeting, manage, people = [], prev 
         })()}
         <span className="flex-1" />
         {manage && (
-          <>
+          <span className={`flex items-center gap-1.5 ${onSaveForm ? 'basis-full sm:basis-auto' : ''}`}>
             {/* 칸 자체는 안 보인다 — 버튼이 대신 연다(주보 파일 줄과 같은 방식) */}
             <input ref={inputRef} type="file" multiple accept={REPORT_ACCEPT} className="hidden" tabIndex={-1} aria-hidden="true"
               onChange={e => { onPick(e.target.files); e.target.value = ''; }} />
@@ -99,11 +99,11 @@ export function MeetingReport({ club = null, meeting, manage, people = [], prev 
             </button>
             {onSaveForm && (
               <button type="button" onClick={() => setWriting(true)} data-report-write=""
-                className={`shrink-0 ${WITH_ICON} ${BTN}`}>
+                className={`order-first sm:order-none flex-1 sm:flex-none justify-center ${WITH_ICON} ${BTN}`}>
                 <PencilLine size={13} /><span>{meeting.report_form?.saved_at ? '보고서 수정' : '보고서 작성'}</span>
               </button>
             )}
-          </>
+          </span>
         )}
       </div>
       {files.map(row => {

@@ -11,7 +11,7 @@ import { fetchReportBoard, setSupportPaid } from '../services/clubReport.js';
 // 자리: 모임 > 동아리 탭 머리줄의 '보고서 현황'(마스터 · 총무만 · 사용자 결정 2026-10-21).
 // 그 해의 지난 모임 전부 — 위에 상태 셋의 수와 '지급할 지원금'(제출 완료인데 아직 지급 전) 합계, 아래에 모임마다 한 줄:
 //   동아리 · 모임 날짜·제목 · 참석 · 지원금(참석자 × 5,000원) · 보고서 상태 · 지급 체크.
-// 지급 체크는 **제출 완료한 모임만** 켠다(보고서를 보고 지급한다 — 시안 제안 · 사용자 확인 전).
+// 지급 체크는 **제출 완료한 모임만** 있다(보고서를 보고 지급한다 · 지급할 수 없는 줄에는 버튼을 두지 않는다 — 폰에서 흐린 버튼이 줄마다 자리를 차지했다).
 // 줄을 누르면 그 동아리 상세로 간다(보고서를 열어 본다).
 // ============================================================================
 
@@ -85,8 +85,8 @@ export function ClubReportBoard({ year, me = '', onOpenClub, onBack }) {
               <span className="row-start-1 col-start-2 md:row-start-auto md:col-start-auto justify-self-end md:justify-self-start">
                 <span className={`px-1.5 py-px rounded-xs text-[10.5px] font-bold ${tone}`}>{label}</span>
               </span>
-              <span className="col-span-2 md:col-span-1 flex items-center gap-2 min-w-0">
-                <button type="button" role="checkbox" aria-checked={!!r.paidAt} disabled={!canPay} onClick={() => toggle(r)}
+              <span className={`col-span-2 md:col-span-1 items-center gap-2 min-w-0 ${canPay ? 'flex' : 'hidden md:flex'}`}>
+                {canPay && <button type="button" role="checkbox" aria-checked={!!r.paidAt} onClick={() => toggle(r)}
                   data-board-paid={r.paidAt ? 'true' : 'false'}
                   className={`shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40
                     ${r.paidAt ? 'bg-tag-green text-tag-green-fg border-transparent' : 'bg-surface text-fg-muted border-line enabled:hover:bg-surface-hover'}`}>
@@ -94,7 +94,7 @@ export function ClubReportBoard({ year, me = '', onOpenClub, onBack }) {
                     {r.paidAt && <Check size={10} strokeWidth={3} />}
                   </span>
                   {r.paidAt ? '지급 완료' : '지급'}
-                </button>
+                </button>}
                 {r.paidAt && <span className="md:hidden text-[11px] text-fg-muted truncate">{[r.paidBy, shortDay(r.paidAt.slice(0, 10))].filter(Boolean).join(' · ')}</span>}
               </span>
             </div>

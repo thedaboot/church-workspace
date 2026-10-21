@@ -409,7 +409,20 @@ function YearTab() {
         </button>
       </div>
       <div key={year} className="dc-fade">
-        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2" data-year-tiles="">
+        <div className="mt-3 md:hidden rounded-md border border-line divide-y divide-line" data-year-tiles-m="">
+          {[['업무', `${sum.tasks ?? 0}건`, `완료 ${sum.done ?? 0}건 · 프로젝트 ${sum.projects ?? 0}개`],
+            ['예배 평균 출석 인원', `${sum.avg ?? 0}명`, `예배 ${sum.services ?? 0}번`],
+            ['동아리 지원금', `${(sum.support ?? 0).toLocaleString('ko-KR')}원`, `지급 완료 ${(sum.paid ?? 0).toLocaleString('ko-KR')}원`]].map(([l, v, sub]) => (
+            <div key={l} className="flex items-center gap-3 px-3 py-2.5">
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12px] text-fg-muted">{l}</span>
+                <span className="block text-[11px] text-fg-faint mt-0.5 truncate">{sub}</span>
+              </span>
+              <span className="shrink-0 text-[17px] font-bold text-fg tabular-nums">{v}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 hidden md:grid grid-cols-3 gap-2" data-year-tiles="">
           <Tile label="업무" value={`${sum.tasks ?? 0}건`} sub={`완료 ${sum.done ?? 0}건 · 프로젝트 ${sum.projects ?? 0}개`} />
           <Tile label="예배 평균 출석 인원" value={`${sum.avg ?? 0}명`} sub={`예배 ${sum.services ?? 0}번`} />
           <Tile label="동아리 지원금" value={`${(sum.support ?? 0).toLocaleString('ko-KR')}원`} sub={`지급 완료 ${(sum.paid ?? 0).toLocaleString('ko-KR')}원`} />
@@ -419,8 +432,26 @@ function YearTab() {
             <h4 className="mb-1.5 flex items-center gap-2 text-[12px] font-semibold text-fg-muted">
               {sh.name}<span className="text-fg-faint tabular-nums">{countText(sh)}</span>
             </h4>
+            {sh.rows.length > 1 && (
+              <div className="md:hidden rounded-md border border-line divide-y divide-line" data-year-cards="">
+                {sh.rows.slice(1, 7).map((r, i) => (
+                  <div key={i} className="px-3 py-2.5">
+                    <p className="text-[13px] font-semibold text-fg break-words">{cell(r[0])}</p>
+                    <dl className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1">
+                      {r.slice(1).map((v, j) => (
+                        <div key={j} className="flex items-baseline justify-between gap-2 min-w-0">
+                          <dt className="text-[11.5px] text-fg-muted truncate">{sh.rows[0][j + 1]}</dt>
+                          <dd className="text-[12.5px] text-fg tabular-nums whitespace-nowrap">{cell(v)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
+                {sh.rows.length > 7 && <p className="px-3 py-2 text-[11px] text-fg-muted">{`나머지 ${countText(sh, 6)}은 엑셀 파일에 있어요`}</p>}
+              </div>
+            )}
             {sh.rows.length > 1 ? (
-              <div className="overflow-x-auto rounded-md border border-line">
+              <div className="hidden md:block overflow-x-auto rounded-md border border-line">
                 <table className="w-full text-[12px] tabular-nums">
                   <thead><tr className="bg-canvas">{sh.rows[0].map((h, j) => <th key={h} className={`px-2.5 py-1.5 font-semibold text-fg-muted whitespace-nowrap ${sh.align?.[j] === 'right' ? 'text-right' : 'text-left'}`}>{h}</th>)}</tr></thead>
                   <tbody>

@@ -30,7 +30,7 @@ import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 import { Segmented } from '../components/segmented.jsx';
 import { prepareReportForm, markGenerated, canCheckSupport } from '../services/clubReport.js';
 import { ClubReportBoard } from '../components/clubReportBoard.jsx';
-import { ClipboardList } from 'lucide-react';
+import { ClipboardList, ChevronRight } from 'lucide-react';
 import { demoOn } from '../services/opsDemo.js';
 // ============================================================================
 // v2 모임 화면 — 내 순 · 동아리 · 순 편성 (docs/V2.md §1 결정 1·2·3·7 · §2 · §3)
@@ -784,7 +784,7 @@ export function GroupsView() {
             JSX의 앞 공백이 그대로 남아 버튼마다 사이가 달라진다(groupsParts WITH_ICON) */}
         {active === 'club' && !openClub && !board && !creating && demoOn() && canCheckSupport(perms) && (
           <button type="button" onClick={() => setBoard(true)} data-report-board-open=""
-            className={`${WITH_ICON} px-3 py-1.5 rounded-md border border-line bg-surface text-[11.5px] font-semibold text-fg hover:bg-surface-hover transition active:scale-95`}>
+            className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-line bg-surface text-[11.5px] font-semibold text-fg hover:bg-surface-hover transition active:scale-95`}>
             <ClipboardList size={13} /><span>보고서 현황</span>
           </button>
         )}
@@ -848,6 +848,15 @@ export function GroupsView() {
         <ClubReportBoard year={Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4))}
           me={perms?.myPerson?.name || ''} onBack={() => setBoard(false)}
           onOpenClub={(c) => { setOpenClubId(c.id); }} />
+      )}
+      {/* 폰의 '보고서 현황'은 목록 위 한 줄 — 머리줄에 두면 탭·'새 동아리'와 함께 글자가 두 줄로 꺾였다(375 · 2026-10-21) */}
+      {active === 'club' && !baseFailed && !openClub && !board && !creating && demoOn() && canCheckSupport(perms) && (
+        <button type="button" onClick={() => setBoard(true)} data-report-board-open-m=""
+          className="md:hidden w-full mb-3 flex items-center gap-2 px-4 py-3 rounded-[10px] bg-surface shadow-soft text-left transition active:scale-[.99]">
+          <ClipboardList size={15} className="shrink-0 text-fg-muted" />
+          <span className="flex-1 text-[13px] font-semibold text-fg">보고서 현황</span>
+          <ChevronRight size={15} className="shrink-0 text-fg-faint" />
+        </button>
       )}
       {active === 'club' && !baseFailed && !(board && !openClub) && (
         <ClubsPanel clubs={clubs} people={state.people} members={state.members} apps={state.apps}
