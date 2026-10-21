@@ -407,9 +407,9 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
       case 'visit1': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'visit2')}>두 번째 방문 기록</button>;
       case 'visit2': return <button type="button" className={BTN_CONFIRM} onClick={() => W.markContacted(c.id, meName || '나')}>컨택했어요</button>;
       case 'contact': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'register')} data-welcome-register="">새신자로 등록</button>;
-      case 'register': return <button type="button" className={BTN_CONFIRM} onClick={() => W.addMeet(c.id)}>리더 모임 기록</button>;
+      case 'register': return <button type="button" className={BTN_CONFIRM} onClick={() => W.addMeet(c.id)}>면담했어요</button>;
       case 'meet': return (<>
-        <button type="button" className={BTN_CONFIRM_QUIET} onClick={() => W.addMeet(c.id)}>리더 모임 기록</button>
+        <button type="button" className={BTN_CONFIRM_QUIET} onClick={() => W.addMeet(c.id)}>면담했어요</button>
         <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'sun')}>순 배정</button>
       </>);
       case 'sun': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'settled')}>정착으로</button>;

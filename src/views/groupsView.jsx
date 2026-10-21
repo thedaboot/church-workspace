@@ -129,7 +129,7 @@ export function GroupsView() {
   const { isMaster, isAdmin } = useAuth();
   const [year, setYear] = useState(THIS_YEAR);
   const [tab, setTab] = useState('mine');
-  const [joinQr, setJoinQr] = useState(false);   // 시안(mock/b5) 새가족·기존 멤버 QR
+  const [joinQr, setJoinQr] = useState(false);   // 시안(mock/b5) 새가족·워크스페이스 가입 QR
   const [openClubId, setOpenClubId] = useState(null);
   const [board, setBoard] = useState(false);   // 보고서 현황(시안 mock/b4 · 마스터 · 총무)
   const [meetings, setMeetings] = useState([]);

@@ -588,7 +588,7 @@ export function MembersView({ isAdmin, isMaster, onNavigate }) {
         <Segmented className="flex p-[3px] rounded-md shrink-0" items={tabs} value={tab} onPick={setTab}
           btnClassName="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors" />
         <span className="flex-1" />
-        {/* 시안(mock/b5): 가입 QR — 기존 멤버가 기본(명단에 있는데 아직 계정이 없는 사람) · 새가족으로도 바꿔 볼 수 있다 */}
+        {/* 시안(mock/b5): 가입 QR — 워크스페이스 가입이 기본(명단에 있는데 아직 계정이 없는 사람) · 새가족으로도 바꿔 볼 수 있다 */}
         {tab === 'account' && (
           <button type="button" onClick={() => setJoinQr(true)} data-join-qr-open=""
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-line bg-surface text-[11.5px] font-semibold text-fg hover:bg-surface-hover transition active:scale-95">

@@ -31,9 +31,15 @@ window.addEventListener('vite:preloadError', (e) => {
 // 시안(mock/b5): 새가족 QR이 여는 새가족 카드 — 로그인 없이 한 장만 그린다(components/newcomerCard.jsx)
 const NewcomerCardPage = React.lazy(() => import('./components/newcomerCard.jsx').then(m => ({ default: m.NewcomerCardPage })));
 const welcome = new URLSearchParams(window.location.search).has('welcome');
+// 시안(mock/b5): 워크스페이스 가입 QR이 여는 화면 — 실제로는 앱 첫 주소 → 로그인 화면(로그인 뒤 승인 대기). 게스트 미리보기에는
+// 로그인이 없어 그 화면을 그대로 세워 보인다(`?join=1` 로그인 · `?join=wait` 승인 대기 · 버튼은 아무 일도 하지 않는다).
+const join = new URLSearchParams(window.location.search).get('join');
+const LoginScreen = React.lazy(() => import('./components/LoginScreen.jsx').then(m => ({ default: m.LoginScreen })));
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {welcome ? <React.Suspense fallback={null}><NewcomerCardPage /></React.Suspense> : <ChurchApp />}
+    {welcome ? <React.Suspense fallback={null}><NewcomerCardPage /></React.Suspense>
+      : join && !import.meta.env.VITE_SUPABASE_URL ? <React.Suspense fallback={null}><LoginScreen waiting={join === 'wait'} /></React.Suspense>
+      : <ChurchApp />}
   </React.StrictMode>,
 );

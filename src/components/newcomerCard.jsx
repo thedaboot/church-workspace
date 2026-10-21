@@ -9,7 +9,7 @@ import { addNewcomerCard } from '../services/welcome.js';
 // **로그인 화면(components/LoginScreen.jsx)과 한 벌의 모양이다** — 앱 밖에서 처음 보는 화면이라 같은 글로우 바탕·로고·
 // 반투명 흰 판·둥근 버튼을 쓰고, 로그인 화면처럼 **언제나 밝다**(테마 토큰이 아니라 라이트 값 그대로 · 사용자 2026-10-21).
 // **로그인 없이** 쓴다. 처음 온 날 카카오 로그인·승인 대기까지 시키면 대부분 거기서 멈춘다 — 앱 계정은 새신자로 등록된 뒤
-// 기존 청년 가입 QR로 만든다(components/joinQr.jsx). 낸 카드는 정착 보드 '첫 방문'에 선다(services/welcome.js).
+// 워크스페이스 가입 QR로 만든다(components/joinQr.jsx). 낸 카드는 정착 보드 '첫 방문'에 선다(services/welcome.js).
 // 연락처는 웰컴팀 컨택에만 쓴다 — 무엇에 쓰는지 적는다(정보가 밖으로 나가는 고지와 같은 자리 · CLAUDE.md 예외).
 // 실제로 붙일 때: 로그인 없는 서버 함수(횟수 제한 · 봇 막기) → welcome_cards. 지금은 이 브라우저 localStorage.
 // 문구는 시안 — 사용자 확정 전.
@@ -49,7 +49,7 @@ export function NewcomerCardPage() {
         {done ? (
           <section data-newcomer-done="" className="text-center">
             <h1 className="text-xl font-bold text-[#2b2833] tracking-[-0.25px] mb-2">{done.name}님, 반가워요!</h1>
-            <p className="text-sm text-[#6b6675] leading-relaxed">정보를 받았어요.<br />웰컴팀이 곧 연락드릴게요.</p>
+            <p className="text-sm text-[#6b6675] leading-relaxed">정보를 전송했어요.<br />웰컴팀이 곧 연락드릴게요.</p>
           </section>
         ) : (
           <>
@@ -98,7 +98,7 @@ export function NewcomerCardPage() {
               </label>
               <button type="button" onClick={submit} disabled={!ready || busy} data-newcomer-submit=""
                 className="w-full flex items-center justify-center gap-2 bg-[#3f6fc4] text-white text-sm font-semibold py-3 rounded-full shadow-soft hover:bg-[#33589c] transition active:scale-95 disabled:opacity-40">
-                {busy && <Loader2 size={16} className="animate-spin" />}정보 보내기
+                {busy && <Loader2 size={16} className="animate-spin" />}정보 전송
               </button>
             </div>
           </>
