@@ -7,6 +7,7 @@ import { copyExportAs } from './cueDigest.js';
 import { downscaleImage, FILE_MAX_DIM } from './image.js';
 import { generateId } from '../utils.js';
 import { ensureClubDemo, renderReportFile } from './clubReport.js';
+import { demoOn } from './opsDemo.js';
 
 // ============================================================================
 // v2 모임 — 내 순 · 동아리(가입 신청 · 모임 출석) · 순 편성
@@ -619,6 +620,15 @@ export async function uploadMeetingReport(club, meeting, file, folderId = null, 
       id: generateId(), meeting_id: meeting.id, name: file.name, size_bytes: file.size ?? null,
       mime_type: file.type || null, source: 'local', uploaded_by: null, created_at: new Date().toISOString(),
     };
+    // 미리보기 빌드(시연)는 올리는 줄의 진행 막대가 보이게 1.2초에 걸쳐 진행을 낸다 — 게스트는 실제로 보낼 곳이 없다
+    if (net?.onProgress && demoOn()) {
+      const total = file.size || 1;
+      for (let k = 1; k <= 8; k++) {
+        if (net.isCancelled?.()) break;
+        await new Promise(r => setTimeout(r, 150));
+        net.onProgress(Math.round((total * k) / 8), total);
+      }
+    }
     guestReportBytes.set(row.id, file);
     guestSet('files', [...guestRows('files'), row]);
     return { ...row, _file: file };

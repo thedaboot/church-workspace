@@ -28,7 +28,7 @@ import { cancelledError } from '../services/transfer.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 import { Segmented } from '../components/segmented.jsx';
-import { saveReportForm, canCheckSupport } from '../services/clubReport.js';
+import { prepareReportForm, markGenerated, canCheckSupport } from '../services/clubReport.js';
 import { ClubReportBoard } from '../components/clubReportBoard.jsx';
 import { ClipboardList } from 'lucide-react';
 import { demoOn } from '../services/opsDemo.js';
@@ -581,13 +581,19 @@ export function GroupsView() {
       return done[0] || null;
     },
     onGrantEdit: (row) => grantReportEditors(row),
-    // 작성 화면 저장·제출(시안 mock/b4 · 게스트 시연만 — 실제로 붙일 때 0117) — 엑셀을 새로 만들어 보고서 칸을 덮는다
+    // 작성 화면 저장·제출(시안 mock/b4 · 게스트 시연만 — 실제로 붙일 때 0117) — 작성 내용을 두고 엑셀을 만든 뒤 창을 닫고,
+    // 엑셀은 보고서 칸의 올리기 길로 보낸다(진행 막대·멈춤·다시 시도 — 파일 올리기와 같은 줄). 다 올라가면 앞에 만든 엑셀을 걷는다.
     onSaveForm: !demoOn() ? null : async (club, meeting, draft, { submit }) => {
-      const people = state?.people || [];
-      const { form, row } = await saveReportForm(club, meeting, people, draft, {
-        submit, upload: (c, m, file) => uploadMeetingReport(c, m, file), remove: (old) => removeMeetingReport(old),
+      const { form, file } = await prepareReportForm(club, meeting, state?.people || [], draft, { submit });
+      const olds = (meeting.files || []).filter(f => f.generated);
+      patchMeeting(meeting.id, m => ({ ...m, report_form: form }));
+      sendReports(club, meeting, [stagedRow(file)]).then(async (done) => {
+        const row = done?.[0];
+        if (!row) return;
+        markGenerated(row.id);
+        patchMeeting(meeting.id, m => ({ ...m, files: (m.files || []).filter(f => !olds.some(o => o.id === f.id)).map(f => (f.id === row.id ? { ...f, generated: true } : f)) }));
+        for (const o of olds) await removeMeetingReport(o).catch(e => console.error('[groups] 앞 보고서를 걷지 못했다:', e));
       });
-      patchMeeting(meeting.id, m => ({ ...m, report_form: form, files: [...(m.files || []).filter(f => !f.generated), row] }));
     },
   }), [sendReports, patchMeeting, state]);
 

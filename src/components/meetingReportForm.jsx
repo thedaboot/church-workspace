@@ -133,7 +133,7 @@ export function MeetingReportForm({ club, meeting, people = [], onSave, onClose 
           )}
           <button type="button" onClick={close} title="닫기" aria-label="닫기" className="shrink-0 p-1 rounded-full text-fg-faint hover:bg-surface-hover"><X size={18} strokeWidth={1.75} /></button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-3 pb-1">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-3 pb-6">
           <div className="rounded-md bg-canvas px-3 py-1.5">
             <Fixed label="참석자">{names.length ? `${names.length}명 · ${names.join(', ')}` : '출석 체크 전'}</Fixed>
             <Fixed label="지원금액">{amountText(amount)}</Fixed>

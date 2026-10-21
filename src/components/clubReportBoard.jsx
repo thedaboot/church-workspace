@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Check } from 'lucide-react';
 import { CARD, CARD_STYLE, BTN_QUIET } from './groupsParts.jsx';
-import { Segmented } from './segmented.jsx';
+import { SlideSeg } from './segmented.jsx';
 import { REPORT_STATUS } from './meetingReport.jsx';
 import { fetchReportBoard, setSupportPaid } from '../services/clubReport.js';
 
@@ -55,23 +55,24 @@ export function ClubReportBoard({ year, me = '', onOpenClub, onBack }) {
       </div>
 
       <div className="overflow-x-auto -mx-1 px-1 mb-2.5">
-        <Segmented className="inline-flex p-[3px] rounded-md" items={FILTERS} value={filter} onPick={setFilter}
-          btnClassName="px-3 py-[6px] rounded-sm text-[12px] font-semibold whitespace-nowrap transition-colors" />
+        {/* 흰 칸이 고른 칸으로 미끄러지고(SlideSeg) 목록은 줄마다 차례로 들어온다(.dc-row · 업무 표와 같은 22ms 간격 · 움직임 줄이기면 끈다) */}
+        <SlideSeg className="inline-flex p-[3px] rounded-md" items={FILTERS} value={filter} onPick={setFilter} aria-label="보고서 상태"
+          btnClassName="px-3 py-[6px] rounded-sm text-[12px] font-semibold whitespace-nowrap ops-ease" />
       </div>
 
-      <div className={`${CARD} overflow-hidden`} style={CARD_STYLE}>
+      <div key={filter} className={`${CARD} overflow-hidden`} style={CARD_STYLE}>
         {/* 데스크톱 머리 — 동아리 | 모임 | 참석 | 지원금 | 보고서 | 지급 */}
         <div className="hidden md:grid grid-cols-[9rem_minmax(0,1fr)_3.5rem_5.5rem_5rem_6.5rem] gap-3 px-4 py-2 text-[11px] font-semibold text-fg-muted border-b border-line">
           <span>동아리</span><span>모임</span><span className="text-right">참석</span><span className="text-right">지원금</span><span>보고서</span><span>지급</span>
         </div>
-        {shown.length === 0 && <p className="px-4 py-6 text-[12.5px] text-fg-muted">해당하는 모임 없음</p>}
+        {shown.length === 0 && <p className="dc-row px-4 py-6 text-[12.5px] text-fg-muted">해당하는 모임 없음</p>}
         {shown.map((r, i) => {
           const [label, tone] = REPORT_STATUS[r.status];
           const canPay = r.status === 'done' || !!r.paidAt;
           return (
             <div key={r.meeting.id} data-board-row={r.status}
-              className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[9rem_minmax(0,1fr)_3.5rem_5.5rem_5rem_6.5rem] items-center gap-x-3 gap-y-1 px-4 py-2.5"
-              style={i ? { borderTop: '1px solid var(--app-line)' } : undefined}>
+              className="dc-row grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[9rem_minmax(0,1fr)_3.5rem_5.5rem_5rem_6.5rem] items-center gap-x-3 gap-y-1 px-4 py-2.5"
+              style={{ animationDelay: `${Math.min(i, 12) * 22}ms`, ...(i ? { borderTop: '1px solid var(--app-line)' } : {}) }}>
               <button type="button" onClick={() => onOpenClub?.(r.club)} className="min-w-0 text-left md:contents">
                 <span className="block md:inline text-[13px] font-semibold text-fg truncate">{r.club.name}</span>
                 <span className="block md:inline text-[12px] text-fg-muted truncate md:text-fg">

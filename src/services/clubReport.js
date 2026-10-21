@@ -82,19 +82,20 @@ export async function renderReportFile(club, meeting, people, form) {
   return new File([bytes], reportFileName(club, meeting), { type: XLSX_TYPE });
 }
 
-// 저장(submit=false) · 제출(submit=true). 만든 엑셀을 그 모임의 보고서로 올리고(앞에 만든 것은 걷는다),
-// 작성 내용은 모임 행에 둔다. upload — groups.uploadMeetingReport(club, meeting, file) · remove — removeMeetingReport(row).
-export async function saveReportForm(club, meeting, people, draft, { submit = false, upload, remove }) {
+// 저장(submit=false) · 제출(submit=true) — 작성 내용을 모임 행에 두고 양식 그대로의 엑셀을 만들어 돌려준다.
+// 올리기는 부르는 쪽이 보고서 칸의 올리기 길(uploadQueue — 진행 막대·멈춤·다시 시도)로 보낸다. 다 올라간 뒤 markGenerated로
+// 표시하고, 앞에 만든 엑셀은 그 뒤에 걷는다(새 것이 못 올라가면 옛 것이 남는다).
+export async function prepareReportForm(club, meeting, people, draft, { submit = false } = {}) {
   const now = new Date().toISOString();
   const prev = formOf(meeting) || {};
   const form = { activity: '', plan: '', usage: '', account: '', photos: [], receipts: [], ...draft,
     saved_at: now, submitted_at: submit ? now : (prev.submitted_at || null) };
   const file = await renderReportFile(club, meeting, people, form);
-  for (const old of (meeting.files || []).filter(f => f.generated)) await remove(old);
-  const row = await upload(club, meeting, file);
-  set('files', rows('files').map(f => (f.id === row.id ? { ...f, generated: true } : f)));
   set('group_meetings', rows('group_meetings').map(m => (m.id === meeting.id ? { ...m, report_form: form } : m)));
-  return { form, row: { ...row, generated: true } };
+  return { form, file };
+}
+export function markGenerated(fileId) {
+  set('files', rows('files').map(f => (f.id === fileId ? { ...f, generated: true } : f)));
 }
 
 // 제출 취소(동아리장이 다시 고치려 할 때 — 현황이 '작성 중'으로 돌아간다)

@@ -161,20 +161,24 @@ const STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleShe
   + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>'
   + '<border><left/><right/><top/><bottom style="thin"><color rgb="FFC9CFD9"/></bottom><diagonal/></border></borders>'
   + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-  + '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+  + '<cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
   + '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>'
-  + '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
-  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf></cellXfs>'
+  + '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right"/></xf>'
+  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>'
+  + '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>'
+  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="right"/></xf></cellXfs>'
   + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 
-function sheetXml({ rows = [], widths = [] }) {
+// align: 칸마다 'left' | 'right' — 머리 줄과 값 줄이 같은 쪽에 선다(사용자 지적 2026-10-21 · 숫자 칸은 머리도 오른쪽)
+function sheetXml({ rows = [], widths = [], align = [] }) {
   const cols = widths.length ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '';
   const body = rows.map((row, r) => `<row r="${r + 1}">${row.map((v, c) => {
     const ref = `${colName(c)}${r + 1}`;
     if (v == null || v === '') return '';
-    if (r === 0) return inlineCell(ref, 1, v);
+    const right = align[c] === 'right';
+    if (r === 0) return inlineCell(ref, right ? 4 : 1, v);
     if (typeof v === 'number' && Number.isFinite(v)) return numCell(ref, 2, v);
-    return inlineCell(ref, String(v).includes('\n') ? 3 : 0, v);
+    return inlineCell(ref, String(v).includes('\n') ? 3 : right ? 5 : 0, v);
   }).join('')}</row>`).join('');
   const freeze = rows.length > 1 ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' : '';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${freeze}${cols}<sheetData>${body}</sheetData></worksheet>`;
