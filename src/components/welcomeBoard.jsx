@@ -220,7 +220,7 @@ function HoldRow({ cards, dragging, onOpen }) {
 
 // ── 보드 ────────────────────────────────────────────────────────────────────
 // suns·members·people = 모임 화면이 이미 읽어 둔 그 해 순 편성 한 벌(groupsView adminData) — 순 배정은 그 길로 쓴다.
-export function WelcomeBoard({ suns = [], members = [], people = [], meName = '', onChanged }) {
+export function WelcomeBoard({ suns = [], members = [], people = [], meName = '', onChanged, focus = null }) {
   const loaded = useCards();
   const [retry, setRetry] = React.useState(0);
   React.useEffect(() => { W.refreshCards().catch(e => console.error('[welcome] 카드를 받지 못했어요:', e)); }, [retry]);
@@ -334,6 +334,12 @@ export function WelcomeBoard({ suns = [], members = [], people = [], meName = ''
   };
 
   const open = cards.find(c => c.id === openId) || null;
+  // 알림으로 들어왔으면 그 카드 창을 띄운다(카드를 다 읽은 뒤 · 한 알림에 한 번 — focus는 누를 때마다 새 객체)
+  const focusedRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!focus?.id || !loaded || focusedRef.current === focus) return;
+    if (loaded.some(c => c.id === focus.id)) { focusedRef.current = focus; setOpenId(focus.id); }
+  }, [focus, loaded]);
 
   // 못 받았다(D2) — 빈 보드가 아니라 실패 두 줄 + '다시 시도'(명단 탭과 같은 자리 · 토스트 없음)
   const failed = W.loadFailed();

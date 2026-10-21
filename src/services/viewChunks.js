@@ -17,9 +17,15 @@ export const VIEW_CHUNKS = {
   wiki: () => import('../views/wikiView.jsx'),
 };
 
+// 받아 둔 조각(모듈) — App의 늦게 싣는 화면이 **이미 와 있으면 Suspense를 거치지 않고** 바로 그린다(lazyView).
+// lazy를 거치면 조각이 와 있어도 한 번 폴백을 내고, React는 폴백을 낸 뒤 내용을 최소 300ms 늦게 드러낸다(폴백 깜빡임 막기) —
+// 배포 빌드 실측: 미리 받아 둔 탭도 처음 열 때마다 300ms 빈 칸(사용자 지적 2026-10-21).
+const loaded = {};
+export const loadedView = (menu) => loaded[menu] || null;
+export const loadView = (menu) => VIEW_CHUNKS[menu]().then((m) => { loaded[menu] = m; return m; });
+
 export function prefetchView(menu) {
-  const load = VIEW_CHUNKS[menu];
-  if (load) load().catch(() => {});
+  if (VIEW_CHUNKS[menu] && !loaded[menu]) loadView(menu).catch(() => {});
 }
 
 // 한가할 때 하나씩 — 한꺼번에 다섯 개를 쏘면 첫 화면의 다른 요청(사진·실시간)과 겨룬다. 돌려주는 함수로 멈춘다.

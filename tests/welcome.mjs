@@ -93,6 +93,9 @@ await go('');
 const pure = await ev(`(async () => {
   const W = await import('/src/services/welcome.js');
   const G = await import('/src/services/groups.js');
+  const T = await import('/src/services/notifyText.js');
+  const NP = await import('/src/services/notifyPrefs.js');
+  const chips = (can) => NP.visibleGroups(can).find(g => g.key === 'group').items.map(i => i.key);
   const c = { stage: 'visit1', visits: ['2026-09-01'], meets: ['2026-10-05', '2026-10-12'], settled_at: null, owner: '김유나' };
   const perms = (o) => G.groupPerms(o).canSeeWelcome;
   return {
@@ -106,6 +109,9 @@ const pure = await ev(`(async () => {
     addFromRegister: W.meetAddPatch({ ...c, stage: 'register', meets: [] }, '2026-10-21').stage,
     needs: [W.needsPerson('contact'), W.needsPerson('register'), W.needsPerson('settled'), W.needsPerson('hold')],
     labels: W.STAGES.map(s => s[1]),
+    notif: { line: T.notifLine('welcome_new', '이하늘'), lineNoName: T.notifLine('welcome_new', ''), system: T.isSystemNotif('welcome_new'), area: T.notifArea('welcome_new'),
+      off: NP.notifAllowed('welcome_new', ['group.welcome']), offGroup: NP.notifAllowed('welcome_new', ['group']), on: NP.notifAllowed('welcome_new', ['group.apply']),
+      chipsYes: chips({ welcome: true }), chipsNo: chips({ welcome: false }), chipsUnknown: chips({}) },
     phone: ['01012345678', '010-1234-5678', '0101234', '010', '0212345678', '021234567', '0311234567', '01112345678', '010 1234 5678 99'].map(W.formatPhone),
     see: {
       plain: perms({ myPerson: { teams: [] }, myRoles: [] }),
@@ -127,6 +133,13 @@ check('명단이 있어야 하는 칸은 등록 완료부터(보류 아님)', JS
 // **되돌리기**: formatPhone을 숫자 그대로 돌려주게 바꾸면 깨진다
 check('연락처 자동 형식 — 010은 3-4-4 · 02는 2-(3|4)-4 · 그 밖 3-3-4/3-4-4 · 11자리 넘으면 자른다',
   JSON.stringify(pure.phone) === JSON.stringify(['010-1234-5678', '010-1234-5678', '010-1234', '010', '02-1234-5678', '02-123-4567', '031-123-4567', '011-1234-5678', '010-1234-5678']), JSON.stringify(pure.phone));
+// 새가족 알림(0121) — **되돌리기**: notifyPrefs의 새가족 항목에서 only를 빼면 '받는 사람에게만' 줄이 깨진다
+check('새가족 알림 문구 — 새가족 OO님이 정보를 남겼어요(사용자 확정 · 시스템 갈래 · 모임 아이콘)',
+  pure.notif.line === '새가족 이하늘님이 정보를 남겼어요' && pure.notif.lineNoName === '새가족이 정보를 남겼어요' && pure.notif.system && pure.notif.area === 'group', JSON.stringify(pure.notif));
+check('알림 설정: 모임 > 새가족으로 끄고 켠다(항목·갈래)', pure.notif.off === false && pure.notif.offGroup === false && pure.notif.on === true);
+check('알림 설정: 새가족 칩은 받는 사람에게만(모르면 안 선다)',
+  pure.notif.chipsYes.includes('welcome') && !pure.notif.chipsNo.includes('welcome') && !pure.notif.chipsUnknown.includes('welcome') && pure.notif.chipsNo.includes('apply'),
+  JSON.stringify([pure.notif.chipsYes, pure.notif.chipsNo]));
 check('칸 이름 = 버튼 이름(OO 완료 · 사용자 결정)', pure.labels.join() === '첫 방문 완료,재방문 완료,컨택 완료,등록 완료,교육 완료,배정 완료,정착 완료', pure.labels.join());
 check('새가족 탭 자격 — 웰컴팀·리더진·교역자·관리자만(비전 메이커만은 아님 · 0120 can_see_welcome과 같은 판정)',
   !pure.see.plain && pure.see.welcome && pure.see.officer && !pure.see.visionOnly && pure.see.pastor && pure.see.admin, JSON.stringify(pure.see));
@@ -194,6 +207,21 @@ await ev(`document.querySelector('[data-meet-remove="0"]').click(); true`); awai
 const c4 = await stored('c4');
 check('교육 회차를 ✕로 다 지우면 등록 완료 칸으로', c4?.meets.length === 0 && c4?.stage === 'register', JSON.stringify(c4));
 await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); true`); await sleep(500);
+
+// 알림 딥링크(0121 · '/?p=groups&tab=welcome&wc=<카드 id>') — 새가족 탭이 열리고 그 카드 창이 뜬다
+await plant(seed());
+await go('?p=groups&tab=welcome&wc=c3'); await sleep(900);
+const deep = await ev(`({ tab: [...document.querySelectorAll('.groups-tab')].find(t => t.getAttribute('aria-pressed') === 'true')?.textContent.trim(), modal: document.querySelector('[data-welcome-modal]')?.getAttribute('aria-label') || '' })`);
+check('알림을 누르면 새가족 탭 + 그 카드 창', deep.tab === '새가족' && deep.modal.includes('한서아'), JSON.stringify(deep));
+await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); true`); await sleep(500);
+// 알림 설정 판에 '새가족' 칩(게스트는 받는 사람으로 본다 · 종은 게스트 시연(ops_demo)에서만 선다)
+await ev(`localStorage.setItem('ops_demo', '1'); true`);
+await go('?p=groups'); await sleep(400);
+const bell = await ev(`(() => { const b = [...document.querySelectorAll('button[title="알림"]')].find(x => x.offsetParent); if (!b) return false; b.click(); return true; })()`);
+await sleep(500);
+await ev(`document.querySelector('[data-notif-prefs-open]')?.click(); true`); await sleep(600);
+const welcomeChip = await ev(`(() => { const el = document.querySelector('[data-notif-item="group.welcome"]'); return el ? el.textContent.trim() : null; })()`);
+check('알림 설정 판의 모임 갈래에 새가족 칩', bell && welcomeChip === '새가족', JSON.stringify({ bell, welcomeChip }));
 
 // ── 4. 폰 ──────────────────────────────────────────────────────────────────
 await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });

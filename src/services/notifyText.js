@@ -51,6 +51,9 @@ const SYSTEM_TEXT = {
   // 관리자 메뉴에서 마스터가 피드백을 처음 '해결'로 바꾸면 보낸 사람에게(0113 set_feedback_status가 넣는다 · 사용자 문구 2026-10-18 ·
   // 알림 설정 표 밖이라 끌 수 없다 — services/notifyPrefs.js)
   feedback_fixed: '보내 주신 피드백이 해결됐어요',
+  // 새가족 QR로 정보가 들어오면 새가족 탭을 보는 사람 전부에게(0121 submit_welcome_card가 넣는다 · 사용자 문구 2026-10-21).
+  // 보낸 새가족은 계정이 없어 '누가 했다' 갈래가 아니다 — actor_name 칸에 새가족 이름이 실리고 아래 줄은 유입 경로다.
+  welcome_new: (name) => (name ? `새가족 ${name}님이 정보를 남겼어요` : '새가족이 정보를 남겼어요'),
 };
 
 export const isSystemNotif = (kind) => kind in SYSTEM_TEXT;
@@ -69,6 +72,7 @@ export const notifLine = (kind, actorName) => {
 export const notifArea = (kind) => {
   if (kind === 'worship_today' || kind === 'service_published' || kind === 'note_shared') return 'worship';
   if (kind === 'feedback_fixed') return 'ops';
+  if (kind === 'welcome_new') return 'group';
   if (kind === 'club_apply' || kind === 'club_accepted' || kind === 'meeting_new' || kind === 'approved' || kind === 'guide_pinned' || kind === 'meeting_tomorrow') return 'group';
   return 'task';
 };

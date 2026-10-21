@@ -1085,10 +1085,10 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.deepStrictEqual(O.byDay([{ at: local(18, 9) }, { at: local(16, 9) }, { at: local(17, 9) }, { at: local(18, 1) }], local(18, 12)).map(d => [d.label, d.rows.length]),
     [['오늘', 2], ['어제', 1], ['10월 16일', 1]], '⑩ 날짜 묶음');
   assert.deepStrictEqual([O.screenOf('/?p=worship'), O.screenOf('/'), O.screenOf('/?p=team:미디어팀'), O.screenOf('/?p=abc', '여름 수련회')], ['예배', '홈', '미디어팀 보드', '여름 수련회']);
-  // ⑪ 사용자 문구(2026-10-18) — 알림 설정 칸 이름 · 피드백 상태 셋
+  // ⑪ 사용자 문구(2026-10-18) — 알림 설정 칸 이름 · 피드백 상태 셋 · '새가족'(0121 · 사용자 2026-10-21 · 받는 사람에게만 선다)
   assert.deepStrictEqual(P.NOTIF_GROUPS.map(g => [g.label, g.items.map(i => i.label)]), [
     ['업무', ['댓글', '멘션', '담당자', '마감 임박']], ['예배', ['오늘 예배', '주보 발행', '노트 공유']],
-    ['모임', ['동아리 신청', '동아리 수락', '새로운 모임', '내일 모임', '순모임 가이드 고정']], ['가입', []]], '⑪ 알림 설정 칸 이름');
+    ['모임', ['동아리 신청', '동아리 수락', '새로운 모임', '내일 모임', '순모임 가이드 고정', '새가족']], ['가입', []]], '⑪ 알림 설정 칸 이름');
   assert.deepStrictEqual(O.FEEDBACK_STATES, ['new', 'checking', 'resolved'], '⑪ 피드백 상태');
   assert.strictEqual(N.notifLine('feedback_fixed'), '보내 주신 피드백이 해결됐어요', '⑪ 해결 알림 문구');
   // ⑫ 화면 사진 배율 — 1배 기기도 2배로 · 아이폰 3배는 그대로 · 데스크톱 1440×900은 긴 변 2560에 맞춰 깎는다

@@ -25,6 +25,7 @@ import { useTrashItems } from '../services/trash.js';
 import { NotificationBell, bellOn } from './notificationBell.jsx';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
+import { prefetchView } from '../services/viewChunks.js';
 
 // 관리자 메뉴 · 피드백 전송은 누를 때 받는다(첫 화면 조각에 싣지 않는다 — 여는 사람이 드물고 창이 크다)
 const OpsDesk = lazy(() => import('./opsDesk.jsx').then(m => ({ default: m.OpsDesk })));
@@ -250,6 +251,8 @@ export const TopNav = React.memo(({
     <button
       key={menu}
       onClick={() => setActiveMenu(menu)}
+      // 늦게 싣는 화면(예배·말씀·모임)은 마우스를 올리는 순간 조각을 받는다 — 누를 때는 이미 와 있다(폰 하단 탭의 pointerdown과 같은 일 · viewChunks)
+      onPointerEnter={() => prefetchView(menu)} onPointerDown={() => prefetchView(menu)}
       className={`px-3 py-1.5 rounded-md text-[13.5px] font-semibold transition-colors whitespace-nowrap ${activeMenu === menu ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:text-fg hover:bg-surface-hover'}`}
     >
       {label}{badge > 0 && <span className="text-fg-faint font-medium"> · {badge}</span>}

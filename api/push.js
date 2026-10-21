@@ -190,12 +190,16 @@ async function handleSend(req, res) {
   // POST는 푸시가 전부인 입구다. 키가 없으면 할 일이 없다 — 앱은 이 응답을 무시한다.
   if (!pushReady()) { res.status(501).json({ error: '푸시가 아직 설정되지 않았습니다 (VAPID 키 3종 필요).' }); return; }
 
-  // 승인된 사람만 — 예전에는 로그인만 봐서 승인 전 계정도 아무에게나 푸시를 보낼 수 있었다
   const db = admin();
+  const body = await readJson(req);
+  // 새가족 정보(0121) — 보낸 사람은 로그인이 없다. 받는 사람·문구는 몸통이 아니라 DB가 정한다(아래)
+  if (body?.welcome) { await handleWelcomePush(db, res, body.welcome); return; }
+
+  // 승인된 사람만 — 예전에는 로그인만 봐서 승인 전 계정도 아무에게나 푸시를 보낼 수 있었다
   const user = await requireApprovedUser(req, res, { supabase: db });
   if (!user) return;
 
-  const { recipientIds, kind, actorName, cardId, projectId, preview, link } = await readJson(req);
+  const { recipientIds, kind, actorName, cardId, projectId, preview, link } = body;
   // 자기 자신에게는 보내지 않는다(앱 안 알림도 같은 규칙 — cloudSync가 먼저 걸러내지만
   // 여기서도 막아 둔다. 알림은 종류가 늘 때마다 호출부가 늘어나는 자리다).
   // 같은 id가 여럿이면 하나로 — 상한은 **거른 뒤의** 수로 센다.
@@ -226,6 +230,32 @@ async function handleSend(req, res) {
     url: safeLink || deepLink(projectId, cardId),
     tag: cardId ? `card:${cardId}` : (safeLink ? `link:${safeLink}` : 'thedaboot'),
   }, typeof kind === 'string' ? kind : null);
+  res.status(200).json(result);
+}
+
+// ── 새가족 정보가 들어온 뒤 한 번(0121) ─────────────────────────────────────
+// 로그인 없는 입구라 **몸통은 카드 id 하나만 믿는다**: 그 카드가 10분 안에 들어왔고 아직 안 보냈을 때만(pushed_at을 먼저 찍어
+// 한 번만 · 두 번 불러도 0) · 받는 사람은 submit_welcome_card가 넣은 알림 줄의 주인(끈 사람은 이미 빠졌다 · loadTargets가 한 번 더) ·
+// 문구는 notifyText 한 벌(이름 = 카드 이름 · 아래 줄 = 유입 경로).
+export const WELCOME_PUSH_WINDOW_MS = 10 * 60e3;
+export const welcomeLink = (id) => `/?p=groups&tab=welcome&wc=${id}`;
+async function handleWelcomePush(db, res, id) {
+  if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) { res.status(400).json({ error: 'bad id' }); return; }
+  const since = new Date(Date.now() - WELCOME_PUSH_WINDOW_MS).toISOString();
+  const { data: cards, error } = await db.from('welcome_cards').update({ pushed_at: new Date().toISOString() })
+    .eq('id', id).is('pushed_at', null).gt('created_at', since).select('id, name, how');
+  if (error) throw error;
+  const card = (cards || [])[0];
+  if (!card) { res.status(200).json({ sent: 0 }); return; }
+  const link = welcomeLink(card.id);
+  const { data: rows, error: nErr } = await db.from('notifications').select('recipient_id').eq('kind', 'welcome_new').eq('link', link);
+  if (nErr) throw nErr;
+  const result = await sendToProfiles(db, (rows || []).map(r => r.recipient_id), {
+    title: notifLine('welcome_new', card.name),
+    body: String(card.how || '').slice(0, MAX_PREVIEW),
+    url: link,
+    tag: `welcome:${card.id}`,
+  }, 'welcome_new');
   res.status(200).json(result);
 }
 

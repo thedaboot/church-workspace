@@ -819,6 +819,21 @@ await send('Emulation.clearDeviceMetricsOverride');
   const idle = await ev(chunks);
   const gone = await ev(`!document.querySelector('.boot-splash')`);
   check('첫 화면이 선 뒤 한가할 때 다섯 화면 조각을 미리 받는다 · 첫 그림은 앱이 걷는다', idle.length === 5 && gone, JSON.stringify({ idle, gone }));
+  // ②-b 미리 받은 탭은 처음 열어도 비지 않는다(PITFALLS 69-a — lazy를 거치면 React가 폴백 뒤 300ms 늦게 드러냈다).
+  // **되돌리기**: App의 lazyView를 옛 `lazy(() => …)`로 돌리면 깨진다(첫 글자가 300ms 뒤 · 기다림 뼈대가 선다).
+  const firstOpen = await ev(`new Promise(res => {
+    const b = [...document.querySelectorAll('nav[data-tab-bar] button')].find(x => x.textContent.trim() === '예배');
+    const t0 = performance.now(); let wait = false; b.click();
+    const tick = () => {
+      const t = performance.now() - t0; const scr = document.querySelector('main .app-screen');
+      if (document.querySelector('[data-screen-wait]')) wait = true;
+      if ((scr?.innerText || '').trim().length > 0) return res({ ms: Math.round(t), wait });
+      if (t > 1500) return res({ ms: null, wait });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  })`, true);
+  check('미리 받은 예배 탭은 처음 열어도 바로 선다(150ms 안 · 기다림 뼈대 없음)', firstOpen.ms !== null && firstOpen.ms < 150 && !firstOpen.wait, JSON.stringify(firstOpen));
   const noIdle = await send('Page.addScriptToEvaluateOnNewDocument', { source: 'window.requestIdleCallback = () => 0; window.cancelIdleCallback = () => {};' });
   await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(2500);
   const before = await ev(chunks);

@@ -219,8 +219,11 @@ export async function submitNewcomer({ name, phone, how, note }) {
     lsWrite([...(lsRead() || []), card]); emit();
     return card;
   }
-  const { error } = await supabase.rpc('submit_welcome_card', { p_name: name, p_phone: phone, p_how: how || null, p_note: note || null });
+  const { data, error } = await supabase.rpc('submit_welcome_card', { p_name: name, p_phone: phone, p_how: how || null, p_note: note || null });
   if (error) throw error;
+  // 웹 푸시는 서버가 보낸다(0121 — 알림 줄은 함수가 이미 넣었다). 방금 들어온 카드 한 장에 한 번만 · 실패해도 정보는 들어갔다
+  fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ welcome: data }) })
+    .catch(e => console.warn('[welcome] 푸시를 부탁하지 못했어요:', e));
   return { name };
 }
 

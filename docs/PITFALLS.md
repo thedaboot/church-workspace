@@ -1484,3 +1484,9 @@ t가 붙은 주소가 방금 돌아온 자리를 덮는다). 열기 전 화면�
 **68-c.** **grid로 접고 펴는 판(`Fold`)은 열을 `minmax(0,1fr)`로, 끝을 시간으로도 낸다.** ① 그냥 grid면 열이 안의 `truncate` 한 줄(nowrap) 전체 폭으로 늘어 해결한 댓글 줄이 업무 창을 가로로 밀었다(폰 +496px). ② transitionend는 안 올 때가 있다(펴기 rAF 전에 다시 접기 · 전이 끊김) — 그 끝만 기다리면 펴진 채 안이 잘리거나(overflow가 안 풀림) 접힌 뒤에도 안을 쥔 채 남는다. 지금은 `FOLD_MS + 120` 시계로도 끝내고, 접힌 끝은 `visibility:hidden`(CSS가 전이 뒤에) + 안을 뗀다. 검사 `modalclose` '해결한 댓글'.
 **68-d.** **다 접힌 `Fold`는 판째 뺀다(`.dc-fold[data-fold='closed'] { display: none }`).** 아이폰 Safari에서 해결한 댓글을 펴고 다시 접으면 높이 0 · `visibility:hidden` · 안을 뗀 뒤에도 얼굴·이름 한 토막이 해결됨 줄 밑에 남았다(사용자 지적 2026-10-21 · 데스크톱 크롬 헤드리스로는 재현되지 않는다 — 투명도 전이에 쓰던 층의 그림을 WebKit이 지우지 않은 것으로 본다 · 추정). 펴기는 `opening`에서 0fr로 다시 그린 뒤 rAF 두 번 뒤에 `data-open`을 켜므로 전이는 그대로다. 검사 `modalclose` '해결한 댓글'(접힌 끝 `display:none`).
 **68-e.** **접고 펴기에 투명도 전이를 쓰지 않는다 — `Fold`는 height만 Web Animations로 움직인다.** 68-d(판째 빼기) 뒤에도 아이폰에서 토막이 남았다. 사용자 화면 녹화(2026-10-21 · 30fps)를 보면 잘 닫힐 때는 내용이 흐려지며 줄고, 토막이 남을 때는 **한 번도 안 흐려진 채** 높이만 줄다 멈췄다 — 투명도 전이가 쓰는 합성 층이 얼어붙은 것으로 본다(추정 · 헤드리스 크롬·데스크톱 WebKit 18.2로는 재현 안 됨). 그래서 grid 0fr↔1fr + opacity + visibility 전이를 걷고, 지금 높이(px) ↔ 0만 `el.animate`(quint · fill forwards)로 움직인다. 끝은 `finished` 또는 시계 · 도중에 누르면 그 순간 높이에서 되돈다. 검사 `logcheck-dash`(height만 · 투명도 없음) · `modalclose` '해결한 댓글'.
+
+### 늦게 싣는 화면과 Suspense (2026-10-21 · 사용자 지적 — 홈에서 예배·말씀·모임으로 갈 때 한 번에 안 뜬다)
+**69-a.** **React는 Suspense 폴백을 한 번 내면 내용을 최소 300ms 늦게 드러낸다(폴백 깜빡임 막기).** 그래서 조각을 이미 미리 받아 둔(viewChunks) 탭도 `lazy`를 거치면
+처음 열 때마다 300ms 비었다(배포 빌드 실측 — 조각은 0.5초에 와 있었는데 첫 방문마다 정확히 300ms · 두 번째부터 0). 미리 받은 모듈을 `viewChunks.loadedView`에 들고 있다가
+App의 `lazyView`가 **마운트할 때 한 번** 고른다 — 와 있으면 Suspense 없이 바로 그린다(20ms), 아니면 lazy + 공용 뼈대 `ScreenWait`(.12s 늦게 떠오름 · 그 안에 오면 안 비친다).
+같은 마운트에서 lazy ↔ 직접을 갈아 끼우지 않는다(컴포넌트 종류가 바뀌어 화면이 새로 선다 — useState 초기값으로 한 번만). 새 늦게 싣는 화면은 VIEW_CHUNKS에 넣고 lazyView로.

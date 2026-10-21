@@ -111,14 +111,30 @@ function keepCaretVisibleSettled() {
 import { HomeView } from './views/homeView.jsx';
 import { setCacheScope } from './services/cache.js';
 // 예배·말씀·모임·청년 명단도 늦게 싣는다 — 첫 화면(홈·대시보드)이 쓰지 않으니 그 탭을 처음 열 때 받는다.
-// 폴백은 null이다: 내비는 Suspense 밖이라 그대로 서 있다. 각 화면의 스켈레톤은 '캐시가 없는 첫 진입'이라는
-// 뜻이라 빌려 오지 않는다 — 캐시가 있는데 스켈레톤이 한 번 비치면 tests/groups·worship이 그것을 잡는다.
-const MembersView = lazy(() => import('./views/membersView.jsx').then(m => ({ default: m.MembersView })));
-const WorshipView = lazy(() => import('./views/worshipView.jsx').then(m => ({ default: m.WorshipView })));
-const WordView = lazy(() => import('./views/wordView.jsx').then(m => ({ default: m.WordView })));
-const GroupsView = lazy(() => import('./views/groupsView.jsx').then(m => ({ default: m.GroupsView })));
+// 폴백은 화면 공용 뼈대 한 장(ScreenWait)이다 — 예전에는 null이라 처음 여는 탭이 조각을 받는 0.3초쯤 텅 비었다(사용자 지적 2026-10-21 ·
+// 배포 빌드 실측: 첫 방문마다 300ms 빈 칸 · 두 번째부터 0). 각 화면의 스켈레톤은 '캐시가 없는 첫 진입'이라는 뜻이라 빌려 오지 않는다 —
+// 이 뼈대는 조각을 기다리는 동안만 서고, .12s 안에 오면 투명한 채로 지나간다(index.css .dc-screen-wait).
+const ScreenWait = () => (
+  <div className="dc-screen-wait space-y-3" aria-hidden="true" data-screen-wait="">
+    <div className="dc-skeleton border border-line rounded-md h-9 w-56" />
+    <div className="dc-skeleton border border-line rounded-lg h-36" />
+    <div className="dc-skeleton border border-line rounded-lg h-24" />
+  </div>
+);
+// 조각이 이미 와 있으면(미리 받기 · 한 번 연 탭) lazy를 거치지 않고 바로 그린다 — 마운트할 때 한 번 고른다(같은 마운트에서 갈아 끼우면 화면이 새로 선다).
+const lazyView = (menu, pick) => {
+  const Lazy = lazy(() => loadView(menu).then(m => ({ default: pick(m) })));
+  return function View(props) {
+    const [C] = useState(() => (loadedView(menu) ? pick(loadedView(menu)) : Lazy));
+    return <C {...props} />;
+  };
+};
+const MembersView = lazyView('members', m => m.MembersView);
+const WorshipView = lazyView('worship', m => m.WorshipView);
+const WordView = lazyView('word', m => m.WordView);
+const GroupsView = lazyView('groups', m => m.GroupsView);
 // 위키는 늦게 싣는다 — 첫 화면 번들에 넣지 않는다(다붓이 입구를 눌러야 받는다 · 0088)
-const WikiView = lazy(() => import('./views/wikiView.jsx'));
+const WikiView = lazyView('wiki', m => m.default);
 import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
 import { setEntryQuery, isAppLink } from './services/entryQuery.js';
@@ -132,7 +148,7 @@ import logoLight from './assets/logo-light.webp';
 import logoDark from './assets/logo-dark.webp';
 import { BTN_CONFIRM } from './components/buttons.js';
 import { errorReason } from './services/errorText.js';
-import { prefetchViewsIdle } from './services/viewChunks.js';
+import { prefetchViewsIdle, loadView, loadedView } from './services/viewChunks.js';
 import { kakaoDemo } from './services/inApp.js';
 // 게스트 시연 표식(?demo=kakao)을 주소가 '/'로 정리되기 전에 붙잡는다(v5 2묶음 · 게스트·미리보기만 — 클라우드는 실제 UA만 · services/inApp.js)
 kakaoDemo();
@@ -1028,12 +1044,12 @@ function WorkspaceShell() {
           <div key={activeMenu} className={`app-screen ${navClass} ${needsFullHeight ? 'h-full' : ''}`}>
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
-          {activeMenu === 'members' && <Suspense fallback={null}><MembersView isAdmin={isAdmin} isMaster={isMaster} /></Suspense>}
+          {activeMenu === 'members' && <Suspense fallback={<ScreenWait />}><MembersView isAdmin={isAdmin} isMaster={isMaster} /></Suspense>}
           {activeMenu === 'home' && <HomeView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onOpenLink={handleOpenLink} />}
-          {activeMenu === 'worship' && <Suspense fallback={null}><WorshipView onOpenBible={openBible} /></Suspense>}
-          {activeMenu === 'word' && <Suspense fallback={null}><WordView initialRef={wordRef} /></Suspense>}
-          {activeMenu === 'groups' && <Suspense fallback={null}><GroupsView /></Suspense>}
-          {activeMenu === 'wiki' && <Suspense fallback={null}><WikiView onTaskClick={handleTaskClick} onOpenLink={handleOpenLink} /></Suspense>}
+          {activeMenu === 'worship' && <Suspense fallback={<ScreenWait />}><WorshipView onOpenBible={openBible} /></Suspense>}
+          {activeMenu === 'word' && <Suspense fallback={<ScreenWait />}><WordView initialRef={wordRef} /></Suspense>}
+          {activeMenu === 'groups' && <Suspense fallback={<ScreenWait />}><GroupsView /></Suspense>}
+          {activeMenu === 'wiki' && <Suspense fallback={<ScreenWait />}><WikiView onTaskClick={handleTaskClick} onOpenLink={handleOpenLink} /></Suspense>}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {isProjectScreen && (

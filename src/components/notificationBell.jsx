@@ -4,7 +4,7 @@ import { inKakao, openExternal, kakaoDemo } from '../services/inApp.js';
 import { store } from '../store/workspaceStore.js';
 import { useAuth } from '../services/auth.jsx';
 import { formatRelative } from '../utils.js';
-import { myUid } from '../services/supabaseClient.js';
+import { myUid, supabase } from '../services/supabaseClient.js';
 import { Avatar } from './Avatar.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
@@ -15,7 +15,7 @@ import { failText } from '../services/errorText.js';
 import { usePopover } from '../hooks/usePopover.js';
 import { markCardNotificationsRead } from '../services/cloud.js';
 import { setTaskFocus, notifFocusHint, onTaskOpen, openTaskId, notifArrival } from '../modals/taskFocus.js';
-import { NOTIF_GROUPS, filterNotifs, flipOff } from '../services/notifyPrefs.js';
+import { visibleGroups, filterNotifs, flipOff } from '../services/notifyPrefs.js';
 import { useGuestNotifs, setGuestNotifs } from '../services/opsDemo.js';
 import { useNotifOff, setNotifOff } from '../services/notifOff.js';
 import { ShareSwitch } from './bibleParts.jsx';
@@ -463,10 +463,19 @@ function GuestBell({ onOpenLink }) {
 // 갈래가 꺼지면 칸은 흐리고(.4) 못 누른다 — 체크 상자는 저장된 항목 값을 그대로 보인다(갈래를 켜면 그대로 살아난다).
 // 누르는 즉시 바뀌고 저장된다(notifOff) — 저장이 실패하면 값이 되돌아가고 토스트. 흐려짐·색·체크는 quint로 바뀐다(.ops-ease · .ops-pop).
 function NotifPrefs({ off }) {
+  // 받는 사람에게만 서는 칩(모임 > 새가족 · 0121) — 자격은 판을 열 때 한 번 묻는다
+  const [can, setCan] = useState({});
+  useEffect(() => {
+    let alive = true;
+    // 클라우드는 DB 판정(0120 can_see_welcome) 한 번 · 게스트는 켬(시연·검사) · 못 읽으면 세우지 않는다(닫힌 쪽)
+    const ask = supabase ? supabase.rpc('can_see_welcome').then(({ data, error }) => !error && !!data) : Promise.resolve(true);
+    ask.then(v => { if (alive) setCan({ welcome: v }); }, () => {});
+    return () => { alive = false; };
+  }, []);
   const flip = (key) => setNotifOff(flipOff(off, key)).then(e => { if (e) showToast(failText('저장하지 못했어요', e)); });
   return (
     <div className="divide-y divide-line/60" data-notif-prefs="">
-      {NOTIF_GROUPS.map(g => {
+      {visibleGroups(can).map(g => {
         const on = !off.includes(g.key);
         return (
           <div key={g.key} className="px-3 py-3" data-notif-group={g.key}>

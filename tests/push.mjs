@@ -1286,4 +1286,17 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   console.log('PASS push — 알림 종류별 설정(0113): 끈 사람에게는 푸시 없음 · 표 밖 해결 알림은 간다 · 칸 없으면 통과 · 못 읽으면 닫힘 · 배선 넷');
 }
 
+// 새가족 알림(0121) — 로그인 없는 입구라 카드 id 하나만 믿는다: 10분 안 · 한 번만(pushed_at) · 받는 사람은 DB가 넣은 알림 줄 · 끈 사람은 loadTargets가 한 번 더.
+// **되돌리기**: `.is('pushed_at', null)`을 빼면 ②가, 새가족 갈래를 requireApprovedUser 뒤로 옮기면 ③이 깨진다.
+{
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  const sql = readFileSync(join(ROOT, 'supabase', 'migrations', '0121_welcome_notice.sql'), 'utf8');
+  assert.equal(api.welcomeLink('X'), '/?p=groups&tab=welcome&wc=X', '① 딥링크 모양');
+  assert.ok(sql.includes("'/?p=groups&tab=welcome&wc=' || v_id"), '① DB가 넣는 알림 줄의 링크와 같은 모양(받는 사람을 그 링크로 찾는다)');
+  assert.ok(/\.is\('pushed_at', null\)\.gt\('created_at', since\)/.test(src), '② 방금(10분 안) 들어온 · 아직 안 보낸 카드만 — 한 번만');
+  assert.ok(src.indexOf('if (body?.welcome)') > 0 && src.indexOf('if (body?.welcome)') < src.indexOf('requireApprovedUser(req, res'), '③ 새가족 갈래는 로그인 확인 앞(보낸 사람은 계정이 없다)');
+  assert.ok(/\.eq\('kind', 'welcome_new'\)\.eq\('link', link\)/.test(src) && /\}, 'welcome_new'\);\s+res\.status\(200\)\.json\(result\);/.test(src), '④ 받는 사람 = 알림 줄의 주인 · kind로 끈 사람 거르기');
+  console.log('PASS push — 새가족 알림(0121): 딥링크 · 10분 한 번 · 로그인 앞 갈래 · 받는 사람 = 알림 줄');
+}
+
 console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음 · 8시 뒤 문서 임베딩·job=embed)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)·동아리 모임 전날(0078 · 내일 KST·대상·중복 방지·문구)');

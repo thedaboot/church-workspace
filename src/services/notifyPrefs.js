@@ -30,6 +30,8 @@ export const NOTIF_GROUPS = [
     { key: 'new', label: '새로운 모임', kinds: ['meeting_new'] },
     { key: 'tomorrow', label: '내일 모임', kinds: ['meeting_tomorrow'] },
     { key: 'guide', label: '순모임 가이드 고정', kinds: ['guide_pinned'] },
+    // 새가족(0121) — 받는 사람(새가족 탭을 보는 웰컴팀·리더진·교역자·마스터)에게만 칩이 선다(only · visibleGroups)
+    { key: 'welcome', label: '새가족', kinds: ['welcome_new'], only: 'welcome' },
   ] },
   // 가입은 항목이 하나라 칩을 두지 않는다(요청 받기 · 승인됨 둘 다 이 갈래)
   { key: 'join', label: '가입', items: [], kinds: ['approval', 'approved'] },
@@ -49,6 +51,10 @@ export function notifAllowed(kind, off = []) {
   if (off.includes(s.group)) return false;
   return !(s.item && off.includes(`${s.group}.${s.item}`));
 }
+
+// 알림 설정 화면에 세울 표 — only가 붙은 항목은 그 자격이 있는 사람에게만(can = { welcome: true|false }).
+// 자격을 아직 모르면(undefined) 세우지 않는다(닫힌 쪽 — 받지 않는 알림 칩이 잠깐 비치지 않게).
+export const visibleGroups = (can = {}) => NOTIF_GROUPS.map(g => ({ ...g, items: g.items.filter(it => !it.only || can[it.only] === true) }));
 
 export const filterNotifs = (list, off = []) => (off.length ? list.filter(n => notifAllowed(n.kind, off)) : list);
 

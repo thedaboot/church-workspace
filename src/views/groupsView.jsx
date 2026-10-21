@@ -703,6 +703,7 @@ export function GroupsView() {
   // 공유 노트를, 가이드 고정 알림은 그 주보의 가이드를 편다 — 값이 없으면 두 구역은 저마다의
   // 기본(가장 최근 · 고정된 것)을 연다. 매번 새 객체라 같은 알림을 두 번 눌러도 다시 편다.
   const [mineFocus, setMineFocus] = useState(null);
+  const [welcomeFocus, setWelcomeFocus] = useState(null);   // 새가족 알림이 가리키는 카드
   useEffect(() => {
     const g = entryOf('g');
     const ap = entryOf('apply');
@@ -712,6 +713,13 @@ export function GroupsView() {
     if (note || guide) {
       setTab('mine'); setOpenClubId(null); setCreating(null);
       setMineFocus({ note: note || '', guide: guide || '' });
+    }
+    // 새가족 알림(0121 · link '/?p=groups&tab=welcome&wc=<카드 id>') — 새가족 탭을 열고 그 카드 창을 띄운다(매번 새 객체 — 같은 알림을 두 번 눌러도)
+    const wtab = entryOf('tab');
+    const wc = entryOf('wc');
+    if (wtab === 'welcome' || wc) {
+      setTab('welcome'); setOpenClubId(null); setCreating(null);
+      setWelcomeFocus({ id: wc || '' });
     }
   }, [entryTick]);
 
@@ -889,7 +897,7 @@ export function GroupsView() {
           이제 껍데기(연도 줄·만들기 칸)는 그대로 서 있고 순 목록 자리만 스켈레톤이다. */}
       {active === 'welcome' && (
         <WelcomeBoard suns={state.suns || []} members={welcomeMembers} people={state.people || []}
-          meName={perms?.myPerson?.name || ''} onChanged={refresh} />
+          meName={perms?.myPerson?.name || ''} onChanged={refresh} focus={welcomeFocus} />
       )}
       {joinQr && <JoinQrModal initial="newcomer" onClose={() => setJoinQr(false)} />}
 

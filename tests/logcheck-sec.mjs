@@ -1,7 +1,7 @@
 // logcheck-sec — 인증·공유·계정 합치기·마이그레이션 모양. 노드 스위트(브라우저·서버 없음 · tests/README.md).
 // logcheck 묶음의 하나다 — `npm run verify -- logcheck`가 logcheck와 logcheck-* 전부를 돈다.
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { loadSource, readSplit } from './_load.mjs';
 
 // ── 공유 링크로 들어온 로그인 (utils.isKakaoInApp · returnToOf · authErrorInUrl) ──
@@ -1386,7 +1386,11 @@ export const readJson = async (req) => req.body;
   const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
   // ① DB의 알림 표(notif_slot)가 화면·푸시의 표(notifyPrefs.NOTIF_GROUPS)와 같다
   const P = await loadSource('src/services/notifyPrefs.js');
-  const slotBody = sql.slice(sql.indexOf('function public.notif_slot'), sql.indexOf('function public.notif_allowed'));
+  // 표는 **가장 늦게 다시 쓴 마이그레이션**의 것을 본다(0121이 welcome_new를 더했다 — 표를 고칠 때마다 notif_slot을 다시 쓴다)
+  const slotFile = readdirSync(new URL('../supabase/migrations/', import.meta.url)).filter(f => f.endsWith('.sql')).sort()
+    .filter(f => readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), 'utf8').includes('function public.notif_slot')).pop();
+  const slotSql = readFileSync(new URL(`../supabase/migrations/${slotFile}`, import.meta.url), 'utf8').split(/\r?\n/).filter(l => !l.trim().startsWith('--')).join(' ');
+  const slotBody = slotSql.slice(slotSql.indexOf('function public.notif_slot'), slotSql.indexOf('$$;', slotSql.indexOf('function public.notif_slot')));
   const dbSlot = new Map([...slotBody.matchAll(/when '(\w+)'\s+then array\[([^\]]*)\]/g)].map(x => [x[1], x[2].replace(/'/g, '').split(',').map(s => s.trim()).join('.')]));
   const jsSlot = new Map();
   for (const g of P.NOTIF_GROUPS) {
