@@ -66,9 +66,9 @@ export function ClubReportBoard({ year, me = '', people = [], onOpenClub, onBack
     patch(x => ({ ...x, paidAt: on ? new Date().toISOString() : null, paidBy: on ? me : null }));
     try { await setSupportPaid(r.meeting.id, on, me); }
     catch (e) {
-      console.error('[report] 지원비 지급을 바꾸지 못했어요:', e);
+      console.error('[report] 지원비 지급 상태를 변경하지 못했어요:', e);
       patch(() => r);
-      showToast(failText('지원비 지급을 바꾸지 못했어요', e));
+      showToast(failText('지원비 지급 상태를 변경하지 못했어요', e));
     }
   };
 
