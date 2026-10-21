@@ -106,6 +106,7 @@ const pure = await ev(`(async () => {
     addFromRegister: W.meetAddPatch({ ...c, stage: 'register', meets: [] }, '2026-10-21').stage,
     needs: [W.needsPerson('contact'), W.needsPerson('register'), W.needsPerson('settled'), W.needsPerson('hold')],
     labels: W.STAGES.map(s => s[1]),
+    phone: ['01012345678', '010-1234-5678', '0101234', '010', '0212345678', '021234567', '0311234567', '01112345678', '010 1234 5678 99'].map(W.formatPhone),
     see: {
       plain: perms({ myPerson: { teams: [] }, myRoles: [] }),
       welcome: perms({ myPerson: { teams: ['웰컴팀'] }, myRoles: [] }),
@@ -123,6 +124,9 @@ check('컨택 완료를 누른 사람이 담당이 된다(먼저 사람이 있�
 check('교육 날짜를 고치면 날짜순으로 다시 센다', JSON.stringify(pure.dateSort) === '["2026-10-01","2026-10-05"]', JSON.stringify(pure.dateSort));
 check('등록 완료 칸에서 교육 완료를 누르면 교육 완료 칸으로', pure.addFromRegister === 'meet');
 check('명단이 있어야 하는 칸은 등록 완료부터(보류 아님)', JSON.stringify(pure.needs) === '[false,true,true,false]', JSON.stringify(pure.needs));
+// **되돌리기**: formatPhone을 숫자 그대로 돌려주게 바꾸면 깨진다
+check('연락처 자동 형식 — 010은 3-4-4 · 02는 2-(3|4)-4 · 그 밖 3-3-4/3-4-4 · 11자리 넘으면 자른다',
+  JSON.stringify(pure.phone) === JSON.stringify(['010-1234-5678', '010-1234-5678', '010-1234', '010', '02-1234-5678', '02-123-4567', '031-123-4567', '011-1234-5678', '010-1234-5678']), JSON.stringify(pure.phone));
 check('칸 이름 = 버튼 이름(OO 완료 · 사용자 결정)', pure.labels.join() === '첫 방문 완료,재방문 완료,컨택 완료,등록 완료,교육 완료,배정 완료,정착 완료', pure.labels.join());
 check('새가족 탭 자격 — 웰컴팀·리더진·교역자·관리자만(비전 메이커만은 아님 · 0120 can_see_welcome과 같은 판정)',
   !pure.see.plain && pure.see.welcome && pure.see.officer && !pure.see.visionOnly && pure.see.pastor && pure.see.admin, JSON.stringify(pure.see));
@@ -210,7 +214,8 @@ check('유입 칩은 한 줄(넘치면 옆으로) · 다섯', how.lines === 1 &&
 check('태어난 해는 묻지 않는다', !(await ev(`!!document.querySelector('input[aria-label="태어난 해"]')`)));
 const setv = (sel, v) => ev(`(() => { const el = document.querySelector('${sel}'); Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
 check('동의 전에는 보낼 수 없다', await ev(`document.querySelector('[data-newcomer-submit]').disabled`) === true);
-await setv('input[aria-label="이름"]', '이하늘'); await setv('input[aria-label="연락처"]', '010-1234-5678');
+await setv('input[aria-label="이름"]', '이하늘'); await setv('input[aria-label="연락처"]', '01012345678');
+check('연락처 칸에 숫자만 쳐도 010-0000-0000 꼴로 바뀐다', (await ev(`document.querySelector('input[aria-label="연락처"]').value`)) === '010-1234-5678');
 await ev(`document.querySelector('[data-newcomer-agree]').click(); true`); await sleep(100);
 await ev(`document.querySelector('[data-newcomer-submit]').click(); true`); await sleep(1800);
 const done = await ev(`document.querySelector('[data-newcomer-done]')?.innerText || ''`);

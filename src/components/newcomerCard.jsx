@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import logoLight from '../assets/logo-light.webp';
-import { submitNewcomer } from '../services/welcome.js';
+import { submitNewcomer, formatPhone } from '../services/welcome.js';
 
 // ============================================================================
 // 새가족 정보 입력 — 새가족 QR을 찍으면 열리는 한 장(v5 4묶음 · 사용자 승인 시안 mock/b5 · 0120)
@@ -112,7 +112,7 @@ export function NewcomerCardPage() {
               </label>
               <label className="block">
                 <span className={LABEL}>연락처</span>
-                <input value={form.phone} onChange={set('phone')} inputMode="tel" autoComplete="tel" placeholder="010-0000-0000" aria-label="연락처"
+                <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: formatPhone(e.target.value) }))} maxLength={13} inputMode="tel" autoComplete="tel" placeholder="010-0000-0000" aria-label="연락처"
                   className={`${INPUT} tabular-nums`} />
               </label>
               <div>

@@ -27,12 +27,12 @@ import * as W from '../services/welcome.js';
 //   · 폰: 칸은 82vw 스냅, 위에 단계 칩 — 끄는 동안 칩이 놓을 곳이 된다 · 보류는 보드 위 한 줄(상시 줄과 같은 자리)
 //   · 창: 업무 창과 같은 껍데기(딤 + 가운데 창 · 머리줄/본문/바닥 줄 · 바닥 줄 bg-surface-2)
 // 단계·사람·순의 규칙은 services/welcome.js 머리말(등록 = 명단 한 줄 · 순 = group_members — 순 편성과 같은 길).
-// 문구는 사용자 확정(2026-10-21) — 실패 토스트 셋만 확인 대기(HANDOFF).
+// 문구는 사용자 확정(2026-10-21).
 // ============================================================================
 W.loadCards();   // 시연 씨앗(미리보기 빌드만) — 동아리 씨앗(groups.js) 다음이다(모임 화면이 groups.js를 먼저 싣는다)
 
 // 쓰기는 먼저 화면에 서고(services/welcome.js) 실패하면 서버 모양으로 되돌아온다 — 여기서는 토스트만(+ 이유)
-const FAIL_SAVE = '새가족 카드를 저장하지 못했어요';
+const FAIL_SAVE = '새가족 정보를 저장하지 못했어요';   // 사용자 문구 2026-10-21
 const act = (p, fail = FAIL_SAVE) => Promise.resolve(p).catch((e) => {
   console.error('[welcome]', e);
   showToast(failText(fail, e));
@@ -338,7 +338,7 @@ export function WelcomeBoard({ suns = [], members = [], people = [], meName = ''
   // 못 받았다(D2) — 빈 보드가 아니라 실패 두 줄 + '다시 시도'(명단 탭과 같은 자리 · 토스트 없음)
   const failed = W.loadFailed();
   if (!loaded && failed) {
-    return <FailLeft className="welcome-load-failed" title="새가족 카드를 받지 못했어요" reason={errorReason(failed)} onRetry={() => setRetry(n => n + 1)} />;
+    return <FailLeft className="welcome-load-failed" title="새가족 정보를 읽어오지 못했어요" reason={errorReason(failed)} onRetry={() => setRetry(n => n + 1)} />;
   }
   if (!loaded) {
     return (

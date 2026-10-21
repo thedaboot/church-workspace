@@ -81,6 +81,24 @@ export const meetAddPatch = (c, today) => ({ meets: [...c.meets, today], stage: 
 // 컨택 완료 = 누른 사람이 담당(사용자 2026-10-21 — 되돌려 다른 사람이 다시 누르면 그 사람으로)
 export const contactPatch = (by, today) => ({ contact: { by, at: today }, owner: by, stage: 'contact' });
 
+// 연락처 칸 — 숫자만 쳐도 칸 안에서 010-0000-0000 꼴로 바뀐다(사용자 2026-10-21). 010은 3-4-4, 02는 2-(3|4)-4, 그 밖은 10자리 3-3-4 · 11자리 3-4-4.
+export function formatPhone(input) {
+  const d = String(input || '').replace(/[^0-9]/g, '').slice(0, 11);
+  if (d.startsWith('02')) {
+    if (d.length <= 2) return d;
+    if (d.length <= 5) return `${d.slice(0, 2)}-${d.slice(2)}`;
+    if (d.length <= 9) return `${d.slice(0, 2)}-${d.slice(2, 5)}-${d.slice(5)}`;
+    return `${d.slice(0, 2)}-${d.slice(2, 6)}-${d.slice(6, 10)}`;
+  }
+  if (d.length <= 3) return d;
+  if (d.startsWith('010') || d.length === 11) {
+    if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
+    return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
+  }
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
 // ── 저장 자리 ──────────────────────────────────────────────────────────────
 const cloudOn = () => !!supabase;
 const COLS = 'id, name, phone, how, note, stage, position, visits, contact_by, contact_at, owner, registered_at, meets, settled_at, person_id, created_at';
