@@ -30,7 +30,9 @@ import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 import { Segmented } from '../components/segmented.jsx';
 import { prepareReportForm, markGenerated, canCheckSupport, isGenerated } from '../services/clubReport.js';
 import { ClubReportBoard } from '../components/clubReportBoard.jsx';
-import { ClipboardList, ChevronRight } from 'lucide-react';
+import { ClipboardList, ChevronRight, QrCode } from 'lucide-react';
+import { WelcomeBoard } from '../components/welcomeBoard.jsx';
+import { JoinQrModal } from '../components/joinQr.jsx';
 // ============================================================================
 // v2 모임 화면 — 내 순 · 동아리 · 순 편성 (docs/V2.md §1 결정 1·2·3·7 · §2 · §3)
 // ----------------------------------------------------------------------------
@@ -127,6 +129,7 @@ export function GroupsView() {
   const { isMaster, isAdmin } = useAuth();
   const [year, setYear] = useState(THIS_YEAR);
   const [tab, setTab] = useState('mine');
+  const [joinQr, setJoinQr] = useState(false);   // 시안(mock/b5) 새가족·기존 멤버 QR
   const [openClubId, setOpenClubId] = useState(null);
   const [board, setBoard] = useState(false);   // 보고서 현황(시안 mock/b4 · 마스터 · 총무)
   const [meetings, setMeetings] = useState([]);
@@ -765,6 +768,8 @@ export function GroupsView() {
   const tabs = useMemo(() => {
     const list = [['mine', '내 순'], ['club', '동아리']];
     if (perms?.canManageSun) list.push(['sun', '순 편성']);
+    // 시안(mock/b5): 새가족 정착 보드 — 실제로는 웰컴팀·리더진·교역자·마스터만(지금은 게스트 시연이라 늘 선다)
+    list.push(['welcome', '새가족']);
     return list;
   }, [perms]);
 
@@ -792,6 +797,12 @@ export function GroupsView() {
           <button type="button" onClick={() => setCreating('club')}
             className={`club-new-open ${WITH_ICON} px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95`}>
             <Plus size={13} /><span>새 동아리</span>
+          </button>
+        )}
+        {active === 'welcome' && (
+          <button type="button" onClick={() => setJoinQr(true)} data-join-qr-open=""
+            className={`${WITH_ICON} px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95`}>
+            <QrCode size={13} /><span>새가족 QR</span>
           </button>
         )}
         {active === 'sun' && !creating && (
@@ -874,6 +885,9 @@ export function GroupsView() {
       {/* 지난 해를 처음 고르면 그 해 편성이 오는 동안 잠깐 비어 있다. 예전에는 그때
           **구역째** 스켈레톤으로 갈아 끼워서 방금 누른 연도 고르개가 사라졌다가 돌아왔다.
           이제 껍데기(연도 줄·만들기 칸)는 그대로 서 있고 순 목록 자리만 스켈레톤이다. */}
+      {active === 'welcome' && <WelcomeBoard />}
+      {joinQr && <JoinQrModal initial="newcomer" onClose={() => setJoinQr(false)} />}
+
       {active === 'sun' && !baseFailed && (
         <SunAdminPanel year={year} years={years} loading={!adminData}
           suns={adminData?.suns || []} people={adminData?.people || []}
