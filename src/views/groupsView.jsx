@@ -660,6 +660,8 @@ export function GroupsView() {
     return ok;
   }, [run, refresh]);
   const sunMembers = useMemo(() => applySunOps(adminData?.members || [], sunOps), [adminData, sunOps]);
+  // 새가족 보드의 순은 언제나 올해 것(state) — 순 편성의 연도 고르기와 상관없다
+  const welcomeMembers = useMemo(() => applySunOps(state?.members || [], sunOps), [state, sunOps]);
   const busySuns = useMemo(() => new Set(sunOps.flatMap(o => [o.from, o.to]).filter(Boolean)), [sunOps]);
 
   const addSunMember = useCallback((group, personId) => {
@@ -768,8 +770,8 @@ export function GroupsView() {
   const tabs = useMemo(() => {
     const list = [['mine', '내 순'], ['club', '동아리']];
     if (perms?.canManageSun) list.push(['sun', '순 편성']);
-    // 시안(mock/b5): 새가족 정착 보드 — 실제로는 웰컴팀·리더진·교역자·마스터만(지금은 게스트 시연이라 늘 선다)
-    list.push(['welcome', '새가족']);
+    // 시안(mock/b5): 새가족 정착 보드 — 웰컴팀·리더진·교역자·마스터만(groups.groupPerms canSeeWelcome)
+    if (perms?.canSeeWelcome) list.push(['welcome', '새가족']);
     return list;
   }, [perms]);
 
@@ -885,7 +887,11 @@ export function GroupsView() {
       {/* 지난 해를 처음 고르면 그 해 편성이 오는 동안 잠깐 비어 있다. 예전에는 그때
           **구역째** 스켈레톤으로 갈아 끼워서 방금 누른 연도 고르개가 사라졌다가 돌아왔다.
           이제 껍데기(연도 줄·만들기 칸)는 그대로 서 있고 순 목록 자리만 스켈레톤이다. */}
-      {active === 'welcome' && <WelcomeBoard />}
+      {active === 'welcome' && (
+        <WelcomeBoard suns={state.suns || []} members={welcomeMembers} people={state.people || []}
+          meName={perms?.myPerson?.name || ''} onChanged={refresh}
+          onAssignSun={addSunMember} onMoveSun={(from, toId, person) => moveSunMember(from, toId, person)} />
+      )}
       {joinQr && <JoinQrModal initial="newcomer" onClose={() => setJoinQr(false)} />}
 
       {active === 'sun' && !baseFailed && (

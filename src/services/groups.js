@@ -90,6 +90,9 @@ export function groupPerms({ isMaster = false, isAdmin = false, myPerson = null,
     canCreateClub: master,
     // 총무 — 동아리 보고서 현황 · 지원비 지급 체크(시안 mock/b4 · 마스터와 같이)
     isTreasurer: (myRoles || []).includes('treasurer'),
+    // 새가족 탭(시안 mock/b5 · 사용자 2026-10-21) — 웰컴팀 소속 · 리더진(그 해 직분 · 비전 메이커 빼고) · 교역자 · 마스터·관리자
+    canSeeWelcome: admin || !!myPerson?.is_pastor || (myPerson?.teams || []).includes('웰컴팀')
+      || (myRoles || []).some(r => r !== 'vision_maker'),
     ledClubIds: ledClubIds || [],
   };
 }

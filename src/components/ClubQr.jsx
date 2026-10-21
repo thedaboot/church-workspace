@@ -79,6 +79,8 @@ export function QrCardModal({ name, label, url, short, copied, header = null, on
   const [busy, setBusy] = useState(false);
   const svgRef = useRef(null);
 
+  // 짧은 주소 줄이 없으면 그 자리(아래 여백)만큼 카드를 줄인다 — QR 아래가 비어 보였다
+  const cardH = short ? CARD_H : CARD_H - 34;
   const module = useMemo(() => tokenColor('--app-night', MODULE_FALLBACK), []);
 
   // Esc로 닫는다(이 화면의 다른 팝오버·모달과 같은 규칙)
@@ -131,7 +133,7 @@ export function QrCardModal({ name, label, url, short, copied, header = null, on
     const clone = svg.cloneNode(true);
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     clone.setAttribute('width', String(CARD_W));
-    clone.setAttribute('height', String(CARD_H));
+    clone.setAttribute('height', String(cardH));
     clone.removeAttribute('style');
     const xml = new XMLSerializer().serializeToString(clone);
     const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
@@ -143,14 +145,14 @@ export function QrCardModal({ name, label, url, short, copied, header = null, on
     });
     const canvas = document.createElement('canvas');
     canvas.width = CARD_W * 2;
-    canvas.height = CARD_H * 2;
+    canvas.height = cardH * 2;
     const ctx = canvas.getContext('2d');
     // 투명 PNG로 나가면 카카오톡의 어두운 대화방에서 검은 종이에 검은 모듈이 된다
     ctx.fillStyle = PAPER;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     return new Promise((res) => canvas.toBlob(res, 'image/png'));
-  }, []);
+  }, [cardH]);
 
   const copy = useCallback(async () => {
     try {
@@ -217,11 +219,11 @@ export function QrCardModal({ name, label, url, short, copied, header = null, on
             {'QR을 만들지 못했어요\n링크 복사로 보내 주세요'}
           </p>
         ) : (
-          <svg ref={svgRef} className="club-qr-card block mx-auto" viewBox={`0 0 ${CARD_W} ${CARD_H}`}
-            xmlns="http://www.w3.org/2000/svg" width={CARD_W} height={CARD_H}
+          <svg ref={svgRef} className="club-qr-card block mx-auto" viewBox={`0 0 ${CARD_W} ${cardH}`}
+            xmlns="http://www.w3.org/2000/svg" width={CARD_W} height={cardH}
             style={{ width: '100%', height: 'auto', maxWidth: `${CARD_W}px` }}
             role="img" aria-label={`${name} ${label} 코드`}>
-            <rect x="0" y="0" width={CARD_W} height={CARD_H} rx="14" fill={PAPER} />
+            <rect x="0" y="0" width={CARD_W} height={cardH} rx="14" fill={PAPER} />
             <text x={CARD_W / 2} y="50" textAnchor="middle" fontFamily={FONT}
               fontSize={size} fontWeight="800" fill={INK}>{name}</text>
             <text x={CARD_W / 2} y="72" textAnchor="middle" fontFamily={FONT}
@@ -230,8 +232,11 @@ export function QrCardModal({ name, label, url, short, copied, header = null, on
               <rect x="0" y="0" width={QR_BOX} height={QR_BOX} fill={PAPER} />
               {!!path && <path d={path} fill={module} shapeRendering="crispEdges" />}
             </g>
-            <text x={CARD_W / 2} y="352" textAnchor="middle" fontFamily={FONT}
-              fontSize="10.5" fill={INK_MUTED}>{short}</text>
+            {/* 짧은 주소 — 가입 QR은 적지 않는다(사용자 2026-10-21 · '링크 복사'가 있다) */}
+            {short && (
+              <text x={CARD_W / 2} y="352" textAnchor="middle" fontFamily={FONT}
+                fontSize="10.5" fill={INK_MUTED}>{short}</text>
+            )}
           </svg>
         )}
 

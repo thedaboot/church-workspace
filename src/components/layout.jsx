@@ -153,7 +153,8 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
           <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 설정</button>
           {/* 멤버는 관리자에게만. 하단 탭 네 자리는 핸드오프 규격이라 다섯 번째를
               끼우지 않는다 — 설정·전체 일정과 같은 처리다(§4.6). */}
-          {isAdmin && enabled && session && onOpenMembers && (
+          {/* 시안(mock/b5): 미리보기(게스트)에서도 멤버 관리가 선다 — 가입 QR 자리를 보이려고 */}
+          {isAdmin && (enabled ? session : true) && onOpenMembers && (
             <button className={item} onClick={go(onOpenMembers)}><Users size={15} /> 멤버 관리</button>
           )}
           {opsOn && <button className={item} onClick={go(() => setOpsOpen(true))} data-ops-entry=""><Wrench size={15} /> 관리자 메뉴</button>}
