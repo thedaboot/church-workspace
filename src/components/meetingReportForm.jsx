@@ -151,13 +151,13 @@ export function MeetingReportForm({ club, meeting, people = [], onSave, onClose 
             <label key={k} className="block mt-3">
               <span className="block mb-1 text-[12px] font-bold text-fg-muted">{label}</span>
               <textarea value={draft[k]} onChange={setText(k)} rows={rows} data-report-field={k}
-                className={`${FIELD} w-full resize-none leading-relaxed py-2 text-[16px] md:text-[13px]`} />
+                className={`${FIELD} w-full resize-none leading-relaxed py-2`} />
             </label>
           ))}
           <label className="block mt-3">
             <span className="block mb-1 text-[12px] font-bold text-fg-muted">지원금 받을 계좌</span>
             <input value={draft.account} onChange={setText('account')} data-report-field="account" inputMode="text"
-              placeholder="은행 · 계좌번호 · 예금주" className={`${FIELD} w-full py-2 text-[16px] md:text-[13px]`} />
+              placeholder="은행 · 계좌번호 · 예금주" className={`${FIELD} w-full py-2`} />
           </label>
           <PhotoGroup label="활동 사진" list={draft.photos} busy={busy === 'photos'} onAdd={f => add('photos', f)} onDrop={id => drop('photos', id)} />
           <PhotoGroup label="지원비 영수증" list={draft.receipts} busy={busy === 'receipts'} onAdd={f => add('receipts', f)} onDrop={id => drop('receipts', id)} />

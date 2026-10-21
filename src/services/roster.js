@@ -27,7 +27,7 @@ import { seatsValid, seatYearApplies } from './handover.js';
 // 확인해야 한다 — HANDOFF §3-6.
 // ============================================================================
 
-const COLS = 'id, name, birthday, teams, gender, is_pastor, profile_id, note, removed_at';
+const COLS = 'id, name, birthday, teams, gender, is_pastor, profile_id, note, removed_at, newcomer_at';
 
 // 직분 — 사용자가 정한 여섯이다(2026-09-05): 교역자 · 부장 · 회장 · 총무 · 리더순장 ·
 // 리더팀장. 화면의 칩도 이 순서다. 교역자만 연도와 무관한 명단 속성(people.is_pastor)이고
@@ -56,6 +56,22 @@ export const GRAD_LABEL = '졸업';
 export const teamLeadLabel = (team) => (team ? `${team}장` : TEAM_LEAD_LABEL);
 // 문장 자리(토스트 · 홈 인계 카드)는 띄어 쓴다 — '찬양팀 팀장'(사용자 결정 2026-10-17 · 칩·배지는 '찬양팀장' 그대로)
 export const teamLeadPhrase = (team) => (team ? `${team} ${TEAM_LEAD_LABEL}` : TEAM_LEAD_LABEL);
+
+// ── 새신자 (people.newcomer_at · 0119) ──────────────────────────────────────
+// 값은 새신자로 온 날(KST 'YYYY-MM-DD')이고 **지우지 않는다** — 연말 보고가 그해 새신자를 이 칸으로 센다(yearReport).
+// 명단 줄의 배지만 3개월 동안 붙는다(사용자 결정 2026-10-21 — 석 달 지나도 남아 있으면 더는 새신자로 보이지 않게).
+export const NEWCOMER_LABEL = '새신자';
+export const NEWCOMER_MONTHS = 3;
+// 오늘(KST 'YYYY-MM-DD') — worship/pure의 kstNow와 같은 식. 그 모듈은 people.js를 끌고 와 노드 검사(tests/roster.mjs)가 못 읽는다
+export const kstToday = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 10);
+// 끝나는 날은 같은 날짜의 석 달 뒤다. 11-30 → '02-30'처럼 없는 날이 나와도 글자 비교라 그달 끝 다음 날처럼 동작한다.
+export function newcomerShown(newcomerAt, today = kstToday()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(newcomerAt || ''));
+  if (!m) return false;
+  const months = +m[1] * 12 + (+m[2] - 1) + NEWCOMER_MONTHS;
+  const end = `${Math.floor(months / 12)}-${String(months % 12 + 1).padStart(2, '0')}-${m[3]}`;
+  return String(today) < end;
+}
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — tests/roster.mjs 앞부분) ───────────
 
@@ -137,13 +153,14 @@ export function teamLeadOf(roles) {
 
 // 화면에 붙는 직분 배지. 교역자가 먼저고 그다음이 그 해의 직분이다(칩 묶음 순서 —
 // 부장 · 회장·총무·리더순장·리더팀장 · OO팀장·예배팀장 · 비전 메이커) · 그 해 졸업이면 맨 끝에 '졸업'.
-export function personBadges(person, roleSet, { team, graduate = false } = {}) {
+export function personBadges(person, roleSet, { team, graduate = false, newcomer = false } = {}) {
   const out = person?.is_pastor ? [PASTOR_LABEL] : [];
   for (const r of YEAR_ROLES) {
     if (r === 'worship_lead' && team != null) out.push(teamLeadLabel(team));
     if (roleSet?.has(r)) out.push(ROLE_LABEL[r]);
   }
   if (graduate) out.push(GRAD_LABEL);
+  if (newcomer) out.push(NEWCOMER_LABEL);
   return out;
 }
 
@@ -186,13 +203,14 @@ export async function loadRoster(year) {
 // ── 쓰기 ────────────────────────────────────────────────────────────────────
 const one = async (q) => { const { data, error } = await q; if (error) throw error; return data; };
 
-export async function addPerson({ name, birthday = null, teams = [], birth_year = null }) {
-  const row = { name: String(name || '').trim(), birthday: birthday || null, teams: teams || [], ...(birth_year ? { birth_year } : {}) };
+export async function addPerson({ name, birthday = null, teams = [], birth_year = null, newcomer_at = null }) {
+  const row = { name: String(name || '').trim(), birthday: birthday || null, teams: teams || [], ...(birth_year ? { birth_year } : {}),
+    ...(newcomer_at ? { newcomer_at } : {}) };
   if (!seatsValid(row.teams)) throw new Error('겹치는 자리');
   if (!cloudOn()) {
     const made = {
       id: generateId(), gender: null, is_pastor: false, profile_id: null, note: null,
-      removed_at: null, created_at: new Date().toISOString(), birth_year: null, ...row,
+      removed_at: null, created_at: new Date().toISOString(), birth_year: null, newcomer_at: null, ...row,
     };
     guestSet('people', [...guestRows('people'), made]);
     return made;
@@ -202,12 +220,12 @@ export async function addPerson({ name, birthday = null, teams = [], birth_year 
   return { ...made, birth_year: row.birth_year ?? null };
 }
 
-// 이름·생일·팀·note만 고친다. 계정 연결·직분은 각자의 길이 따로 있다.
+// 이름·생일·팀·note·새신자(newcomer_at)만 고친다. 계정 연결·직분은 각자의 길이 따로 있다.
 // birth_year(태어난 연도 · 0107)는 졸업 표시에 쓴다. ledTeam = 그 해 이 사람이 이끄는 팀(겹침 막기 · DB 트리거도 같은 판정).
 export async function updatePerson(id, patch, { ledTeam = null } = {}) {
   if ('teams' in patch && !seatsValid(patch.teams || [], ledTeam)) throw new Error('겹치는 자리');
   const next = {};
-  for (const k of ['name', 'birthday', 'teams', 'note', 'birth_year']) if (k in patch) next[k] = patch[k];
+  for (const k of ['name', 'birthday', 'teams', 'note', 'birth_year', 'newcomer_at']) if (k in patch) next[k] = patch[k];
   if (!Object.keys(next).length) return null;
   if (!cloudOn()) return guestPatch(id, next);
   return one(supabase.from('people').update(next).eq('id', id).select(COLS).single());

@@ -12,6 +12,7 @@ import { objectParticle } from '../services/errorText.js';
 import {
   ROLE_LABEL, PASTOR_LABEL, GENDERS, GENDER_LABEL, TEAM_LEAD_LABEL, teamLeadLabel,
   parseBirthday, searchPeople, accountLinkState, sunNames, rolesByPerson, personBadges, teamLeadOf,
+  NEWCOMER_LABEL, newcomerShown, kstToday,
 } from '../services/roster.js';
 
 import { Segmented } from './segmented.jsx';
@@ -143,6 +144,11 @@ const birthdayLabel = (mmdd) => {
   const m = /^(\d{2})-(\d{2})$/.exec(String(mmdd || ''));
   return m ? `${+m[1]}월 ${+m[2]}일` : '';
 };
+// 새신자 칩의 날짜 — 올해면 '10월 19일', 다른 해면 '2025년 3월 2일'(시안 승인 2026-10-21)
+const newcomerDate = (ymd, today) => {
+  const s = String(ymd || '');
+  return `${s.slice(0, 4) === today.slice(0, 4) ? '' : `${s.slice(0, 4)}년 `}${birthdayLabel(s.slice(5, 10))}`;
+};
 
 // 명단 한 줄 자리(가입자 탭 membersView도 같은 것을 쓴다).
 export const RowSkeleton = () => (
@@ -170,10 +176,10 @@ const Head = ({ title, count, children }) => (
   </div>
 );
 
-const Chip = ({ on, onClick, disabled, children, className = '' }) => (
-  <button type="button" onClick={onClick} disabled={disabled} aria-pressed={!!on}
+const Chip = ({ on, onClick, disabled, children, className = '', offClassName = '', ...rest }) => (
+  <button type="button" onClick={onClick} disabled={disabled} aria-pressed={!!on} {...rest}
     className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xs text-[11px] font-semibold border transition active:scale-95 disabled:opacity-40
-      ${on ? `${className} border-transparent` : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
+      ${on ? `${className} border-transparent` : `${offClassName} bg-surface text-fg-muted border-line hover:bg-surface-hover`}`}>
     {on && <Check size={11} className="shrink-0" />}{children}
   </button>
 );
@@ -214,6 +220,9 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
   const [note, setNote] = useState(initial.note || '');
   // 태어난 연도 — 졸업(한국 나이 31세가 되는 해) 계산에 쓴다(people.birth_year · 0107)
   const [birthYear, setBirthYear] = useState(initial.birth_year ? String(initial.birth_year) : '');
+  // 새신자로 온 날(people.newcomer_at · 0119) — 켜면 오늘(KST), 끄면 null. 껐다 다시 켜면 원래 날짜로 돌아간다
+  const [newcomerAt, setNewcomerAt] = useState(initial.newcomer_at || null);
+  const today = kstToday();
 
   // 고른 값은 이미 MM-DD이지만 한 번 더 통과시킨다 — 지난 시드·검사가 넣어 둔 '5-26'
   // 같은 값도 저장할 때 DB 체크(0035)와 같은 모양으로 맞춰진다.
@@ -228,6 +237,7 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
     const by = /^(19|20)\d{2}$/.test(birthYear.trim()) ? Number(birthYear.trim()) : null;
     // 태어난 연도는 바뀌었을 때만 싣는다 — 칸이 아직 없는 DB(0107 전)에서도 이름·생일·소속 저장은 그대로 된다
     onSubmit({ name: name.trim(), birthday: parsed.value, teams, ...(by !== (initial.birth_year ?? null) ? { birth_year: by } : {}),
+      ...(newcomerAt !== (initial.newcomer_at || null) ? { newcomer_at: newcomerAt } : {}),
       ...(withNote ? { note: note.trim() || null } : {}) });
   };
 
@@ -274,11 +284,17 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
 
       {/* 도구 줄은 오른쪽 아래다 — 확정이 왼쪽, 나가기가 오른쪽 끝(§8. 저장한 순간
           손가락 밑의 버튼이 다른 뜻이 되지 않게 두 모드에서 자리가 같다). */}
-      <div className="flex items-center justify-end gap-2">
-        <button type="button" className={BTN} disabled={!ready || busy} onClick={submit}>
+      {/* 새신자 칩은 도구 줄 왼쪽 끝이다(시안 승인 2026-10-21 — 줄을 늘리지 않는다). 높이는 옆 버튼과 같은 h-7로 맞춘다 */}
+      <div className="flex items-center gap-2">
+        <Chip on={!!newcomerAt} className="bg-accent-weak text-accent-text h-7" offClassName="h-7" data-newcomer=""
+          onClick={() => setNewcomerAt(v => (v ? null : initial.newcomer_at || today))}>
+          {newcomerAt ? `${NEWCOMER_LABEL} · ${newcomerDate(newcomerAt, today)}` : NEWCOMER_LABEL}
+        </Chip>
+        <span className="flex-1" />
+        <button type="button" className={`${BTN} h-7`} disabled={!ready || busy} onClick={submit}>
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}{submitLabel}
         </button>
-        <button type="button" className={BTN_QUIET} onClick={onCancel}>취소</button>
+        <button type="button" className={`${BTN_QUIET} h-7`} onClick={onCancel}>취소</button>
       </div>
     </div>
   );
@@ -496,7 +512,10 @@ export function RosterPanel({
   const roleMap = useMemo(() => rolesByPerson(roles), [roles]);
   const teamMap = useMemo(() => teamLeadOf(roles), [roles]);
   // 그 해 졸업으로 확정한 사람(인수인계 시안 · handoverStore) — 배지만 붙는다(앱은 그대로 쓴다)
-  const badgesOf = (p, roleSet) => personBadges(p, roleSet, { team: teamMap.get(p.id), graduate: !!graduates?.has(p.id) });
+  // 새신자 배지는 온 날부터 석 달만(services/roster.js newcomerShown) — 환송한 사람에게는 붙이지 않는다
+  const badgesOf = (p, roleSet) => personBadges(p, roleSet, {
+    team: teamMap.get(p.id), graduate: !!graduates?.has(p.id), newcomer: !p.removed_at && newcomerShown(p.newcomer_at),
+  });
   const sunMap = useMemo(() => sunNames(suns, groupMembers), [suns, groupMembers]);
   const profileById = useMemo(() => new Map((profiles || []).map(p => [p.id, p])), [profiles]);
   const link = useMemo(

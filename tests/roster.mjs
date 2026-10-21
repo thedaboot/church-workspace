@@ -126,6 +126,17 @@ check('교역자 배지가 먼저 온다',
   JSON.stringify(R.personBadges(people[2], roleMap.get('p3'))));
 check('직분이 없으면 배지도 없다', R.personBadges(people[1], roleMap.get('p2')).length === 0);
 
+// 새신자(newcomer_at · 0119) — 배지는 온 날부터 석 달만이다(사용자 결정 2026-10-21). 값은 지우지 않는다(연말 보고가 센다).
+// **되돌리기**: newcomerShown의 `+ NEWCOMER_MONTHS`를 빼면(온 날에 끝) 첫 셋이 깨진다.
+check('새신자 배지 — 온 날 · 석 달 안은 붙는다',
+  R.newcomerShown('2026-10-19', '2026-10-19') && R.newcomerShown('2026-10-19', '2027-01-18'));
+check('새신자 배지 — 석 달이 되는 날부터는 안 붙는다', !R.newcomerShown('2026-10-19', '2027-01-19'));
+check('새신자 배지 — 해를 넘는 달도 맞게 센다(11-30 → 2월 끝까지)',
+  R.newcomerShown('2026-11-30', '2027-02-28') && !R.newcomerShown('2026-11-30', '2027-03-01'));
+check('새신자가 아니면(null) 배지가 없다', !R.newcomerShown(null, '2026-10-21') && !R.newcomerShown('', '2026-10-21'));
+check('새신자 배지는 직분 배지 맨 끝에 선다',
+  JSON.stringify(R.personBadges(people[2], roleMap.get('p3'), { newcomer: true })) === '["교역자","회장","새신자"]');
+
 // 명단 한 벌은 **캐시를 먼저 그린다**(services/cache.js). 게스트에서는 조회가 즉시
 // 끝나 브라우저로는 이 차이를 볼 수 없으므로(스켈레톤이 한 프레임도 안 뜬다) 화면
 // 소스로 지킨다: 탭을 누를 때마다 `setBook(null)`로 되돌리면 클라우드에서 매 진입마다
@@ -234,6 +245,7 @@ const fill = (sel, value) => ev(`(() => {
 const stored = (table) => ev(`(JSON.parse(localStorage.getItem('church_roster_v1') || '{}')['${table}'] || [])`);
 
 const YEAR = new Date().getFullYear();
+const TODAY = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 10);
 const person = (id, name, extra = {}) => ({
   id, name, birthday: null, teams: [], is_pastor: false, profile_id: null,
   note: null, removed_at: null, created_at: '2026-01-01T00:00:00Z', ...extra,
@@ -242,10 +254,10 @@ const seed = {
   people: [
     person('p1', '김윤주', { birthday: '02-13', teams: ['엔지니어팀'], profile_id: 'u1' }),
     person('p2', '천진영', { birthday: '03-05' }),
-    person('p3', '강예은', { birthday: '10-02' }),
+    person('p3', '강예은', { birthday: '10-02', newcomer_at: TODAY }),
     person('p4', '임재훈', { teams: ['찬양팀'], profile_id: 'u2', is_pastor: true }),
     person('p5', '노준석', { birthday: '05-26', teams: ['찬양팀'], profile_id: 'u3' }),
-    person('p6', '박 시현', { birthday: '11-06' }),
+    person('p6', '박 시현', { birthday: '11-06', newcomer_at: '2020-01-05' }),
     person('p7', '남다율', { removed_at: '2026-08-20T00:00:00Z' }),
   ],
   people_roles: [
@@ -409,6 +421,9 @@ check('직분 배지 — 교역자·회장·리더순장·리더팀장',
   && JSON.stringify(rowOf(list, 'p2').badges) === '["리더순장"]'
   && JSON.stringify(rowOf(list, 'p1').badges) === '["리더팀장"]',
   JSON.stringify(list.rows.map(r => [r.id, r.badges])));
+check('새신자 배지 — 석 달 안(강예은)에만 붙고 오래전(박 시현)에는 안 붙는다',
+  rowOf(list, 'p3').badges.includes('새신자') && !rowOf(list, 'p6').badges.includes('새신자'),
+  JSON.stringify([rowOf(list, 'p3').badges, rowOf(list, 'p6').badges]));
 check('계정이 연결된 사람에만 연결 표시',
   rowOf(list, 'p1').linked && rowOf(list, 'p4').linked && !rowOf(list, 'p3').linked,
   JSON.stringify(list.rows.map(r => [r.id, r.linked])));
@@ -446,11 +461,31 @@ check('고른 생일이 버튼에 그대로 보인다',
   await ev(`(document.querySelector('button[aria-label="생일"]') || {}).innerText?.trim()`) === '6월 28일');
 const okForm = await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '추가')?.disabled`);
 check('이름을 채우면 추가할 수 있다', okForm === false, String(okForm));
+// 새신자 칩 — 켜면 오늘(KST) 날짜가 칩에 붙는다
+const ncOn = await ev(`(() => { const b = document.querySelector('[data-newcomer]'); b?.click(); return true; })()`);
+await sleep(200);
+const ncText = await ev(`document.querySelector('[data-newcomer]')?.textContent.trim()`);
+check('새신자 칩을 켜면 오늘 날짜가 붙는다',
+  ncOn && ncText === `새신자 · ${+TODAY.slice(5, 7)}월 ${+TODAY.slice(8, 10)}일`, String(ncText));
 check('추가', await clickText('추가'));
 await sleep(700);
 const added = (await stored('people')).find(p => p.name === '주재영');
 check('추가한 사람이 청년 명단에 남는다(생일은 MM-DD로 맞춰서)',
   !!added && added.birthday === '06-28', JSON.stringify(added));
+check('새신자로 추가하면 newcomer_at이 오늘(KST)이다', added?.newcomer_at === TODAY, JSON.stringify(added));
+
+// 새신자 끄기 — 다른 해 날짜는 연도까지 적고, 끄고 저장하면 null이다(박 시현 · 2020-01-05)
+check('박 시현 줄을 편다', await clickText('수정하기', inRow('p6')));
+await sleep(350);
+const oldNc = await ev(`${inRow('p6')}?.querySelector('[data-newcomer]')?.textContent.trim()`);
+check('다른 해 새신자 날짜는 연도까지 적는다', oldNc === '새신자 · 2020년 1월 5일', String(oldNc));
+await ev(`${inRow('p6')}?.querySelector('[data-newcomer]')?.click()`);
+await sleep(150);
+check('저장', await clickText('저장', inRow('p6')));
+await sleep(700);
+check('새신자를 끄고 저장하면 newcomer_at이 null이다',
+  (await stored('people')).find(p => p.id === 'p6')?.newcomer_at === null,
+  JSON.stringify((await stored('people')).find(p => p.id === 'p6')));
 list = await read();
 check('추가한 사람이 목록에 선다',
   list.rows.some(r => r.text.includes('주재영') && r.text.includes('6월 28일')),
@@ -677,6 +712,24 @@ const chipTail = await ev(`(() => {
 })()`);
 check('칩 줄을 끝까지 밀면 오른쪽에 여백이 남는다',
   chipTail && chipTail.over === true && chipTail.gap >= 10, JSON.stringify(chipTail));
+// 도구 줄 [새신자 칩 · · 저장 · 취소] — 375px에서 가장 긴 글자(켬 상태)로도 한 줄 · 겹침 없음 · 높이와 가운데가 같다
+await ev(`${inRow('p1')}?.querySelector('[data-newcomer]')?.click()`);
+await sleep(200);
+const toolRow = await ev(`(() => {
+  const row = ${inRow('p1')}; if (!row) return null;
+  const r = (el) => { const b = el.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right), t: b.top, h: Math.round(b.height), c: b.top + b.height / 2 }; };
+  const chip = row.querySelector('[data-newcomer]');
+  const btns = [...chip.parentElement.querySelectorAll('button')];
+  const save = btns.find(b => b.textContent.trim() === '저장'), cancel = btns.find(b => b.textContent.trim() === '취소');
+  const box = chip.closest('[data-kb-keep]');
+  return { text: chip.textContent.trim(), chip: r(chip), save: r(save), cancel: r(cancel), box: r(box) };
+})()`);
+check('375px 도구 줄: 새신자 칩 · 저장 · 취소가 겹치지 않고 한 줄 안에 든다',
+  toolRow && toolRow.text.startsWith('새신자 · ') && toolRow.chip.r + 6 <= toolRow.save.l && toolRow.save.r <= toolRow.cancel.l
+    && toolRow.cancel.r <= toolRow.box.r, JSON.stringify(toolRow));
+check('375px 도구 줄: 칩과 두 버튼의 높이·세로 가운데가 같다',
+  toolRow && [toolRow.save, toolRow.cancel].every(b => b.h === toolRow.chip.h && Math.abs(b.c - toolRow.chip.c) <= 0.5),
+  JSON.stringify(toolRow));
 await send('Emulation.clearDeviceMetricsOverride');
 
 // ── 읽기 실패 자리(D2 · 사용자 결정 2026-09-25) ────────────────────────────

@@ -22,7 +22,7 @@ export const byName = (a, b) =>
   String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
 
 // 명단 전체. removed_at이 있는 사람은 기본으로 뺀다(내용은 남기고 목록에서만).
-// withBirthYear — 태어난 연도(0107 · 졸업 표시)까지. 칸이 아직 없으면(마이그레이션 전 · 42703) 그 칸 없이 한 번 더 읽는다(§3-4).
+// withBirthYear — 태어난 연도(0107 · 졸업 표시)와 새신자(newcomer_at · 0119)까지. 칸이 아직 없으면(마이그레이션 전 · 42703) 그 칸 없이 한 번 더 읽는다(§3-4).
 const PEOPLE_COLS = 'id, name, birthday, teams, gender, is_pastor, sun_exempt, profile_id, note, removed_at';
 export async function fetchPeople({ includeRemoved = false, withBirthYear = false } = {}) {
   if (!supabase) return [];
@@ -35,7 +35,7 @@ export async function fetchPeople({ includeRemoved = false, withBirthYear = fals
     if (!includeRemoved) q = q.is('removed_at', null);
     return q;
   };
-  let res = await run(withBirthYear ? ', birth_year' : '');
+  let res = await run(withBirthYear ? ', birth_year, newcomer_at' : '');
   if (withBirthYear && res.error?.code === '42703') res = await run('');
   const data = unwrap(res);
   return (data ?? []).map(withDisplayName);
