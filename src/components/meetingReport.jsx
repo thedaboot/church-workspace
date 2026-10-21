@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Paperclip, UploadCloud, FilePen, X, Loader2, AlertTriangle } from 'lucide-react';
+import { Paperclip, UploadCloud, FilePen, X, Loader2, AlertTriangle, PencilLine } from 'lucide-react';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { formatBytes, fileKind, UploadTrack } from './fileRow.jsx';
 import { BTN, BTN_SOFT } from './buttons.js';
@@ -7,6 +7,15 @@ import { WITH_ICON, ICON_BTN } from './groupsParts.jsx';
 import { uploadingByCard, uploadWatchers, unstageUpload, cancelUpload } from '../modals/uploadQueue.js';
 import { meetingQueueKey, REPORT_ACCEPT, splitNameTail } from '../services/groups.js';
 import { previewCopyOf } from '../services/previewKind.js';
+import { reportStatus } from '../services/clubReport.js';
+
+const MeetingReportForm = lazy(() => import('./meetingReportForm.jsx').then(m => ({ default: m.MeetingReportForm })));
+// 보고서 상태 칩(사용자 승인 시안 mock/b4 · 문구 확정 2026-10-21) — 현황(clubReportBoard)과 같은 말
+export const REPORT_STATUS = {
+  none: ['미제출', 'bg-tag-gray text-tag-gray-fg'],
+  draft: ['작성 중', 'bg-tag-orange text-tag-orange-fg'],
+  done: ['제출 완료', 'bg-tag-green text-tag-green-fg'],
+};
 
 // 미리보기·편집 창(+PdfView)은 열 때만 받는다 — 업무 첨부·주보와 같은 창이다
 const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
@@ -35,7 +44,7 @@ const dayOf = (iso) => {
   return `${+m}월 ${+d}일`;
 };
 
-export function MeetingReport({ meeting, manage, people = [], prev = null, onPick, onRetry, onRemove, onCopyLast, onGrantEdit = null }) {
+export function MeetingReport({ club = null, meeting, manage, people = [], prev = null, onPick, onRetry, onRemove, onCopyLast, onGrantEdit = null, onSaveForm = null }) {
   const key = meetingQueueKey(meeting.id);
   const [pending, setPending] = useState(() => [...(uploadingByCard.get(key) || [])]);
   // 큐는 모듈 레벨이다 — 동아리를 나갔다 와도(이 칸이 다시 마운트돼도) 올리는 중인 줄이 그대로 선다(§6-29-r)
@@ -47,6 +56,7 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
   }, [key]);
   const [preview, setPreview] = useState(null);   // { row, edit }
   const [copying, setCopying] = useState(false);
+  const [writing, setWriting] = useState(false);   // 작성 화면(시안 mock/b4)
   const inputRef = useRef(null);
 
   const files = meeting.files || [];
@@ -67,9 +77,13 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
       <div className="flex flex-wrap items-center gap-1.5">
         <Paperclip size={13} className="shrink-0 text-fg-faint" />
         <span className="club-meet-report-label text-[11.5px] font-bold text-fg-muted">활동 보고서</span>
+        {onSaveForm && (manage || reportStatus(meeting) === 'done') && (() => {
+          const [label, tone] = REPORT_STATUS[reportStatus(meeting)];
+          return <span data-report-status={reportStatus(meeting)} className={`shrink-0 px-1.5 py-px rounded-xs text-[10.5px] font-bold ${tone}`}>{label}</span>;
+        })()}
         <span className="flex-1" />
         {manage && (
-          <>
+          <span className={`flex items-center gap-1.5 ${onSaveForm ? 'basis-full sm:basis-auto' : ''}`}>
             {/* 칸 자체는 안 보인다 — 버튼이 대신 연다(주보 파일 줄과 같은 방식) */}
             <input ref={inputRef} type="file" multiple accept={REPORT_ACCEPT} className="hidden" tabIndex={-1} aria-hidden="true"
               onChange={e => { onPick(e.target.files); e.target.value = ''; }} />
@@ -80,17 +94,24 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
               </button>
             )}
             <button type="button" onClick={() => inputRef.current?.click()}
-              className={`club-meet-report-add shrink-0 ${WITH_ICON} ${has ? BTN_SOFT : BTN}`}>
+              className={`club-meet-report-add shrink-0 ${WITH_ICON} ${has || onSaveForm ? BTN_SOFT : BTN}`}>
               <UploadCloud size={13} /><span>파일 올리기</span>
             </button>
-          </>
+            {onSaveForm && (
+              <button type="button" onClick={() => setWriting(true)} data-report-write=""
+                className={`order-first sm:order-none flex-1 sm:flex-none justify-center ${WITH_ICON} ${BTN}`}>
+                <PencilLine size={13} /><span>{meeting.report_form?.saved_at ? '보고서 수정' : '보고서 작성'}</span>
+              </button>
+            )}
+          </span>
         )}
       </div>
       {files.map(row => {
         const meta = [nameOf(row.uploaded_by), dayOf(row.created_at), formatBytes(row.size_bytes)].filter(Boolean).join(' · ');
         return (
           <ReportRow key={row.id} row={row} meta={meta} onOpen={() => setPreview({ row, edit: false })}>
-            {manage && previewCopyOf(row.name) && (
+            {/* 작성 화면으로 만든 보고서는 구글 사본으로 고치지 않는다 — 원본은 작성 화면이다(시안 mock/b4) */}
+            {manage && !row.generated && previewCopyOf(row.name) && (
               <button type="button" onClick={() => setPreview({ row, edit: true })} aria-label={`${row.name} 편집`}
                 className="club-meet-report-edit shrink-0 px-2.5 py-0.5 rounded-full border border-line bg-surface text-[11px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-95">
                 편집
@@ -131,6 +152,12 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
           )}
         </ReportRow>
       )))}
+      {writing && (
+        <Suspense fallback={null}>
+          <MeetingReportForm club={club} meeting={meeting} people={people} onClose={() => setWriting(false)}
+            onSave={(draft, opt) => onSaveForm(draft, opt)} />
+        </Suspense>
+      )}
       {preview && (
         <Suspense fallback={null}>
           <FilePreviewModal row={preview.row} rows={files} initialSrc={null} onClose={() => setPreview(null)}

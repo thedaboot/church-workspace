@@ -857,7 +857,9 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     .replace(/^/, "const supabase = null; const myUid = async () => null; const kstNow = () => '2026-09-25 10:00:00';"
       + " const SUNDAY_KIND = 'sunday'; const generateId = () => 'id'; const insertNotifications = async () => 0;"
       + " const fetchMyNote = async () => null; const saveMyNote = async () => null; const byName = () => 0;"
-      + " const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} });\n");
+      + " const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} });"
+      // 동아리 보고서(0117 · services/clubReport) — 모듈 머리에서 부르는 씨앗 · 모임에 붙이는 작성 내용
+      + " const ensureClubDemo = () => {}; const renderReportFile = async () => null; const attachReports = async (x) => x; const demoOn = () => false;\n");
   const G = await loadSource('src/services/groups.js', { src: gsrc });
   assert.strictEqual(G.meetingDateShort('2026-09-28'), '26. 9. 28.', '사용자 문구의 날짜 모양 그대로');
   assert.strictEqual(G.meetingDateShort('2027-01-05'), '27. 1. 5.');
@@ -1733,4 +1735,81 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.ok(/const handover = await runHandover\(\);/.test(push) && /db\.rpc\('apply_handovers'\)/.test(push), '08:00 크론 갈래가 인수인계를 적용한다');
   assert.strictEqual(JSON.parse(readSrc('vercel.json')).crons.length, 2, '크론 자리는 둘 그대로');
   console.log('PASS  인수인계(졸업 한국 나이 31 · 직분 짝 · 리더팀장·예배팀장 2026까지 · 졸업+넘김 한 건 · 업무 넘기기 · 문구 · 시연 버튼은 게스트 · 줄 → 화면 · 팀장 원본 · DB · 크론)');
+}
+
+// ── 연말 정산(v5 3묶음 첫 묶음 · 사용자 승인 시안 mock/b4 · 0117) — 엑셀 쓰기 · 보고서 양식 채우기 · 연말 보고 표 ──
+// 되돌리기: zipWrite의 crc32 표를 틀리게 하면 '왕복'이, xlsxWrite CELLS의 B4를 B5로 바꾸면 '양식 칸'이,
+// buildYearSheets의 `!== firstDay`를 빼면 '첫 이관 날은 새신자가 아니다'가, align을 빼면 '정렬'이 깨진다.
+{
+  const dir = tmpDir();
+  const xw = await loadSource('src/services/xlsxWrite.js', { dir, as: 'xlsxWrite.mjs', siblings: ['src/services/ooxml.js', 'src/services/zipWrite.js'] });
+  const { parseXlsx } = await loadSource('src/services/xlsx.js', { dir, as: 'xlsx.mjs' });
+  const { zipEntries, readEntry } = await loadSource('src/services/ooxml.js', { dir, as: 'ooxml-read.mjs' });
+  const buf = (u8) => u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+  // 왕복 — 쓴 zip을 읽기 쪽(ooxml.zipEntries)이 그대로 연다
+  const wb = xw.buildWorkbook([{ name: '요약', rows: [['항목', '값'], ['업무', '3건']], align: ['left', 'right'] }, { name: '동아리', rows: [['이름', '모임'], ['더다북', 4]] }]);
+  const back = await parseXlsx(buf(wb));
+  assert.deepStrictEqual(back.sheets.map(s => s.name), ['요약', '동아리'], '새 통합 문서: 시트 둘 · 이름 그대로');
+  assert.strictEqual(back.sheets[1].rows[1][1].text, '4', '숫자 칸은 숫자로');
+  const sheet1 = await readEntry(zipEntries(buf(wb)), 'xl/worksheets/sheet1.xml');
+  assert.ok(/<c r="B1" s="4"/.test(sheet1) && /<c r="B2" s="5"/.test(sheet1) && /<c r="A1" s="1"/.test(sheet1), "정렬: 'right' 칸은 머리(4)·값(5) 모두 오른쪽, 나머지는 기본");
+  // 보고서 양식 — 양식의 칸 자리에 값이 들어간다(제목·칸 이름은 그대로)
+  const tpl = new Uint8Array(readFileSync(new URL('../src/assets/club-report-template.xlsx', import.meta.url)));
+  const png = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+  const filled = await xw.fillClubReport(tpl, { club: '더다북', date: '2026-10-18', attendees: ['김승찬', '노준석'], activity: '로마서 8장', plan: '9장',
+    usage: '간식', amount: 10000, account: '카카오뱅크 0000', photos: [{ bytes: png, ext: 'png', w: 800, h: 600 }], receipts: [] });
+  const rows = (await parseXlsx(buf(filled))).sheets[0].rows.map(r => r.map(c => c.text));
+  const at = (label) => rows.find(r => r[0] === label) || [];
+  assert.strictEqual(rows[0][0], '다붓 동아리 활동 보고서', '양식 제목 그대로');
+  assert.ok(at('동아리명')[1] === '더다북' && at('참석자')[1] === '2명 / 김승찬, 노준석' && at('활동 내용')[1] === '로마서 8장', '양식 칸: 동아리명 · 참석자 · 활동 내용');
+  assert.ok(at('지원금액 및 계좌번호')[1] === '10,000원 (5,000원/1인)' && at('지원금액 및 계좌번호')[2] === '카카오뱅크 0000', '지원금액 · 계좌');
+  const ents = zipEntries(buf(filled));
+  assert.ok(ents.has('xl/media/image1.jpg') || ents.has('xl/media/image1.png'), '사진은 media로 들어간다');
+  assert.ok(/<xdr:oneCellAnchor>/.test(await readEntry(ents, 'xl/drawings/drawing1.xml')), '사진 자리는 그림판(drawing1)에');
+  assert.strictEqual(xw.excelDate('2026-10-18'), 46313, '모임 일자는 엑셀 날짜 일련번호');
+
+  // 연말 보고 표 — 순수 짓기(buildYearSheets)
+  const yr = readSrc('src/services/yearReport.js')
+    .replace(/^import \{ store \} from .*$/m, 'const store = { getState: () => ({}) };')
+    .replace(/^import \{ supabase \} from .*$/m, 'const supabase = null;')
+    .replace(/^import \{ unwrap \} from .*$/m, 'const unwrap = (r) => r.data;')
+    .replace(/^import \{ guestStore \} from .*$/m, 'const guestStore = () => ({ rows: () => [] });')
+    .replace(/^import \{ kindLabel \} from .*$/m, "const kindLabel = (k) => (k === 'sunday' ? '주일 예배' : k);")
+    .replace(/^import \{ buildWorkbook, XLSX_TYPE \} from .*$/m, 'const buildWorkbook = () => new Uint8Array(); const XLSX_TYPE = "";')
+    .replace(/^import \{ projectYear \} from .*$/m, 'const projectYear = (p) => String(p.year);')
+    .replace(/^import \{ reportStatus, supportAmountOf, attachReports \} from .*$/m,
+      "const reportStatus = (m) => (m.report_form?.submitted_at ? 'done' : 'none'); const supportAmountOf = (m) => (m.attendance || []).length * 5000; const attachReports = (x) => x;");
+  const Y = await loadSource('src/services/yearReport.js', { src: yr, as: 'yearReport.mjs' });
+  const data = {
+    today: '2026-12-31',
+    projects: [{ id: 'p1', title: '성탄 예배', year: 2026 }],
+    tasks: [{ projectId: 'p1', status: '완료' }, { projectId: 'p1', status: '진행 중', dueDate: '2026-12-01' }],
+    services: [{ service_date: '2026-10-11', kind: 'sunday', n: 30, g: 2 }, { service_date: '2026-10-04', kind: 'sunday', n: 28, g: 0 }],
+    clubs: [{ id: 'c1', name: '더다북', leader_person_id: 'x' }],
+    memberCount: { c1: 6 },
+    meetings: [{ group_id: 'c1', attendance: ['a', 'b', 'c'], report_form: { submitted_at: '2026-10-01' }, support_paid_at: '2026-10-02' },
+      { group_id: 'c1', attendance: ['a'], report_form: null }],
+    leaderName: () => '노준석',
+    people: [
+      { name: '첫 이관', created_at: '2026-08-31T16:00:00Z' },          // KST 2026-09-01 — 첫날
+      { name: '같은 날', created_at: '2026-09-01T03:00:00Z' },          // KST 2026-09-01
+      { name: '새 사람', created_at: '2026-10-13T02:00:00Z' },
+      { name: '떠난 사람', created_at: '2026-08-31T16:00:00Z', removed_at: '2026-11-02T01:00:00Z' },
+    ],
+  };
+  const { sheets, summary } = Y.buildYearSheets(2026, data);
+  const S = Object.fromEntries(sheets.map(s => [s.name, s]));
+  const sum = Object.fromEntries(S['요약'].rows.slice(1));
+  assert.deepStrictEqual(sheets.map(s => s.name), ['요약', '프로젝트', '예배 출석', '동아리', '명단 변화'], '표 다섯 장 · 차례');
+  assert.deepStrictEqual(S['명단 변화'].rows.slice(1).map(r => [r[0], r[1]]), [['새 사람', '새신자'], ['떠난 사람', '환송']],
+    '첫 이관 날 들어온 사람은 새신자가 아니다 · 환송은 센다(사용자 확정 2026-10-21)');
+  assert.ok(sum['새신자'] === '1명' && sum['업무'] === '2건' && sum['예배 평균 출석 인원'] === '30명' && sum['동아리 지원금'] === '20,000원'
+    && sum['지원금 지급 완료'] === '15,000원', '요약 값은 단위까지');
+  assert.deepStrictEqual(S['예배 출석'].rows[0], ['날짜', '예배', '명단 출석', '명단 외 출석', '전체 출석'], "예배 출석 칸 이름('손님' 아님)");
+  assert.deepStrictEqual(S['예배 출석'].rows[1], ['2026-10-04', '주일 예배', 28, 0, 28], '예배는 날짜 차례');
+  assert.deepStrictEqual(S['동아리'].rows[1], ['더다북', '노준석', 6, 2, 4, '1/2', 20000, 15000], '동아리 줄');
+  assert.ok(S['동아리'].align.slice(2).every(a => a === 'right') && S['프로젝트'].align[0] === 'left', '숫자 칸은 머리·값 모두 오른쪽');
+  assert.strictEqual(summary.avg, 30, '화면 숫자판도 같은 값');
+  assert.ok(!/['"`]\$\{[^}]*\}줄/.test(readSrc('src/components/opsDesk.jsx')), "연말 보고 화면에 'N줄' 표현이 없다(사용자 지적 2026-10-21)");
+  console.log('PASS  연말 정산(zip 왕복 · 정렬 · 보고서 양식 칸·사진 · 연말 보고 표 다섯 장 · 새신자 = 그해 명단 추가(첫 이관 날 제외) · 단위)');
 }

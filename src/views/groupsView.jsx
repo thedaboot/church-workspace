@@ -28,6 +28,9 @@ import { cancelledError } from '../services/transfer.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 import { Segmented } from '../components/segmented.jsx';
+import { prepareReportForm, markGenerated, canCheckSupport, isGenerated } from '../services/clubReport.js';
+import { ClubReportBoard } from '../components/clubReportBoard.jsx';
+import { ClipboardList, ChevronRight } from 'lucide-react';
 // ============================================================================
 // v2 모임 화면 — 내 순 · 동아리 · 순 편성 (docs/V2.md §1 결정 1·2·3·7 · §2 · §3)
 // ----------------------------------------------------------------------------
@@ -125,6 +128,7 @@ export function GroupsView() {
   const [year, setYear] = useState(THIS_YEAR);
   const [tab, setTab] = useState('mine');
   const [openClubId, setOpenClubId] = useState(null);
+  const [board, setBoard] = useState(false);   // 보고서 현황(시안 mock/b4 · 마스터 · 총무)
   const [meetings, setMeetings] = useState([]);
   const [clubOrder, setClubOrder] = useState(null);  // 끌어 놓은 직후의 순서(아래 주석)
   const [creating, setCreating] = useState(null);    // null | 'club' | 'sun' — 만들기 칸은 머리줄에서 연다
@@ -576,7 +580,22 @@ export function GroupsView() {
       return done[0] || null;
     },
     onGrantEdit: (row) => grantReportEditors(row),
-  }), [sendReports, patchMeeting]);
+    // 작성 화면 저장·제출(사용자 승인 시안 mock/b4 · 0117) — 작성 내용을 두고 엑셀을 만든 뒤 창을 닫고,
+    // 엑셀은 보고서 칸의 올리기 길로 보낸다(진행 막대·멈춤·다시 시도 — 파일 올리기와 같은 줄). 다 올라가면 앞에 만든 엑셀을 걷는다.
+    onSaveForm: async (club, meeting, draft, { submit }) => {
+      const { form, file } = await prepareReportForm(club, meeting, state?.people || [], draft, { submit });
+      const olds = (meeting.files || []).filter(f => isGenerated(meeting, f));
+      patchMeeting(meeting.id, m => ({ ...m, report_form: form }));
+      sendReports(club, meeting, [stagedRow(file)]).then(async (done) => {
+        const row = done?.[0];
+        if (!row) return;
+        try { await markGenerated(meeting.id, row.id); } catch (e) { console.error('[groups] 만든 보고서를 적지 못했다:', e); }
+        patchMeeting(meeting.id, m => ({ ...m, report_form: m.report_form ? { ...m.report_form, file_id: row.id } : m.report_form,
+          files: (m.files || []).filter(f => !olds.some(o => o.id === f.id)).map(f => (f.id === row.id ? { ...f, generated: true } : f)) }));
+        for (const o of olds) await removeMeetingReport(o).catch(e => console.error('[groups] 앞 보고서를 걷지 못했다:', e));
+      });
+    },
+  }), [sendReports, patchMeeting, state]);
 
   // 새 순의 순장도 같은 판정을 거친다(사용자 지시 2026-09-03). 피커가 이미 '어느 순에도
   // 없는 사람'만 올리므로 화면에서는 걸릴 일이 없고, 목록이 낡았을 때의 마지막 방어선이다.
@@ -763,7 +782,13 @@ export function GroupsView() {
         <span className="flex-1" />
         {/* 아이콘과 글자 사이는 gap 하나로만 벌린다 — 글자를 span으로 감싸지 않으면
             JSX의 앞 공백이 그대로 남아 버튼마다 사이가 달라진다(groupsParts WITH_ICON) */}
-        {active === 'club' && !openClub && perms.canCreateClub && !creating && (
+        {active === 'club' && !openClub && !board && !creating && canCheckSupport(perms) && (
+          <button type="button" onClick={() => setBoard(true)} data-report-board-open=""
+            className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-line bg-surface text-[11.5px] font-semibold text-fg hover:bg-surface-hover transition active:scale-95`}>
+            <ClipboardList size={13} /><span>보고서 현황</span>
+          </button>
+        )}
+        {active === 'club' && !openClub && !board && perms.canCreateClub && !creating && (
           <button type="button" onClick={() => setCreating('club')}
             className={`club-new-open ${WITH_ICON} px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95`}>
             <Plus size={13} /><span>새 동아리</span>
@@ -819,7 +844,21 @@ export function GroupsView() {
         </>
       )}
 
-      {active === 'club' && !baseFailed && (
+      {active === 'club' && !baseFailed && board && !openClub && (
+        <ClubReportBoard year={Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4))}
+          me={perms?.myPerson?.name || ''} people={state.people} onBack={() => setBoard(false)}
+          onOpenClub={(c) => { setOpenClubId(c.id); }} />
+      )}
+      {/* 폰의 '보고서 현황'은 목록 위 한 줄 — 머리줄에 두면 탭·'새 동아리'와 함께 글자가 두 줄로 꺾였다(375 · 2026-10-21) */}
+      {active === 'club' && !baseFailed && !openClub && !board && !creating && canCheckSupport(perms) && (
+        <button type="button" onClick={() => setBoard(true)} data-report-board-open-m=""
+          className="md:hidden w-full mb-3 flex items-center gap-2 px-4 py-3 rounded-[10px] bg-surface shadow-soft text-left transition active:scale-[.99]">
+          <ClipboardList size={15} className="shrink-0 text-fg-muted" />
+          <span className="flex-1 text-[13px] font-semibold text-fg">보고서 현황</span>
+          <ChevronRight size={15} className="shrink-0 text-fg-faint" />
+        </button>
+      )}
+      {active === 'club' && !baseFailed && !(board && !openClub) && (
         <ClubsPanel clubs={clubs} people={state.people} members={state.members} apps={state.apps}
           nextMeet={state.nextMeet || {}}
           perms={perms} openClub={openClub} meetings={meetings}

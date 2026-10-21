@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 // ============================================================================
 // 회색 토글(세그먼트) — 회색 통(surface-hover) 안에서 고른 칸만 흰 바탕(surface)에 진한 글자다.
@@ -35,3 +35,42 @@ export function Segmented({ items, value, onPick, as: Box = 'span', className, b
     </Box>
   );
 }
+
+// 미끄러지는 회색 토글(관리자 메뉴 · 보고서 현황) — 앱의 Segmented와 같은 모양·속성(aria-pressed · tabs면 role="tab")에 **흰 칸이 고른 칸으로 미끄러진다**.
+// 칸 자리는 고른 버튼의 offset으로 재고(통이 relative) 통 크기가 바뀌면 다시 잰다. 처음 자리에는 전이가 없다(.ops-seg-live는 잰 뒤에).
+export function SlideSeg({ items, value, onPick, className = '', btnClassName = '', tabs = false, ...boxProps }) {
+  const box = useRef(null);
+  const [thumb, setThumb] = useState(null);
+  const [live, setLive] = useState(false);
+  useLayoutEffect(() => {
+    const el = box.current?.querySelector('[data-seg-on="true"]');
+    if (!el) { setThumb(null); return undefined; }
+    const read = () => setThumb({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight });
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(box.current);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [value, items.length]);
+  useEffect(() => { if (thumb && !live) { const t = requestAnimationFrame(() => setLive(true)); return () => cancelAnimationFrame(t); } return undefined; }, [thumb, live]);
+  return (
+    <span ref={box} className={`relative ${className}`} style={{ background: 'var(--app-surface-hover)' }} {...boxProps}>
+      {thumb && (
+        <span aria-hidden="true" className={`ops-seg-thumb absolute rounded-sm${live ? ' ops-seg-live' : ''}`}
+          style={{ width: thumb.w, height: thumb.h, transform: `translate(${thumb.x}px, ${thumb.y}px)` }} />
+      )}
+      {items.map(([v, label, extra]) => {
+        const on = value === v;
+        return (
+          <button key={String(v)} type="button" onClick={() => onPick(v)} data-seg-on={on}
+            {...(tabs ? { role: 'tab', 'aria-selected': on } : { 'aria-pressed': on })}
+            className={`relative ${btnClassName}`} {...extra}
+            style={{ color: segStyle(on).color, background: thumb ? 'transparent' : segStyle(on).background, ...extra?.style }}>
+            {label}
+          </button>
+        );
+      })}
+    </span>
+  );
+}
+

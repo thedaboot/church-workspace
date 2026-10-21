@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Wrench, ChevronLeft, ChevronDown, Bell, ImageOff } from 'lucide-react';
+import { X, Wrench, ChevronLeft, ChevronDown, Bell, ImageOff, Download } from 'lucide-react';
+import { gatherYear, buildYearSheets, yearReportFile } from '../services/yearReport.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useLeave } from '../hooks/useExit.js';
-import { segStyle } from './segmented.jsx';
+import { SlideSeg } from './segmented.jsx';
 import { Avatar } from './Avatar.jsx';
 import { Skeleton } from './media.jsx';
 import { FailLeft } from './groupsParts.jsx';
@@ -70,44 +71,6 @@ const StatusChip = ({ status }) => {
 const Empty = ({ children }) => (
   <p data-ops-empty="" className="flex-1 flex items-center justify-center py-14 text-center text-[13px] text-fg-muted dc-fade">{children}</p>
 );
-
-// 회색 토글 — 앱의 Segmented와 같은 모양·속성(aria-pressed · tabs면 role="tab")에 **흰 칸이 고른 칸으로 미끄러진다**.
-// 칸 자리는 고른 버튼의 offset으로 재고(통이 relative) 통 크기가 바뀌면 다시 잰다. 처음 자리에는 전이가 없다(.ops-seg-live는 잰 뒤에).
-function SlideSeg({ items, value, onPick, className = '', btnClassName = '', tabs = false, ...boxProps }) {
-  const box = useRef(null);
-  const [thumb, setThumb] = useState(null);
-  const [live, setLive] = useState(false);
-  useLayoutEffect(() => {
-    const el = box.current?.querySelector('[data-seg-on="true"]');
-    if (!el) { setThumb(null); return undefined; }
-    const read = () => setThumb({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight });
-    read();
-    const ro = new ResizeObserver(read);
-    ro.observe(box.current);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [value, items.length]);
-  useEffect(() => { if (thumb && !live) { const t = requestAnimationFrame(() => setLive(true)); return () => cancelAnimationFrame(t); } return undefined; }, [thumb, live]);
-  return (
-    <span ref={box} className={`relative ${className}`} style={{ background: 'var(--app-surface-hover)' }} {...boxProps}>
-      {thumb && (
-        <span aria-hidden="true" className={`ops-seg-thumb absolute rounded-sm${live ? ' ops-seg-live' : ''}`}
-          style={{ width: thumb.w, height: thumb.h, transform: `translate(${thumb.x}px, ${thumb.y}px)` }} />
-      )}
-      {items.map(([v, label, extra]) => {
-        const on = value === v;
-        return (
-          <button key={String(v)} type="button" onClick={() => onPick(v)} data-seg-on={on}
-            {...(tabs ? { role: 'tab', 'aria-selected': on } : { 'aria-pressed': on })}
-            className={`relative ${btnClassName}`} {...extra}
-            style={{ color: segStyle(on).color, background: thumb ? 'transparent' : segStyle(on).background, ...extra?.style }}>
-            {label}
-          </button>
-        );
-      })}
-    </span>
-  );
-}
 
 // 탭 안 거르기 줄
 const Filter = ({ items, value, onPick, label }) => (
@@ -411,6 +374,116 @@ function SpeedTab() {
   );
 }
 
+// ── 연말 보고(사용자 승인 시안 mock/b4 · 문구 확정 2026-10-21) ─────────────────────────────────────
+// 표 이름 옆 수 — 줄이 아니라 그 표가 세는 것의 단위로(사용자 지적 2026-10-21 — '3줄' 같은 말을 쓰지 않는다)
+const YEAR_UNIT = { 프로젝트: '개', '예배 출석': '번', 동아리: '곳', '명단 변화': '명' };
+const countText = (sh, skip = 0) => `${Math.max(0, sh.rows.length - 1 - skip)}${YEAR_UNIT[sh.name] || '개'}`;
+// 연도를 골라 표 다섯 장을 미리 보고 한 파일로 받는다(services/yearReport · services/xlsxWrite.buildWorkbook).
+function YearTab() {
+  const now = Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4));
+  const [year, setYear] = useState(now);
+  // 그 해 재료를 읽어 표를 짓는다(services/yearReport · 클라우드는 마스터 세션) — 해를 바꾸면 다시 읽는다
+  const [got, setGot] = useState({ year: null, data: null, error: null });
+  const load = useCallback(() => {
+    setGot(g => ({ ...g, error: null }));
+    gatherYear(year).then(d => setGot({ year, data: buildYearSheets(year, d), error: null }))
+      .catch((e) => { console.error('[ops] 연말 보고 재료를 읽지 못했어요:', e); setGot({ year, data: null, error: e }); });
+  }, [year]);
+  useEffect(() => { load(); }, [load]);
+  const ready = got.year === year && got.data;
+  const sheets = ready ? got.data.sheets : [];
+  const sum = ready ? got.data.summary : {};
+  const save = () => {
+    if (!ready) return;
+    try {
+      const file = yearReportFile(year, sheets);
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) {
+      console.error('[ops] 연말 보고를 만들지 못했어요:', e);
+      showToast(failText('연말 보고를 만들지 못했어요', e));
+    }
+  };
+  const cell = (v) => (typeof v === 'number' ? v.toLocaleString('ko-KR') : String(v ?? ''));
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 md:px-5 py-3" data-year-report="">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Filter label="연도" value={year} onPick={setYear} items={[[now, `${now}년`], [now - 1, `${now - 1}년`]]} />
+        <span className="flex-1" />
+        <button type="button" onClick={save} data-year-save="" disabled={!ready}
+          className="disabled:opacity-40 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95">
+          <Download size={13} />엑셀로 다운로드
+        </button>
+      </div>
+      {got.error && got.year === year ? <FailLeft title="연말 보고를 불러오지 못했어요" reason={errorReason(got.error)} onRetry={load} />
+        : !ready ? <div className="mt-3"><ListSkeleton /></div> : (
+      <div key={year} className="dc-fade">
+        <div className="mt-3 md:hidden rounded-md border border-line divide-y divide-line" data-year-tiles-m="">
+          {[['업무', `${sum.tasks ?? 0}건`, `완료 ${sum.done ?? 0}건 · 프로젝트 ${sum.projects ?? 0}개`],
+            ['예배 평균 출석 인원', `${sum.avg ?? 0}명`, `예배 ${sum.services ?? 0}번`],
+            ['동아리 지원금', `${(sum.support ?? 0).toLocaleString('ko-KR')}원`, `지급 완료 ${(sum.paid ?? 0).toLocaleString('ko-KR')}원`]].map(([l, v, sub]) => (
+            <div key={l} className="flex items-center gap-3 px-3 py-2.5">
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12px] text-fg-muted">{l}</span>
+                <span className="block text-[11px] text-fg-faint mt-0.5 truncate">{sub}</span>
+              </span>
+              <span className="shrink-0 text-[17px] font-bold text-fg tabular-nums">{v}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 hidden md:grid grid-cols-3 gap-2" data-year-tiles="">
+          <Tile label="업무" value={`${sum.tasks ?? 0}건`} sub={`완료 ${sum.done ?? 0}건 · 프로젝트 ${sum.projects ?? 0}개`} />
+          <Tile label="예배 평균 출석 인원" value={`${sum.avg ?? 0}명`} sub={`예배 ${sum.services ?? 0}번`} />
+          <Tile label="동아리 지원금" value={`${(sum.support ?? 0).toLocaleString('ko-KR')}원`} sub={`지급 완료 ${(sum.paid ?? 0).toLocaleString('ko-KR')}원`} />
+        </div>
+        {sheets.slice(1).map(sh => (
+          <section key={sh.name} className="mt-5" data-year-sheet={sh.name}>
+            <h4 className="mb-1.5 flex items-center gap-2 text-[12px] font-semibold text-fg-muted">
+              {sh.name}<span className="text-fg-faint tabular-nums">{countText(sh)}</span>
+            </h4>
+            {sh.rows.length > 1 && (
+              <div className="md:hidden rounded-md border border-line divide-y divide-line" data-year-cards="">
+                {sh.rows.slice(1, 7).map((r, i) => (
+                  <div key={i} className="px-3 py-2.5">
+                    <p className="text-[13px] font-semibold text-fg break-words">{cell(r[0])}</p>
+                    <dl className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1">
+                      {r.slice(1).map((v, j) => (
+                        <div key={j} className="flex items-baseline justify-between gap-2 min-w-0">
+                          <dt className="text-[11.5px] text-fg-muted truncate">{sh.rows[0][j + 1]}</dt>
+                          <dd className="text-[12.5px] text-fg tabular-nums whitespace-nowrap">{cell(v)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
+                {sh.rows.length > 7 && <p className="px-3 py-2 text-[11px] text-fg-muted">{`나머지 ${countText(sh, 6)}은 엑셀 파일에 있어요`}</p>}
+              </div>
+            )}
+            {sh.rows.length > 1 ? (
+              <div className="hidden md:block overflow-x-auto rounded-md border border-line">
+                <table className="w-full text-[12px] tabular-nums">
+                  <thead><tr className="bg-canvas">{sh.rows[0].map((h, j) => <th key={h} className={`px-2.5 py-1.5 font-semibold text-fg-muted whitespace-nowrap ${sh.align?.[j] === 'right' ? 'text-right' : 'text-left'}`}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {sh.rows.slice(1, 7).map((r, i) => (
+                      <tr key={i} className="border-t border-line/70">
+                        {r.map((v, j) => <td key={j} className={`px-2.5 py-1.5 whitespace-nowrap text-fg ${sh.align?.[j] === 'right' ? 'text-right' : 'text-left'}`}>{cell(v)}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {sh.rows.length > 7 && <p className="px-2.5 py-1.5 border-t border-line/70 text-[11px] text-fg-muted">{`나머지 ${countText(sh, 6)}은 엑셀 파일에 있어요`}</p>}
+              </div>
+            ) : <p className="py-3 text-[12.5px] text-fg-muted">기록 없음</p>}
+          </section>
+        ))}
+      </div>
+      )}
+    </div>
+  );
+}
+
 // ── 기록 관리 ──────────────────────────────────────────────────────────────
 function AuditTab() {
   const res = useAuditList();
@@ -463,7 +536,7 @@ function AuditTab() {
 }
 
 // ── 창 ─────────────────────────────────────────────────────────────────────
-const TAB_ORDER = ['feedback', 'errors', 'speed', 'audit'];
+const TAB_ORDER = ['feedback', 'errors', 'speed', 'audit', 'year'];
 export function OpsDesk({ onClose }) {
   const isMobile = useIsMobile();
   const [leaving, leave] = useLeave();
@@ -489,6 +562,8 @@ export function OpsDesk({ onClose }) {
     ['errors', '앱 내 오류'],
     ['speed', '다붓이 답변 속도'],
     ['audit', '기록 관리'],
+    // 연말 보고(사용자 승인 시안 mock/b4 · 마스터 — 이 창이 마스터만이다)
+    ['year', '연말 보고'],
   ];
 
   const body = (
@@ -510,6 +585,7 @@ export function OpsDesk({ onClose }) {
           {tab === 'errors' && <ErrorsTab />}
           {tab === 'speed' && <SpeedTab />}
           {tab === 'audit' && <AuditTab />}
+          {tab === 'year' && <YearTab />}
         </div>
       </div>
     </>

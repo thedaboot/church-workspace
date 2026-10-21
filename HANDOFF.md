@@ -61,9 +61,9 @@
   해결된 댓글 접힘(사용자 확인 2026-10-19 · 고칠 것 없음).
 
 
-- **v5 3묶음 첫 묶음 — 연말 정산 시안(2026-10-21 · `mock/b4` · 사용자 검토 2차까지 반영 — 저장·제출·엑셀 받아 수정·연말 보고 엑셀 확인됨 · 문구 표는 아직)**: 동아리 보고서 **앱 안 작성 화면**(참석자·지원금 자동 · 활동 내용·차기 계획·지원비 사용내용·계좌 · 사진·영수증 → 저장할 때마다 양식 `src/assets/club-report-template.xlsx` 그대로 엑셀을 새로 만들어 보고서 칸을 덮는다 · 저장 = 작성 중 · 제출 = 제출 완료) · 모임 > 동아리 탭 '보고서 현황'(마스터·총무 · 미제출/작성 중/제출 완료 · 지급할 지원금 · 모임마다 지급 체크 — 제출 완료만) · 관리자 메뉴 '연말 보고'(마스터 · 표 다섯 장 미리 보기 + 엑셀 받기). 엑셀 쓰기 부품 `services/zipWrite.js`·`xlsxWrite.js`(의존성 없음).
+- **v5 3묶음 첫 묶음 — 연말 정산(2026-10-21 · 시안 `mock/b4` 승인 · 문구 확정 · **0117 라이브 적용 2026-10-21**(리허설 ROLLBACK — 동아리장·구성원·총무 세 역할 확인) · main 반영 · 다음 번호 0118)**: 동아리 보고서 **앱 안 작성 화면**(참석자·지원금 자동 · 활동 내용·차기 계획·지원비 사용내용·계좌 · 사진·영수증 → 저장할 때마다 양식 `src/assets/club-report-template.xlsx` 그대로 엑셀을 새로 만들어 보고서 칸을 덮는다 · 저장 = 작성 중 · 제출 = 제출 완료) · 모임 > 동아리 탭 '보고서 현황'(마스터·총무 · 미제출/작성 중/제출 완료 · 지급할 지원금 · 모임마다 지급 체크 — 제출 완료만) · 관리자 메뉴 '연말 보고'(마스터 · 표 다섯 장 미리 보기 + 엑셀 받기). 엑셀 쓰기 부품 `services/zipWrite.js`·`xlsxWrite.js`(의존성 없음).
   **사용자 결정 2026-10-21(뒤집으려면 묻는다)**: 지원비는 **모임마다** 참석자 × 5,000원 · 지급 체크도 모임마다 · 현황 자리는 동아리 탭 안(총무도 들어간다 — 관리자 메뉴는 마스터만이라) · 연말 보고는 관리자 메뉴 마스터만 · **보고서의 원본은 앱 안 작성 화면**(구글 편집 사본은 아이폰 사파리·카카오 인앱에서 앱 안 편집이 막혀 있고(PITFALLS 34-h), 구글 계정이 없는 계정이 31개 중 13개) — 엑셀을 직접 올리는 '파일 올리기'는 그대로 · 상태 판단은 사진 자동 감지가 아니라 동아리장의 '제출'. · 연말 보고의 **새신자 = 그해 청년 명단에 새로 추가된 사람**(계정 가입이 아니다 · 사용자 확정 2026-10-21) · 예배 출석 칸 '명단 출석·명단 외 출석·전체 출석' · 표 옆 수는 단위로('N줄' 금지).
-  시안은 게스트 시연만(`?demo=clubs`로 씨앗을 처음부터 · 미리보기 주소는 Vercel 로그인 필요 `church-workspace-git-mock-b4-rj-stonys-projects.vercel.app`). 실제로 붙일 때: **0117** — 모임 보고서 표(글 칸·계좌·saved_at·submitted_at) · 사진은 files(meeting_id) · 지원비 support_paid_at/by(총무·마스터만) · 연말 보고는 마스터 세션 읽기 · 검사(양식 채우기·zip 왕복) 남기기. 게스트 미리보기에서는 엑셀 미리보기가 안 뜬다(구글 사본이 없다 — 실제 앱은 드라이브 사본으로 뜬다).
+  **사용자가 볼 것(클라우드·실기기)**: 동아리장 계정으로 지난 모임 '보고서 작성' → 사진 두세 장 · 저장(진행 막대 · 작성 중) → 제출(제출 완료) · 엑셀이 드라이브 사본으로 미리 보이는지 · 총무(조해리) 계정으로 '보고서 현황' 입구가 보이고 지급 체크가 되는지 · 관리자 메뉴 '연말 보고'의 예배 출석 수가 예배 화면과 맞는지 · 새신자에 첫 이관(2026-09-01) 53명이 빠졌는지. 게스트 시연(미리보기 `mock/b4`)은 그대로 남겨 둔다(main에 합치지 않는다).
 
 - **v5 3묶음(2묶음 피드백을 마친 뒤 · 첫 묶음 시안 중)** — 1·2묶음과 같은 순서: **시안 먼저**(main에서 `mock/b4` 브랜치 · `package.json` build를 `VITE_SUPABASE_URL= VITE_SUPABASE_ANON_KEY= vite build --mode guest`로 · 미리보기 공유 링크는 Vercel MCP `get_access_to_vercel_url`) → 사용자가 폰·데스크톱으로 눌러 보고 문구 확정 → 실제로 붙이기(마이그레이션은 번호 미리 배정 · 리허설 begin…rollback 뒤 어시스턴트가 적용 → 코드 푸시). 항목:
   연말 보고 내보내기(엑셀 — 요약·프로젝트·예배 출석·동아리·명단 변화 · 개인별 출석은 넣지 않음 · 시안만 먼저) · 동아리 보고서 제출 현황 + 지원비 지급 체크(체크는 조해리·마스터만) · 보고서 양식 자동 입력(양식은 사용자의 `Downloads/동아리_활동보고서.xlsx` — 동아리명·모임일자·참석자 'N명 / 이름'·지원금액(5,000원/1인)을 채우고 사진·영수증은 사용자가 · 그림 넣기는 그다음) · 주보 스토리 이미지(넘기면서 보기 여섯 장 → 9:16) · 새가족 QR 가입(명단과 겹치면 연결 제안은 **마스터 승인 화면에만** — 새가족에게 명단 이름을 보이지 않는다) · 생일 롤링페이퍼(디자인 벤치마킹이 중요) · 새가족 정착 흐름(웰컴팀 보드) · 행사 신청 폼·행사 공개 페이지(구글·네이버 폼 수준 · 0112 행사 일정과 잇기) · 일정 맞추기(when2meet) · 행사 사진첩 · 다붓이에게 업무 요청(담당자·제목·3줄 요약이 채워진 업무를 만들고 링크 · 다붓이는 워크스페이스 전반을 돕는 AI — 사용자 2026-10-16) · 올해의 내 더다붓(리캡) · 영수증 정산.
@@ -395,7 +395,9 @@ src/components/worshipAttendance.jsx (v2) 출석 체크 — 순별 칩·손님 �
 src/components/groupsSun.jsx  (v2) 내 순 · 순 편성
 src/components/groupsClub.jsx (v2) 동아리 목록·dnd 순서·방향 감싸개(§6-9-bi)
 src/components/clubDetail.jsx (v2) 동아리 상세 — 구성원·추가·신청·모임·출석·QR(lazy)
-src/components/meetingReport.jsx (v2) 지난 모임의 활동 보고서 칸(0093) — 파일 줄·편집 사본·지우기·파일 올리기·지난 보고서 가져오기 · 큐는 uploadQueue(`meeting:<id>`) · 통신은 groupsView
+src/components/meetingReport.jsx (v2) 지난 모임의 활동 보고서 칸(0093) — 파일 줄·편집 사본·지우기·파일 올리기·지난 보고서 가져오기 · 큐는 uploadQueue(`meeting:<id>`) · 통신은 groupsView · 상태 칩·'보고서 작성'(0117)
+src/components/meetingReportForm.jsx 동아리 활동 보고서 작성 화면(0117 · 원본은 이 화면 — 저장할 때마다 양식 그대로 엑셀을 새로 만들어 보고서 칸을 덮는다)
+src/components/clubReportBoard.jsx 모임 > 동아리 '보고서 현황'(0117 · 마스터·총무 · 상태 셋 · 지급할 지원금 · 모임마다 지급 체크)
 src/components/groupsParts.jsx (v2) 모임 공용 — CARD/BTN/FIELD·NEW_H·DATE_TRIGGER·CARD_STYLE(예배·동아리 만들기가 같이 쓴다) · PersonPick·MenuPick(§6-9-an·33-a) · useSettled(§6-9-ad) · 읽기 실패 자리 FailTail·FailLeft(D2 · §6-24-g)
 src/components/segmented.jsx  회색 토글 한 벌(Segmented · segStyle) — 앱의 회색 토글 전부(대시보드·프로젝트·명단 연도·멤버·말씀·성경 칸·글자 크기·모임·예배 종류·공유 토글 · 칸 속성은 items 셋째 값) · 새로 손으로 그리지 않는다
 src/components/ClubQr.jsx     (v2) 동아리 신청 QR 카드(§6-29-z-7)
@@ -498,6 +500,9 @@ src/services/people.js        (v2) 명단·모임 읽기 공용 + guestStore(게
 src/services/roster.js        (v2) 명단 쓰기·계정 연결(§6의 roster_name 항목)
 src/services/worship.js       (v2) 재수출만. 몸통은 worship/ — pure(COLS·prefillRoles(지난 주보 **광고**의 '다음 주 예배 위원' → 대표기도·헌금봉헌, 같은 kind만)·worshipPerms·pickLastCue·recentSongs) · bulletin(CRUD·알림 둘) · files(송폼·큐시트·표지) · attendance(자격 §6-9-ak·출석·손님·메모) · notes(내 예배 노트) · api(yt·ics·service-view)
 src/services/word.js          (v2) QT 일정·묵상·bible_state · shouldAdoptBody(§6-24-c)
+src/services/clubReport.js    동아리 보고서 작성·현황·지원비(0117 · 두 표는 없어도 되는 값 · 사진은 비공개 버킷 club-reports · 게스트 시연 씨앗 `?demo=clubs`)
+src/services/yearReport.js    연말 보고(관리자 메뉴 · 마스터) — gatherYear(두 모드 재료) + buildYearSheets(순수 · 새신자 = 그해 명단 추가, 첫 이관 날 제외)
+src/services/xlsxWrite.js     xlsx 쓰기(양식 채우기 fillClubReport · 새 통합 문서 buildWorkbook) · zipWrite.js(압축 없는 zip) — 의존성 없음
 src/services/groups.js        (v2) 순·동아리·신청·모임·groupPerms · share()로 중복 조회 묶기(§6-9-bg)
 src/services/bible.js bibleRef.js  (v2) public/bible 로더·캐시 / 구절 파서 — 주보·QT·리더가 한 벌(§6-9-aq)
 src/services/noteTemplate.js  (v2) 노트 템플릿·LEGACY_SECTIONS·isTemplateOnly·ensureNoteSections(§6-9-as·32-l)

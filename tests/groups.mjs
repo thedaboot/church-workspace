@@ -3199,7 +3199,7 @@ await send('Emulation.clearDeviceMetricsOverride');
 }
 
 // ── 지난 모임의 활동 보고서 (0093 · 20차 묶음 ④ · 시안 4-C · 사용자 확정 2026-10-12) ──────────────
-// ① 칸은 **지난 모임에만**(다가오는 모임에는 없다) · 동아리장에게 '활동 보고서' + '파일 올리기'(진한 accent)
+// ① 칸은 **지난 모임에만**(다가오는 모임에는 없다) · 동아리장에게 '활동 보고서' + '보고서 작성'(진한 accent · 0117) + '파일 올리기'
 // ② 올리면 그 모임의 줄이 서고(이름 · 크기 · 편집 · 지우기) 버튼은 연한 accent로
 // ③ 다른 모임에 보고서가 있으면 '지난 보고서 가져오기' — 누르면 `<동아리> 활동보고서(<M>월).xlsx`로 이 모임에 올라가고
 //    곧바로 창이 열린다 · 보고서가 생긴 모임에서는 그 버튼이 빠진다
@@ -3237,12 +3237,15 @@ await send('Emulation.clearDeviceMetricsOverride');
     past1: !!r, past2: !!${rep('보고서 칸 둘')}, ahead: !!${rep('보고서 칸 앞날')},
     label: r?.querySelector('.club-meet-report-label')?.textContent.trim() || '',
     add: add?.textContent.trim() || '', solid: !!add?.classList.contains('bg-accent'),
+    write: r?.querySelector('[data-report-write]')?.textContent.trim() || '', writeSolid: !!r?.querySelector('[data-report-write]')?.classList.contains('bg-accent'),
     accept: r?.querySelector('input[type=file]')?.accept || '',
     copy: document.querySelectorAll('.club-meet-report-copy').length, rows: document.querySelectorAll('.club-meet-report-row').length,
   }; })()`);
   check('활동 보고서 칸은 지난 모임에만 — 다가오는 모임에는 없다', shape.past1 && shape.past2 && !shape.ahead, JSON.stringify(shape));
-  check("동아리장에게 '활동 보고서' 머리 + '파일 올리기'(진한 accent) · 받는 파일은 엑셀·pdf",
-    shape.label === '활동 보고서' && shape.add === '파일 올리기' && shape.solid && /\.xlsx/.test(shape.accept) && /\.pdf/.test(shape.accept),
+  // 0117(v5 3묶음 · 사용자 승인 시안 mock/b4): 진한 accent는 '보고서 작성'(앱 안 작성 화면이 원본) · '파일 올리기'는 연한 accent로 남는다
+  check("동아리장에게 '활동 보고서' 머리 + '보고서 작성'(진한 accent) · '파일 올리기'(연한) · 받는 파일은 엑셀·pdf",
+    shape.label === '활동 보고서' && shape.add === '파일 올리기' && !shape.solid && shape.write === '보고서 작성' && shape.writeSolid
+      && /\.xlsx/.test(shape.accept) && /\.pdf/.test(shape.accept),
     JSON.stringify(shape));
   check("동아리에 보고서가 하나도 없으면 '지난 보고서 가져오기'가 없다", shape.copy === 0 && shape.rows === 0, JSON.stringify(shape));
 

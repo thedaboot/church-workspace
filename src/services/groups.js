@@ -6,6 +6,8 @@ import { insertNotifications, uploadMeetingFile, ensureMeetingFolder, deleteAtta
 import { copyExportAs } from './cueDigest.js';
 import { downscaleImage, FILE_MAX_DIM } from './image.js';
 import { generateId } from '../utils.js';
+import { ensureClubDemo, renderReportFile, attachReports } from './clubReport.js';
+import { demoOn } from './opsDemo.js';
 
 // ============================================================================
 // v2 모임 — 내 순 · 동아리(가입 신청 · 모임 출석) · 순 편성
@@ -45,6 +47,8 @@ const MEETING_FILE_COLS = 'id, meeting_id, name, mime_type, size_bytes, source, 
 
 // ── 게스트 저장 자리 ────────────────────────────────────────────────────────
 const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_groups_v1');
+// 미리보기 빌드(시안 mock/b4)는 처음 여는 브라우저에 동아리 시연 씨앗을 심는다(services/clubReport.ensureClubDemo)
+ensureClubDemo();
 
 // ── 같은 순간에 두 번 가는 조회는 한 번만 보낸다 ────────────────────────────
 // 화면 한 벌은 `fetchGroupPerms`와 `fetchGroupsRoster`를 **나란히** 부른다(모임 화면
@@ -84,6 +88,8 @@ export function groupPerms({ isMaster = false, isAdmin = false, myPerson = null,
     isAdmin: admin,
     canManageSun: master || admin || !!myPerson?.is_pastor || (myRoles || []).includes('lead_sunjang'),
     canCreateClub: master,
+    // 총무 — 동아리 보고서 현황 · 지원비 지급 체크(시안 mock/b4 · 마스터와 같이)
+    isTreasurer: (myRoles || []).includes('treasurer'),
     ledClubIds: ledClubIds || [],
   };
 }
@@ -511,6 +517,7 @@ export async function fetchNextMeetings(today = kstNow().slice(0, 10)) {
 // 모임마다 `files`(활동 보고서 · 0093)가 같이 실려 온다 — 조회 한 번(embed). 파일은 올린 차례.
 export async function fetchMeetings(groupId) {
   if (!supabase) {
+    await guestReportFiles(groupId);
     const files = guestRows('files');
     return guestRows('group_meetings').filter(m => m.group_id === groupId)
       .map(m => ({ ...m, files: files.filter(f => f.meeting_id === m.id).map(withGuestBytes) }))
@@ -518,7 +525,8 @@ export async function fetchMeetings(groupId) {
   }
   const rows = unwrap(await supabase.from('group_meetings')
     .select(`${MEETING_COLS}, files(${MEETING_FILE_COLS})`).eq('group_id', groupId).order('meeting_date', { ascending: false })) ?? [];
-  return rows.map(m => ({ ...m, files: [...(m.files || [])].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))) }));
+  // 작성 화면의 내용 · 지원비 지급(0117 · services/clubReport — 없어도 되는 값)을 붙인다
+  return attachReports(rows.map(m => ({ ...m, files: [...(m.files || [])].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))) })));
 }
 
 // ── 모임 활동 보고서 (0093 · 사용자 결정 2026-10-12 · 시안 4-C) ───────────────
@@ -532,6 +540,25 @@ export async function fetchMeetings(groupId) {
 // 새로고침하면 줄은 남고 미리보기·'지난 보고서 가져오기'만 못 쓴다(가져올 바이트가 없다).
 const guestReportBytes = new Map();   // files.id → 고른 File (게스트 세션 동안만)
 const withGuestBytes = (f) => (guestReportBytes.has(f.id) ? { ...f, _file: guestReportBytes.get(f.id) } : f);
+
+// 작성 화면으로 만든 보고서(시안 mock/b4 · services/clubReport) — 게스트는 바이트가 메모리에만 있어 새로 열면 사라진다.
+// 작성 내용(report_form)이 원본이니 그것으로 다시 만든다: 행이 없으면(시연 씨앗) 행부터, 바이트가 없으면 바이트만.
+async function guestReportFiles(groupId) {
+  const club = guestRows('groups').find(g => g.id === groupId);
+  const people = guestRows('people');
+  for (const m of guestRows('group_meetings').filter(x => x.group_id === groupId && x.report_form?.saved_at)) {
+    const gen = guestRows('files').filter(f => f.meeting_id === m.id && f.generated);
+    if (gen.length && gen.every(f => guestReportBytes.has(f.id))) continue;
+    try {
+      const file = await renderReportFile(club, m, people, m.report_form);
+      if (gen.length) { for (const f of gen) guestReportBytes.set(f.id, file); continue; }
+      const row = { id: generateId(), meeting_id: m.id, name: file.name, size_bytes: file.size, mime_type: file.type, source: 'local',
+        uploaded_by: null, created_at: m.report_form.saved_at, generated: true };
+      guestReportBytes.set(row.id, file);
+      guestSet('files', [...guestRows('files'), row]);
+    } catch (e) { console.warn('[groups] 시연 보고서를 만들지 못했어요:', e); }
+  }
+}
 
 // 업로드 큐(uploadQueue.js)의 열쇠 — 업무 첨부는 카드 id, 모임 보고서는 이 모양이라 둘이 섞이지 않는다
 export const meetingQueueKey = (meetingId) => `meeting:${meetingId}`;
@@ -594,6 +621,15 @@ export async function uploadMeetingReport(club, meeting, file, folderId = null, 
       id: generateId(), meeting_id: meeting.id, name: file.name, size_bytes: file.size ?? null,
       mime_type: file.type || null, source: 'local', uploaded_by: null, created_at: new Date().toISOString(),
     };
+    // 미리보기 빌드(시연)는 올리는 줄의 진행 막대가 보이게 1.2초에 걸쳐 진행을 낸다 — 게스트는 실제로 보낼 곳이 없다
+    if (net?.onProgress && demoOn()) {
+      const total = file.size || 1;
+      for (let k = 1; k <= 8; k++) {
+        if (net.isCancelled?.()) break;
+        await new Promise(r => setTimeout(r, 150));
+        net.onProgress(Math.round((total * k) / 8), total);
+      }
+    }
     guestReportBytes.set(row.id, file);
     guestSet('files', [...guestRows('files'), row]);
     return { ...row, _file: file };
