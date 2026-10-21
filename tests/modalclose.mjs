@@ -1646,6 +1646,7 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
 // ③ 같은 틱에 두 번 눌러도 · transitionend가 안 와도 같은 끝 · ④ 움직임 줄이기면 바로
 // **되돌리기**: index.css .dc-fold의 grid-template-columns: minmax(0, 1fr)와 Fold 안쪽의 min-w-0을 지우면 ①이(가로 496px 넘침),
 // Fold.jsx의 시간 끝내기(setTimeout)를 지우면 ③의 'transitionend 없이'가(안이 남는다), .dc-fold의 visibility를 지우면 ②·③이 깨진다.
+// .dc-fold[data-fold='closed']의 display:none을 지우면 ②·③·④의 접힌 끝이 깨진다(68-d).
 {
   const LONG = '이번 주 예배 순서지 최종본은 금요일 저녁까지 공유 드라이브에 올려 두었고 찬양 콘티와 광고 문구도 같이 확인 부탁드립니다 수정할 곳이 있으면 댓글로 알려 주세요';
   const cm = (cid, text, extra = {}) => ({ id: cid, author: '노준석', text, timestamp: '2026-10-17T00:00:00Z', parentId: null, edited: false, ...extra });
@@ -1664,8 +1665,9 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   };
   const LINE = `document.querySelector('[data-comment-resolved="rk1"]')`;
   const FOLD = `(() => { const f = ${LINE}.closest('[data-thread]').querySelectorAll(':scope > .dc-fold')[1]; const inner = f.firstElementChild;
-    return { h: Math.round(f.getBoundingClientRect().height), vis: getComputedStyle(f).visibility, kids: inner.childElementCount, clip: getComputedStyle(inner).overflow }; })()`;
-  const shut = (s) => s.h === 0 && s.vis === 'hidden' && s.kids === 0;
+    return { h: Math.round(f.getBoundingClientRect().height), vis: getComputedStyle(f).visibility, disp: getComputedStyle(f).display, kids: inner.childElementCount, clip: getComputedStyle(inner).overflow }; })()`;
+  // 접힌 끝은 판째 뺀다(display:none · PITFALLS 68-d — 아이폰에서 지운 안의 그림이 한 토막 남았다)
+  const shut = (s) => s.h === 0 && s.vis === 'hidden' && s.kids === 0 && s.disp === 'none';
   await openResolved();
   const wide = await ev(`(() => { const ov = document.querySelector('.fixed.z-50');
     const sc = [...ov.querySelectorAll('*')].filter(e => e.scrollWidth > e.clientWidth + 1 && !['visible', 'hidden', 'clip'].includes(getComputedStyle(e).overflowX));

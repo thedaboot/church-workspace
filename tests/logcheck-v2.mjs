@@ -1644,6 +1644,10 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   // 얼굴 원은 이어진 계정의 사진(사용자 지적 2026-10-17 — 인수인계 탭에 사진이 하나도 안 떴다 · url={null}이었다).
   // 되돌리기: Face의 url을 null로 돌리면 깨진다.
   assert.ok(/url=\{profileAvatar\(person\?\.profile_id\) \|\| null\}/.test(hvUi), '인수인계 얼굴 원은 people.profile_id로 사진을 찾는다');
+  // 폰에서 '사라질 직분' 칩과 '인계할 사람 선택'이 한 칸에 안 들어가 줄마다 다르게 꺾였다(사용자 지적 2026-10-21) —
+  // 고르기는 직분 칩 줄의 오른쪽(폰) · 끝 열 고정 폭(데스크톱 · 고르기가 없는 '새로 맡음' 줄도 열이 같게)
+  assert.ok(/data-pair-pick="" className="row-start-1 col-start-3 md:col-start-5 justify-self-end"/.test(hvUi)
+    && (hvUi.match(/_minmax\(0,1fr\)_7\.5rem\]/g) || []).length >= 3, '인수인계 직분 짝: 고르기는 칩 줄 오른쪽 · 끝 열 고정 폭(머리·줄·스켈레톤)');
   assert.ok(/export function profileAvatar\(id\)[\s\S]{0,200}merged_into/.test(readSrc('src/services/cloudSync.js')), 'profileAvatar는 합친 계정이면 남긴 계정 사진');
   for (const w of ['>유지<', '>인수자<', 'placeholder="인수자 선택"', '인계할 업무<', '인계받은 업무 ', '워크스페이스는 그대로 사용할 수 있어요',
     '${FROM_YEAR}년에 리더만 볼 수 있었던 프로젝트는 ${FROM_YEAR}년 리더진들도 계속 볼 수 있어요',

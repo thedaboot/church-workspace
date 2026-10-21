@@ -121,8 +121,8 @@ function PairStep({ m, onEditRoster }) {
   return (
     <section data-hv-step="1">
       {/* 데스크톱 두 열의 머리 — 지난해 | 다음 해 */}
-      <div className="hidden md:grid grid-cols-[7.5rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)] gap-3 px-3 pb-1.5 text-[11px] font-semibold text-fg-muted">
-        <span /><span>{`${FROM_YEAR}년`}</span><span /><span>{`${TO_YEAR}년`}</span>
+      <div className="hidden md:grid grid-cols-[7.5rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)_7.5rem] gap-3 px-3 pb-1.5 text-[11px] font-semibold text-fg-muted">
+        <span /><span>{`${FROM_YEAR}년`}</span><span /><span>{`${TO_YEAR}년`}</span><span />
       </div>
       <div className={`${CARD} overflow-hidden`} style={CARD_STYLE}>
         {m.pairs.map((p, i) => {
@@ -135,19 +135,21 @@ function PairStep({ m, onEditRoster }) {
               {drop ? '인계할 사람 선택' : to ? '변경' : '선택'}
             </MenuPick>
           );
+          // 폰은 두 줄 — [직분 칩 · 고르기] / [지난해 → 다음 해]. 고르기를 이름 칸에 같이 두면 '사라질 직분' 칩과
+          // '인계할 사람 선택'이 한 칸에 안 들어가 줄마다 다르게 꺾였다(사용자 지적 2026-10-21). 데스크톱은 한 줄 끝 열.
           return (
             <div key={p.key} data-pair={p.key} data-kind={p.kind}
-              className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] md:grid-cols-[7.5rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)] items-center gap-x-2 md:gap-x-3 gap-y-1.5 px-3 py-2.5"
+              className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] md:grid-cols-[7.5rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)_7.5rem] items-center gap-x-2 md:gap-x-3 gap-y-2 px-3 py-2.5"
               style={i ? { borderTop: '1px solid var(--app-line)' } : undefined}>
-              <span className="col-span-3 md:col-span-1 flex items-center gap-1.5"><Badge label={slotLabel(p.slot)} /></span>
+              <span className="col-span-2 md:col-span-1 flex items-center gap-1.5 min-h-7"><Badge label={slotLabel(p.slot)} /></span>
+              <span data-pair-pick="" className="row-start-1 col-start-3 md:col-start-5 justify-self-end">{pick}</span>
               <span className="min-w-0">{from ? <Who person={from} /> : <Quiet>새로 맡음</Quiet>}</span>
               <span className="flex justify-center text-fg-faint"><ArrowRight size={14} /></span>
-              <span className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span className="min-w-0 flex items-center gap-1.5">
                 {p.kind === 'same' ? <><Who person={to} muted /><span className="shrink-0 text-[11px] text-fg-muted">유지</span></>
                   : drop ? <span data-seat-drop="" className="shrink-0 px-2 py-0.5 rounded-xs text-[11px] font-semibold bg-tag-gray text-tag-gray-fg">사라질 직분</span>
                   : to ? <Who person={to} /> : <span className="text-[12.5px] font-semibold text-tag-orange-fg">미정</span>}
                 {changed && <span aria-hidden className="shrink-0 w-1.5 h-1.5 rounded-full bg-accent" />}
-                <span className="ml-auto shrink-0">{pick}</span>
               </span>
             </div>
           );
@@ -433,9 +435,10 @@ function HandoverSkeleton() {
     <div data-hv-skeleton="" aria-busy="true">
       <div className={`${CARD} overflow-hidden`} style={CARD_STYLE}>
         {[0, 1, 2, 3, 4, 5].map(i => (
-          <div key={i} className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] md:grid-cols-[7.5rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)] items-center gap-x-2 md:gap-x-3 gap-y-1.5 px-3 py-2.5"
+          <div key={i} className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] md:grid-cols-[7.5rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)_7.5rem] items-center gap-x-2 md:gap-x-3 gap-y-2 px-3 py-2.5"
             style={i ? { borderTop: '1px solid var(--app-line)' } : undefined}>
-            <Skeleton className="col-span-3 md:col-span-1 w-12 h-4 rounded-xs" />
+            <span className="col-span-2 md:col-span-1 flex items-center min-h-7"><Skeleton className="w-12 h-4 rounded-xs" /></span>
+            <Skeleton className="row-start-1 col-start-3 md:col-start-5 justify-self-end w-14 h-7 rounded-xs" />
             <span className="flex items-center gap-1.5"><Skeleton className="w-6 h-6 rounded-full shrink-0" /><Skeleton className="w-14 h-3.5" /></span>
             <span />
             <span className="flex items-center gap-1.5"><Skeleton className="w-6 h-6 rounded-full shrink-0" /><Skeleton className="w-14 h-3.5" /></span>
