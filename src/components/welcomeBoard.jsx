@@ -386,7 +386,8 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
     return () => document.removeEventListener('keydown', onKey);
   }, [close]);
   const showSuns = !!pickFor || ['meet', 'sun', 'settled'].includes(c.stage);
-  React.useEffect(() => { if (pickFor) sunRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [pickFor]);
+  // 순 칸으로 끌어 와서 열렸으면 순 목록 머리가 보이게 내린다(창 본문 안에서만 구른다)
+  React.useEffect(() => { if (pickFor) sunRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, [pickFor]);
 
   const at = W.STAGE_INDEX[c.stage] ?? -1;
   const doneText = {
@@ -417,7 +418,7 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
 
   // 그 단계에서 할 일(바닥 줄 오른쪽 · 주 버튼은 하나)
   const primary = () => {
-    if (showSuns && (assignable || pickFor)) return assignBtn;   // 순을 바꿔 골랐거나 순 칸으로 끌어 온 참이면 배정이 먼저다
+    if (showSuns && (assignable || pickFor) && c.stage !== 'meet') return assignBtn;   // 교육 완료 칸은 아래에서 [교육 완료]와 같이 선다   // 순을 바꿔 골랐거나 순 칸으로 끌어 온 참이면 배정이 먼저다
     switch (c.stage) {
       case 'visit1': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'visit2')}>재방문 완료</button>;
       case 'visit2': return <button type="button" className={BTN_CONFIRM} onClick={() => W.markContacted(c.id, meName || '나')}>컨택 완료</button>;
@@ -433,6 +434,10 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
     }
   };
   const out = leaving ? ' dc-out' : '';
+  // 바닥 줄은 누를 것이 있을 때만 — 정착 완료처럼 할 일이 없으면 빈 띠가 섰다(사용자 지적 2026-10-21)
+  const holdable = c.stage !== W.HOLD && c.stage !== 'settled';
+  const action = primary();
+  const footer = holdable || !!action;
 
   return createPortal(
     <div ref={overlayRef}
@@ -449,7 +454,7 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
           <button type="button" onClick={close} aria-label="닫기" className="p-1.5 rounded-md text-fg-muted hover:bg-surface-hover transition-colors"><X size={16} /></button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
-          <div className="p-5 md:p-6">
+          <div className="p-5 md:p-6" style={footer ? undefined : { paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
             <h2 className="text-xl font-bold text-fg tracking-[-0.4px]">{c.name}</h2>
             <p className="mt-1 text-[12px] text-fg-muted">{[`첫 방문 ${md(c.visits[0])}`, c.owner && `담당 ${c.owner}`].filter(Boolean).join(' · ')}</p>
 
@@ -508,16 +513,17 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
             {showSuns && (
               <div ref={sunRef} data-welcome-suns="">
                 <h4 className="mt-5 mb-1.5 text-[12px] font-bold text-fg-muted">순</h4>
-                <div className="border border-line rounded-lg p-1.5">
+                {/* 순이 많아도 안쪽 스크롤을 따로 두지 않는다 — 창 본문 하나로만 구르고(겹친 스크롤은 폰에서 손가락이 갇힌다)
+                    [배정 완료]는 본문 밖 바닥 줄이라 늘 보인다. 640부터는 두 줄로 세워 길이를 반으로 줄인다. */}
+                <div className="border border-line rounded-lg p-1.5 grid gap-0.5 sm:grid-cols-2">
                   {suns.map(g => {
                     const on = sel === g.id;
                     return (
                       <button key={g.id} type="button" disabled={!!busy} onClick={() => setSel(g.id)} aria-pressed={on} data-sun-pick={g.id}
-                        className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors hover:bg-surface-hover ${on ? 'bg-accent-weak' : ''}`}>
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-[12.5px] font-semibold text-fg truncate">{g.name}</span>
-                          <span className="block text-[10.5px] text-fg-muted truncate">{[leaderName(g) && `순장 ${leaderName(g)}`, `${countOf(g)}명`].filter(Boolean).join(' · ')}</span>
-                        </span>
+                        className={`w-full h-10 flex items-center gap-2.5 px-2.5 rounded-md text-left transition-colors hover:bg-surface-hover ${on ? 'bg-accent-weak' : ''}`}>
+                        {/* 한 줄 — 순이 많아도 목록이 길어지지 않게(이름 왼쪽 · 순장·인원 오른쪽) */}
+                        <span className="shrink-0 text-[12.5px] font-semibold text-fg">{g.name}</span>
+                        <span className="flex-1 min-w-0 text-right text-[11px] text-fg-muted truncate tabular-nums">{[leaderName(g) && `순장 ${leaderName(g)}`, `${countOf(g)}명`].filter(Boolean).join(' · ')}</span>
                         {busy === g.id ? <Loader2 size={14} className="animate-spin text-fg-muted" /> : on && <Check size={14} className="text-accent-text" />}
                       </button>
                     );
@@ -528,12 +534,14 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
             )}
           </div>
         </div>
+        {footer && (
         <div className="shrink-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 bg-surface-2" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
-          {c.stage !== W.HOLD && c.stage !== 'settled'
+          {holdable
             ? <button type="button" className={BTN_CONFIRM_QUIET} onClick={() => onMove(c, W.HOLD)}>{W.HOLD_LABEL}</button>
             : <span />}
-          <span className="flex items-center gap-2">{primary()}</span>
+          <span className="flex items-center gap-2">{action}</span>
         </div>
+        )}
       </div>
     </div>,
     document.body,
