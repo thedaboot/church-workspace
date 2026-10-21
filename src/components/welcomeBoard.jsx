@@ -373,6 +373,9 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
   const [leaving, leave] = useLeave();
   const close = React.useCallback(() => leave(onClose), [leave, onClose]);
   const [busy, setBusy] = React.useState(null);
+  // 순은 고른 뒤 '배정 완료'로 넣는다(사용자 2026-10-21 — 버튼은 'OO 완료' 꼴) · 처음엔 지금 순
+  const [sel, setSel] = React.useState(sun?.id || null);
+  React.useEffect(() => { setSel(sun?.id || null); }, [sun?.id]);
   const downOnOverlay = React.useRef(false);
   const overlayRef = React.useRef(null);
   const sunRef = React.useRef(null);
@@ -393,7 +396,17 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
   };
   const leaderName = (g) => people.find(p => p.id === g.leader_person_id)?.name || '';
   const countOf = (g) => members.filter(m => m.group_id === g.id).length;
-  const pick = async (g) => { setBusy(g.id); try { await onAssign(g); } finally { setBusy(null); } };
+  const pick = async () => {
+    const g = suns.find(x => x.id === sel);
+    if (!g || g.id === sun?.id) return;
+    setBusy(g.id); try { await onAssign(g); } finally { setBusy(null); }
+  };
+  const assignable = !!sel && sel !== sun?.id;
+  const assignBtn = (
+    <button type="button" className={BTN_CONFIRM} disabled={!assignable || !!busy} onClick={pick} data-sun-assign="">
+      {busy && <Loader2 size={14} className="animate-spin" />}배정 완료
+    </button>
+  );
   const Info = ({ label, children }) => (children ? (
     <div className="flex items-baseline gap-3 py-1">
       <span className="w-[4.5rem] shrink-0 text-[12px] font-semibold text-fg-muted">{label}</span>
@@ -403,16 +416,17 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
 
   // 그 단계에서 할 일(바닥 줄 오른쪽 · 주 버튼은 하나)
   const primary = () => {
+    if (showSuns && (assignable || pickFor)) return assignBtn;   // 순을 바꿔 골랐거나 순 칸으로 끌어 온 참이면 배정이 먼저다
     switch (c.stage) {
-      case 'visit1': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'visit2')}>두 번째 방문 기록</button>;
-      case 'visit2': return <button type="button" className={BTN_CONFIRM} onClick={() => W.markContacted(c.id, meName || '나')}>컨택했어요</button>;
-      case 'contact': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'register')} data-welcome-register="">새신자로 등록</button>;
-      case 'register': return <button type="button" className={BTN_CONFIRM} onClick={() => W.addMeet(c.id)}>면담했어요</button>;
+      case 'visit1': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'visit2')}>두 번째 방문 완료</button>;
+      case 'visit2': return <button type="button" className={BTN_CONFIRM} onClick={() => W.markContacted(c.id, meName || '나')}>컨택 완료</button>;
+      case 'contact': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'register')} data-welcome-register="">등록 완료</button>;
+      case 'register': return <button type="button" className={BTN_CONFIRM} onClick={() => W.addMeet(c.id)}>교육 완료</button>;
       case 'meet': return (<>
-        <button type="button" className={BTN_CONFIRM_QUIET} onClick={() => W.addMeet(c.id)}>면담했어요</button>
-        <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'sun')}>순 배정</button>
+        <button type="button" className={BTN_CONFIRM_QUIET} onClick={() => W.addMeet(c.id)}>교육 완료</button>
+        {assignBtn}
       </>);
-      case 'sun': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'settled')}>정착으로</button>;
+      case 'sun': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'settled')}>정착 완료</button>;
       case W.HOLD: return <button type="button" className={BTN_CONFIRM} onClick={() => W.setStage(c.id, c.person_id ? 'register' : 'contact')}>다시 진행</button>;
       default: return null;
     }
@@ -471,10 +485,10 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
                 <h4 className="mt-5 mb-1.5 text-[12px] font-bold text-fg-muted">순</h4>
                 <div className="border border-line rounded-lg p-1.5">
                   {suns.map(g => {
-                    const on = sun?.id === g.id;
+                    const on = sel === g.id;
                     return (
-                      <button key={g.id} type="button" disabled={!!busy || on} onClick={() => pick(g)} data-sun-pick={g.id}
-                        className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors hover:bg-surface-hover disabled:hover:bg-transparent ${on ? 'bg-accent-weak' : ''}`}>
+                      <button key={g.id} type="button" disabled={!!busy} onClick={() => setSel(g.id)} aria-pressed={on} data-sun-pick={g.id}
+                        className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors hover:bg-surface-hover ${on ? 'bg-accent-weak' : ''}`}>
                         <span className="flex-1 min-w-0">
                           <span className="block text-[12.5px] font-semibold text-fg truncate">{g.name}</span>
                           <span className="block text-[10.5px] text-fg-muted truncate">{[leaderName(g) && `순장 ${leaderName(g)}`, `${countOf(g)}명`].filter(Boolean).join(' · ')}</span>

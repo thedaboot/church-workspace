@@ -13,7 +13,7 @@ import { Segmented } from './segmented.jsx';
 // ============================================================================
 const KINDS = {
   newcomer: { name: '처음 오셨나요?', label: '새신자 청년 가입', q: 'welcome=1' },
-  member: { name: '더다붓 워크스페이스', label: '워크스페이스 가입', q: 'join=1' },
+  member: { name: '더다붓 워크스페이스', label: '가입 QR', q: 'join=1' },
 };
 
 export function JoinQrModal({ initial = 'newcomer', onClose }) {
