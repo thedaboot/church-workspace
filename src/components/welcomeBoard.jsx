@@ -155,7 +155,7 @@ function Column({ stage, label, count, share, dragging, children }) {
         {!count && !dragging && (
           <div className="py-[22px] text-center">
             <EmptyColumnMark />
-            <p className="text-[11px] text-fg-muted">아직 없어요</p>
+            <p className="text-[11px] text-fg-muted">해당 항목은 비어 있어요</p>
           </div>
         )}
         <div className={`h-16 border border-dashed rounded-sm flex items-center justify-center text-xs transition-all ${dragging ? (isOver ? 'opacity-100 border-accent text-accent-text' : 'opacity-100 border-line text-fg-faint') : 'opacity-0 border-transparent text-fg-faint'}`}>여기로 놓기</div>
@@ -329,7 +329,7 @@ export function WelcomeBoard({ suns = [], members = [], people = [], meName = ''
               dragging={!!activeId} isDraggedStage={activeCard?.stage === k} onClick={() => goCol(i)} />
           ))}
         </div>
-        {activeId && <p className="md:hidden text-center text-[10px] text-fg-muted mb-1.5 -mt-0.5">위 단계 칩에 놓으면 바로 옮겨져요</p>}
+        {activeId && <p className="md:hidden text-center text-[10px] text-fg-muted mb-1.5 -mt-0.5">위 라벨에 놓으면 바로 옮겨져요</p>}
         <div ref={scrollRef} onScroll={onScroll} data-fade-r={fadeR ? '' : undefined}
           className={`${over ? 'x-fade-edge ' : ''}flex gap-[14px] md:gap-[18px] pb-1.5 overflow-x-auto overflow-y-hidden max-md:scrollbar-hide [overscroll-behavior-x:none] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}>
           {W.STAGES.map(([k, label]) => (

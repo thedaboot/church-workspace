@@ -49,12 +49,12 @@ export function NewcomerCardPage() {
         {done ? (
           <section data-newcomer-done="" className="text-center">
             <h1 className="text-xl font-bold text-[#2b2833] tracking-[-0.25px] mb-2">{done.name}님, 반가워요!</h1>
-            <p className="text-sm text-[#6b6675] leading-relaxed">카드를 받았어요.<br />웰컴팀이 곧 연락드릴게요.</p>
+            <p className="text-sm text-[#6b6675] leading-relaxed">정보를 받았어요.<br />웰컴팀이 곧 연락드릴게요.</p>
           </section>
         ) : (
           <>
             <h1 className="text-xl font-bold text-[#2b2833] tracking-[-0.25px] mb-2 text-center">처음 오셨나요?</h1>
-            <p className="text-sm text-[#6b6675] mb-7 leading-relaxed text-center">새가족 카드를 써 주시면<br />웰컴팀이 연락드릴게요.</p>
+            <p className="text-sm text-[#6b6675] mb-7 leading-relaxed text-center">정보를 남겨 주시면<br />웰컴팀이 연락드릴게요.</p>
 
             <div className="bg-white/80 backdrop-blur-md border border-[#dcd8dc] rounded-xl p-5 shadow-elevated space-y-4">
               <label className="block">
@@ -98,7 +98,7 @@ export function NewcomerCardPage() {
               </label>
               <button type="button" onClick={submit} disabled={!ready || busy} data-newcomer-submit=""
                 className="w-full flex items-center justify-center gap-2 bg-[#3f6fc4] text-white text-sm font-semibold py-3 rounded-full shadow-soft hover:bg-[#33589c] transition active:scale-95 disabled:opacity-40">
-                {busy && <Loader2 size={16} className="animate-spin" />}카드 보내기
+                {busy && <Loader2 size={16} className="animate-spin" />}정보 보내기
               </button>
             </div>
           </>
