@@ -454,7 +454,6 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
 
             <div className="mt-4 rounded-md bg-canvas px-3 py-1.5">
               <Info label="연락처">{c.phone && <a href={`tel:${c.phone}`} className="inline-flex items-center gap-1 text-accent-text"><Phone size={12} />{c.phone}</a>}</Info>
-              <Info label="태어난 해">{c.birth_year ? `${c.birth_year}년` : ''}</Info>
               <Info label="어떻게">{c.how}</Info>
               <Info label="하고 싶은 말">{c.note}</Info>
             </div>

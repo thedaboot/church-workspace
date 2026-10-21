@@ -82,7 +82,7 @@ function seed() {
       ...suns.filter(s => s.leader_person_id).map(s => ({ group_id: s.id, person_id: s.leader_person_id }))]);
   }
   const c = (name, stage, first, extra = {}) => ({
-    id: generateId(), name, phone: '010-0000-0000', birth_year: 1999, how: '친구 소개', note: '', stage,
+    id: generateId(), name, phone: '010-0000-0000', how: '친구 소개', note: '', stage,
     created_at: daysAgo(first), visits: [daysAgo(first)], contact: null, registered_at: null, meets: [],
     settled_at: null, owner: null, person_id: null, position: 0, ...extra,
   });
@@ -128,9 +128,9 @@ const patch = (id, fn) => {
 };
 
 // 새가족 카드(QR로 쓴 것) → '첫 방문'
-export function addNewcomerCard({ name, phone, birth_year, how, note }) {
+export function addNewcomerCard({ name, phone, how, note }) {
   const today = kstToday();
-  const card = { id: generateId(), name, phone, birth_year: birth_year || null, how, note, stage: 'visit1', created_at: today,
+  const card = { id: generateId(), name, phone, how, note, stage: 'visit1', created_at: today,
     visits: [today], contact: null, registered_at: null, meets: [], settled_at: null, owner: null, person_id: null, position: 0 };
   write([...(read() || []), card]); emit();
   return card;
