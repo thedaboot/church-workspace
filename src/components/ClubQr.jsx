@@ -67,12 +67,20 @@ const shortUrl = (url) => {
 };
 
 export function ClubQrModal({ club, onClose }) {
+  const url = useMemo(() => `${window.location.origin}/s/c/${club.id}?apply=1`, [club.id]);
+  return <QrCardModal name={club.name} label="가입 신청 QR" url={url} short={shortUrl(url)} copied="신청 링크를 복사했어요" onClose={onClose} />;
+}
+
+// QR 카드 모달 한 벌 — 동아리 가입 신청(위)과 새가족·워크스페이스 가입 QR(components/joinQr.jsx · 0120)이 같이 쓴다.
+// header는 카드 위에 서는 것(가입 QR의 [새가족 | 기존 멤버] 토글).
+export function QrCardModal({ name, label, url, short, copied, header = null, onClose }) {
   const [mods, setMods] = useState(null);    // { n, dark: [[r, c], …] }
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const svgRef = useRef(null);
 
-  const url = useMemo(() => `${window.location.origin}/s/c/${club.id}?apply=1`, [club.id]);
+  // 짧은 주소 줄이 없으면 그 자리(아래 여백)만큼 카드를 줄인다 — QR 아래가 비어 보였다
+  const cardH = short ? CARD_H : CARD_H - 34;
   const module = useMemo(() => tokenColor('--app-night', MODULE_FALLBACK), []);
 
   // Esc로 닫는다(이 화면의 다른 팝오버·모달과 같은 규칙)
@@ -125,7 +133,7 @@ export function ClubQrModal({ club, onClose }) {
     const clone = svg.cloneNode(true);
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     clone.setAttribute('width', String(CARD_W));
-    clone.setAttribute('height', String(CARD_H));
+    clone.setAttribute('height', String(cardH));
     clone.removeAttribute('style');
     const xml = new XMLSerializer().serializeToString(clone);
     const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
@@ -137,24 +145,24 @@ export function ClubQrModal({ club, onClose }) {
     });
     const canvas = document.createElement('canvas');
     canvas.width = CARD_W * 2;
-    canvas.height = CARD_H * 2;
+    canvas.height = cardH * 2;
     const ctx = canvas.getContext('2d');
     // 투명 PNG로 나가면 카카오톡의 어두운 대화방에서 검은 종이에 검은 모듈이 된다
     ctx.fillStyle = PAPER;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     return new Promise((res) => canvas.toBlob(res, 'image/png'));
-  }, []);
+  }, [cardH]);
 
   const copy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(url);
-      showToast('신청 링크를 복사했어요');
+      showToast(copied);
     } catch (e) {
       console.error('[groups] 링크 복사 실패:', e);
       showToast(failText('링크를 복사하지 못했어요', { human: url }));
     }
-  }, [url]);
+  }, [url, copied]);
 
   // 카카오톡·공유 — 그림과 링크를 같이 보낼 수 있으면 그렇게, 아니면 링크만,
   // 공유 시트가 아예 없으면 복사한다(components/ShareButton.jsx와 같은 사다리).
@@ -165,7 +173,7 @@ export function ClubQrModal({ club, onClose }) {
       let file = null;
       try {
         const blob = await toPng();
-        if (blob) file = new File([blob], `${club.name} 가입 신청 QR.png`, { type: 'image/png' });
+        if (blob) file = new File([blob], `${name} ${label}.png`, { type: 'image/png' });
       } catch (e) {
         console.error('[groups] QR 그림을 만들지 못했어요:', e);
       }
@@ -191,40 +199,44 @@ export function ClubQrModal({ club, onClose }) {
     } finally {
       setBusy(false);
     }
-  }, [busy, toPng, url, club.name, copy]);
+  }, [busy, toPng, url, name, label, copy]);
 
   // **'이미지 저장' 버튼은 걷었다**(사용자 결정 2026-09-10 — "그냥 카카오톡에 공유
   // 버튼만 남겨줘 차라리"). 내려받기가 막힌 폰에서는 그 버튼이 공유 시트를 여는 것으로
   // 끝나서 위 '카카오톡·공유'와 같은 일을 두 번 하는 자리였다. 저장은 그 시트 안에 있다.
 
-  const size = nameSize(club.name);
+  const size = nameSize(name);
 
   return createPortal(
     <div className="club-qr-back fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/50 dc-scrim"
-      role="dialog" aria-modal="true" aria-label={`${club.name} 가입 신청 QR`}
+      role="dialog" aria-modal="true" aria-label={`${name} ${label}`}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="club-qr w-full max-w-[21rem] p-4 rounded-[14px] shadow-elevated dc-dialog"
         style={CARD_STYLE} onMouseDown={e => e.stopPropagation()}>
+        {header}
         {failed ? (
           <p className="club-qr-failed py-10 text-center text-[13px] text-fg-muted whitespace-pre-line">
             {'QR을 만들지 못했어요\n링크 복사로 보내 주세요'}
           </p>
         ) : (
-          <svg ref={svgRef} className="club-qr-card block mx-auto" viewBox={`0 0 ${CARD_W} ${CARD_H}`}
-            xmlns="http://www.w3.org/2000/svg" width={CARD_W} height={CARD_H}
+          <svg ref={svgRef} className="club-qr-card block mx-auto" viewBox={`0 0 ${CARD_W} ${cardH}`}
+            xmlns="http://www.w3.org/2000/svg" width={CARD_W} height={cardH}
             style={{ width: '100%', height: 'auto', maxWidth: `${CARD_W}px` }}
-            role="img" aria-label={`${club.name} 가입 신청 QR 코드`}>
-            <rect x="0" y="0" width={CARD_W} height={CARD_H} rx="14" fill={PAPER} />
+            role="img" aria-label={`${name} ${label} 코드`}>
+            <rect x="0" y="0" width={CARD_W} height={cardH} rx="14" fill={PAPER} />
             <text x={CARD_W / 2} y="50" textAnchor="middle" fontFamily={FONT}
-              fontSize={size} fontWeight="800" fill={INK}>{club.name}</text>
+              fontSize={size} fontWeight="800" fill={INK}>{name}</text>
             <text x={CARD_W / 2} y="72" textAnchor="middle" fontFamily={FONT}
-              fontSize="11.5" fontWeight="600" fill={INK_MUTED}>가입 신청 QR</text>
+              fontSize="11.5" fontWeight="600" fill={INK_MUTED}>{label}</text>
             <g transform={`translate(${(CARD_W - QR_BOX) / 2}, 88)`}>
               <rect x="0" y="0" width={QR_BOX} height={QR_BOX} fill={PAPER} />
               {!!path && <path d={path} fill={module} shapeRendering="crispEdges" />}
             </g>
-            <text x={CARD_W / 2} y="352" textAnchor="middle" fontFamily={FONT}
-              fontSize="10.5" fill={INK_MUTED}>{shortUrl(url)}</text>
+            {/* 짧은 주소 — 가입 QR은 적지 않는다(사용자 2026-10-21 · '링크 복사'가 있다) */}
+            {short && (
+              <text x={CARD_W / 2} y="352" textAnchor="middle" fontFamily={FONT}
+                fontSize="10.5" fill={INK_MUTED}>{short}</text>
+            )}
           </svg>
         )}
 

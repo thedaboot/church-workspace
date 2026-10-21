@@ -28,8 +28,12 @@ window.addEventListener('vite:preloadError', (e) => {
   location.reload();
 });
 
+// 새가족 QR이 여는 새가족 정보 입력 — 로그인 없이 그 한 장만 그린다(앱 셸·로그인을 거치지 않는다 · components/newcomerCard.jsx · 0120)
+const NewcomerCardPage = React.lazy(() => import('./components/newcomerCard.jsx').then(m => ({ default: m.NewcomerCardPage })));
+const welcome = new URLSearchParams(window.location.search).has('welcome');
+
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <ChurchApp />
+    {welcome ? <React.Suspense fallback={null}><NewcomerCardPage /></React.Suspense> : <ChurchApp />}
   </React.StrictMode>,
 );

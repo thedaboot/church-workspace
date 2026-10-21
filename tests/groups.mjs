@@ -1471,7 +1471,8 @@ check('종이를 감싸는 화면은 테마를 따라간다',
 // 교역자 여부는 명단 속성이라(people.is_pastor) 시드의 한 사람을 교역자로 세워 본다.
 await enter({ personId: 'p3', isMaster: false, isAdmin: true, roles: [] });
 const adminTabs = await ev(TABS);
-check('관리자에게는 순 편성 탭이 보인다', adminTabs === '내 순,동아리,순 편성', adminTabs);
+// 관리자·교역자·리더진에게는 '새가족' 탭도 선다(0120 · can_see_welcome — 자격 갈래는 tests/welcome.mjs)
+check('관리자에게는 순 편성 탭이 보인다', adminTabs === '내 순,동아리,순 편성,새가족', adminTabs);
 // 0045부터 이름·설명과 명단이 같은 경계다 — 관리자는 남의 동아리에 사람을 넣고 뺀다.
 // **신청 수락만 아직 마스터·동아리장이다**(0035 club_applications_update) — p3은 통통의
 // 리더가 아니므로 리더 도구는 서되 가입 신청 구역은 없어야 한다.
@@ -1494,7 +1495,7 @@ await enter({ personId: 'p2', isMaster: false, isAdmin: false, roles: [] }, 'lig
   `g.people = g.people.map(p => (p.id === 'p2' ? { ...p, is_pastor: true } : p));`);
 const pastorTabs = await ev(TABS);
 check('교역자에게 순 편성 탭이 보인다(0045에서 돌아왔다)',
-  pastorTabs === '내 순,동아리,순 편성', pastorTabs);
+  pastorTabs === '내 순,동아리,순 편성,새가족', pastorTabs);
 
 // ── 1-2-b) 딸린 섹션도 자리를 잡고 나온다 (사용자 지적 2026-09-03) ─────────
 // "공유된 노트·순모임 가이드가 뒤늦게 뚝 나타난다." 첫 진입에는 그 자리에 스켈레톤을
@@ -2298,7 +2299,7 @@ await ev(`${byText('목록으로')}.click()`); await sleep(500);
 // ── 5) 순 편성 (리더순장 — 마스터가 아니다) ─────────────────────────────────
 await enter({ personId: 'p3', isMaster: false, roles: ['lead_sunjang'] });
 const tabs = await ev(`[...document.querySelectorAll('.groups-tab')].map(t => t.textContent.trim())`);
-check('리더순장에게는 순 편성 탭이 보인다', JSON.stringify(tabs) === '["내 순","동아리","순 편성"]', JSON.stringify(tabs));
+check('리더순장에게는 순 편성 탭이 보인다', JSON.stringify(tabs) === '["내 순","동아리","순 편성","새가족"]', JSON.stringify(tabs));
 await tab('순 편성'); await sleep(800);
 const admin = await ev(`(() => ({
   open: !!document.querySelector('.sun-admin'),

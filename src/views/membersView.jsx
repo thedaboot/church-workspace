@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2, SquaresUnite, Ellipsis } from 'lucide-react';
+import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2, SquaresUnite, Ellipsis, QrCode } from 'lucide-react';
+import { JoinQrModal } from '../components/joinQr.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { usePopover } from '../hooks/usePopover.js';
@@ -202,6 +203,7 @@ function MemberMenu({ name, canMerge, busy = false, onMerge, farewellMessage, on
 
 export function MembersView({ isAdmin, isMaster, onNavigate }) {
   const [tab, setTab] = useState('account');
+  const [joinQr, setJoinQr] = useState(false);   // 가입 QR(components/joinQr.jsx)
   const hv = useHandover();
   const [rows, setRows] = useState(null);       // null = 아직 받는 중(또는 못 받음 — rowsError)
   // 가입자 목록을 못 받았다(D2) — 이 목록은 캐시가 없어서 실패하면 언제나 첫 읽기다. 빈 목록을
@@ -585,7 +587,16 @@ export function MembersView({ isAdmin, isMaster, onNavigate }) {
       <div className="flex items-center gap-2 pb-4">
         <Segmented className="flex p-[3px] rounded-md shrink-0" items={tabs} value={tab} onPick={setTab}
           btnClassName="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors" />
+        <span className="flex-1" />
+        {/* 가입 QR — 워크스페이스 가입이 기본(명단에 있는데 아직 계정이 없는 사람) · 새가족으로도 바꿔 볼 수 있다 */}
+        {tab === 'account' && (
+          <button type="button" onClick={() => setJoinQr(true)} data-join-qr-open=""
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-line bg-surface text-[11.5px] font-semibold text-fg hover:bg-surface-hover transition active:scale-95">
+            <QrCode size={13} /><span>가입 QR</span>
+          </button>
+        )}
       </div>
+      {joinQr && <JoinQrModal initial="member" onClose={() => setJoinQr(false)} />}
 
       {/* 탭을 바꾸면 그 내용이 살짝 들어온다(.dc-screen · §4.2 260ms). '청년 명단' 쪽은
           RosterPanel의 뿌리가 이미 .dc-screen이라 여기서 한 겹 더 씌우지 않는다. */}

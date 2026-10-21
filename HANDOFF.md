@@ -46,6 +46,16 @@
 
 ### 다음 할 일 (2026-10-21 · 여기부터 시작)
 
+- **v5 4묶음 첫 묶음 — 새가족(2026-10-21 · 사용자 승인 시안 `mock/b5` · **0120 라이브 적용**(리허설 ROLLBACK — anon·일반 청년·웰컴팀 세 역할) · main 반영 · 다음 번호 0121)**:
+  모임 > **새가족** 탭(웰컴팀 소속 · 리더진 · 교역자 · 마스터 — `can_see_welcome`) = 정착 보드. 칸 = 마친 일이고 칸 이름 = 버튼 이름(사용자 결정):
+  첫 방문 완료 → 재방문 완료 → 컨택 완료(누른 사람이 담당 · 되돌려 다시 누르면 바뀐다) → 등록 완료(명단에 새신자 · newcomer_at) → 교육 완료(새신자 교육 · 회차 목록 — 날짜 고치기·✕ 지우기)
+  → 배정 완료(순 고르기 → [배정 완료] · 순 편성과 같은 `group_members` · 정의자 함수 `welcome_assign_sun`) → 정착 완료. 보류는 보드 위 한 줄(늘 선다 — 끄기 시작할 때 세우면 보드가 밀린다).
+  끌기는 업무 보드와 한 벌(폰은 길게 눌러 위 라벨에). **새가족 QR** → `/?welcome=1` 로그인 없는 정보 입력(이름·연락처 · 유입 경로 · 하고 싶은 말 · 동의 · `submit_welcome_card` 10분 30장)
+  · **워크스페이스 가입 QR** → 앱 첫 화면(로그인 → 승인 대기 → 마스터가 명단과 잇기). 등록할 때 같은 이름이 명단에 있어도 잇지 않는다(§6-26 · 동명이인은 새 줄).
+  **확인을 기다리는 문구**(새로 생긴 것): 실패 토스트 `새가족 카드를 저장하지 못했어요` · `새신자로 등록하지 못했어요` · `순을 배정하지 못했어요`(+ 이유) · 읽기 실패 `새가족 카드를 받지 못했어요`
+  · 새가족 화면 `정보를 전송하지 못했어요. 잠시 뒤 다시 시도해 주세요.` · 성공 토스트 `OO님을 청년 명단에 새신자로 추가했어요` · 순 배정은 순 편성과 같은 `OO님을 OO순에 넣었어요`.
+  **사용자가 클라우드에서 볼 것**: 웰컴팀 계정으로 새가족 탭 · 폰으로 새가족 QR 찍어 정보 전송 → 보드 첫 칸 · 등록 → 명단 새신자 배지 · 순 배정 → 순 편성에 그 사람 · 일반 청년 계정에는 탭이 없는지.
+  남은 것: 영수증을 드라이브 모임 폴더에도(사용자 요청 2026-10-21 · 아래) · 행사 갈래 구성안.
 - **새신자 표시(2026-10-21 · main 반영 · 마이그레이션 없음 — 0119 그대로)**: 청년 명단 사람 입력 폼(PersonForm · 추가·수정 공용) 도구 줄 왼쪽에 '새신자' 칩 —
   켜면 오늘(KST), 끄면 null(껐다 켜면 원래 날짜). 켠 칩 글자 '새신자 · 10월 19일'(다른 해면 '2025년 3월 2일'). 명단 줄에도 '새신자' 배지(연한 accent · 직분 배지 맨 끝).
   **배지는 온 날부터 석 달만**(사용자 결정 2026-10-21 — 석 달 지나도 남아 있으면 새신자로 안 보이게). **값은 지우지 않는다** — 연말 보고가 그해 새신자를 이 칸으로 센다
@@ -412,7 +422,11 @@ src/components/meetingReportForm.jsx 동아리 활동 보고서 작성 화면(01
 src/components/clubReportBoard.jsx 모임 > 동아리 '보고서 현황'(0117 · 마스터·총무 · 상태 셋 · 지급할 지원금 · 모임마다 지급 체크)
 src/components/groupsParts.jsx (v2) 모임 공용 — CARD/BTN/FIELD·NEW_H·DATE_TRIGGER·CARD_STYLE(예배·동아리 만들기가 같이 쓴다) · PersonPick·MenuPick(§6-9-an·33-a) · useSettled(§6-9-ad) · 읽기 실패 자리 FailTail·FailLeft(D2 · §6-24-g)
 src/components/segmented.jsx  회색 토글 한 벌(Segmented · segStyle) — 앱의 회색 토글 전부(대시보드·프로젝트·명단 연도·멤버·말씀·성경 칸·글자 크기·모임·예배 종류·공유 토글 · 칸 속성은 items 셋째 값) · 새로 손으로 그리지 않는다
-src/components/ClubQr.jsx     (v2) 동아리 신청 QR 카드(§6-29-z-7)
+src/components/ClubQr.jsx     (v2) QR 카드 모달 한 벌(QrCardModal) — 동아리 신청 QR(§6-29-z-7) · 가입 QR 두 갈래(joinQr)
+src/components/joinQr.jsx     가입 QR — [새가족 | 워크스페이스 가입](0120) · 모임 > 새가족 탭 머리 · 멤버 > 가입자 탭 머리
+src/components/welcomeBoard.jsx 모임 > '새가족' 탭 정착 보드(0120 · 업무 보드와 한 벌의 끌기·칸·폰 라벨 · 보류 줄 · 업무 창과 같은 껍데기의 카드 창 · 순 고르기 → 배정 완료)
+src/components/newcomerCard.jsx 새가족 정보 입력(`/?welcome=1` · 로그인 없이 그 한 장 · main.jsx · 로그인 화면과 한 벌의 모양 · 전송 뒤 로고 FLIP)
+src/services/welcome.js       새가족 카드 저장(0120 · 먼저 화면에 → DB · 등록·순 배정·정보 받기는 정의자 함수) · 순수 갈래 stagePatch 등 — tests/welcome
 src/views/views.jsx           MyTasksView / TeamView / ScheduleView(`행사 | 업무`) + DashboardView·ProjectView 재수출
 src/views/dashboardView.jsx   전체 대시보드(KPI · 마감 목록 · 프로젝트 진행 · 폰 세 탭)
 src/views/projectView.jsx     프로젝트 화면(헤더 · 참고 링크 · 보기 전환 · 팀 칩) — 없는 프로젝트 가드는 모든 훅 **아래**(19차에 고친 훅 순서 버그)
@@ -433,7 +447,7 @@ src/views/worshipView.jsx     (v2) 예배 — 주보 목록 → 상세/작성/�
 src/views/wordView.jsx        (v2) 말씀 — [QT | 성경 읽기] · QtTab(useQtNote · afterWrite · useNoteDraft) · 내 묵상은 저장하면 종이(§6-32-p·19-b·19-b-1) · 재수출(mergeFeed·canDeleteShared)
 src/views/shareFeed.jsx       QT 나눔 피드(사람 칩 한 줄 + 종이 하나) · mergeFeed · canDeleteShared · 뼈대는 실제 종이와 같은 높이
 src/views/grass.jsx           내 기록 잔디 · 그 달 묵상 줄 목록
-src/views/groupsView.jsx      (v2) 모임 — 내 순 · 동아리 · 순 편성
+src/views/groupsView.jsx      (v2) 모임 — 내 순 · 동아리 · 순 편성 · 새가족(웰컴팀·리더진·교역자·마스터 · 0120)
 src/views/wikiView.jsx        위키 — 왼쪽 장 목록 | 물어보기·장(블록 모양마다 그리기 · ✎ 수정 · 고친 줄 겹침) · 폰은 첫 화면 → 장(‹ 위키) · 늦게 싣는다(0088)
 src/components/dabooti.jsx    다붓이 입구(상단 알약·폰 얼굴·위키 안 칸) · 물어보기 판(칩 · 말풍선 · 근거 칩 · 파일 카드 · 👍/👎) · 효과는 index.css `dab-*`
 src/services/wikiCore.js      위키·다붓이 순수 모듈(import 0 · 서버와 한 벌) — 함께 쓰는 글 초안 · 거르기(prefilter) · 고친 줄 겹치기 · 근거 없는 문장 버리기 — logcheck

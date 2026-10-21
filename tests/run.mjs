@@ -24,7 +24,7 @@ const ORDER = [
   'mdcheck', 'bibleref', 'sunguide', 'sheet', 'office', 'drivesync', 'assignees', 'push', 'aictx', 'coedit',
   'errhunt', 'handoff',
   'navsmoke', 'onebar', 'mobbits', 'bottomgap', 'modalclose',
-  'home', 'worship', 'word', 'groups', 'roster', 'wiki',
+  'home', 'worship', 'word', 'groups', 'roster', 'welcome', 'wiki',
   'batch10', 'batch11', 'dashfix', 'wide', 'traces',
   'share', 'onboard', 'three', 'v5a', 'themefit', 'calfit', 'drag', 'dragdesk',
 ];
