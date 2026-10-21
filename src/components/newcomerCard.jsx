@@ -94,7 +94,7 @@ export function NewcomerCardPage() {
         ) : (
           <div style={fade}>
             <h1 className="text-xl font-bold text-[#2b2833] tracking-[-0.25px] mb-2 text-center">처음 오셨나요?</h1>
-            <p className="text-sm text-[#6b6675] mb-7 leading-relaxed text-center">정보를 남겨 주시면<br />웰컴팀이 연락드릴게요.</p>
+            <p className="text-sm text-[#6b6675] mb-7 leading-relaxed text-center">정보를 남겨 주시면<br />더다붓 웰컴팀이 연락드릴게요.</p>
 
             <div className="bg-white/80 backdrop-blur-md border border-[#dcd8dc] rounded-xl p-5 shadow-elevated space-y-4">
               <label className="block">

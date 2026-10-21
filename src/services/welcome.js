@@ -157,6 +157,11 @@ export function reorder(list) {
   write(loadCards().map(c => (pos.has(c.id) ? { ...c, position: pos.get(c.id) } : c))); emit();
 }
 export const markContacted = (id, by) => patch(id, c => ({ contact: { by, at: kstToday() }, owner: c.owner || by, stage: 'contact' }));
+// 잘못 누른 교육 기록을 지운다(사용자 2026-10-21 — "횟수를 조절 못 하네"). 다 지우면 교육 완료 칸에서 등록 완료 칸으로 돌아간다
+export const removeMeet = (id, at) => patch(id, c => {
+  const meets = c.meets.filter((_, i) => i !== at);
+  return { meets, ...(meets.length === 0 && c.stage === 'meet' ? { stage: 'register' } : {}) };
+});
 export const addMeet = (id) => patch(id, c => ({ meets: [...c.meets, kstToday()], stage: c.stage === 'register' ? 'meet' : c.stage }));
 
 // 카드 한 줄 아래 말(다음에 할 일 · 사용자 문구 2026-10-21)

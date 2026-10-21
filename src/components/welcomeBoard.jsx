@@ -391,7 +391,7 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
   const doneText = {
     visit1: md(c.visits[0]), visit2: md(c.visits[1]),
     contact: c.contact ? `${md(c.contact.at)} · ${c.contact.by}` : '',
-    register: md(c.registered_at), meet: c.meets.length ? `${c.meets.length}번 · ${md(c.meets[c.meets.length - 1])}` : '',
+    register: md(c.registered_at), meet: c.meets.length ? `${c.meets.length}회 · ${md(c.meets[c.meets.length - 1])}` : '',
     sun: sun?.name || '', settled: md(c.settled_at),
   };
   const leaderName = (g) => people.find(p => p.id === g.leader_person_id)?.name || '';
@@ -478,6 +478,25 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
                 );
               })}
             </ol>
+
+            {/* 새신자 교육 기록 — 회차마다 한 줄 · 잘못 누른 것은 ✕로 지운다(늘리기는 바닥 줄 [교육 완료]) */}
+            {c.meets.length > 0 && (
+              <div data-welcome-meets="">
+                <h4 className="mt-5 mb-1.5 text-[12px] font-bold text-fg-muted">새신자 교육</h4>
+                <div className="border border-line rounded-lg p-1.5">
+                  {c.meets.map((d, i) => (
+                    <div key={`${d}-${i}`} className="flex items-center gap-2.5 pl-2 pr-1 h-9 rounded-md hover:bg-surface-hover transition-colors">
+                      <span className="text-[12.5px] font-semibold text-fg tabular-nums">{i + 1}회차</span>
+                      <span className="ml-auto text-[11.5px] text-fg-muted tabular-nums">{md(d)}</span>
+                      <button type="button" onClick={() => W.removeMeet(c.id, i)} aria-label={`${i + 1}회차 교육 기록 지우기`} data-meet-remove={i}
+                        className="w-7 h-7 rounded-md flex items-center justify-center text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {showSuns && (
               <div ref={sunRef} data-welcome-suns="">
