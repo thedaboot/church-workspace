@@ -156,7 +156,8 @@ export function reorder(list) {
   const pos = new Map(list.map(x => [x.id, x.position]));
   write(loadCards().map(c => (pos.has(c.id) ? { ...c, position: pos.get(c.id) } : c))); emit();
 }
-export const markContacted = (id, by) => patch(id, c => ({ contact: { by, at: kstToday() }, owner: c.owner || by, stage: 'contact' }));
+// 컨택 완료 = 누른 사람이 담당이 된다(사용자 2026-10-21 — 단계를 되돌려 다른 사람이 다시 누르면 그 사람으로 바뀐다)
+export const markContacted = (id, by) => patch(id, () => ({ contact: { by, at: kstToday() }, owner: by, stage: 'contact' }));
 // 잘못 누른 교육 기록을 지운다(사용자 2026-10-21 — "횟수를 조절 못 하네"). 다 지우면 교육 완료 칸에서 등록 완료 칸으로 돌아간다
 export const removeMeet = (id, at) => patch(id, c => {
   const meets = c.meets.filter((_, i) => i !== at);
