@@ -1644,6 +1644,857 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
 // ① 긴 첫 줄은 줄 안에서 말줄임 — 업무 창 어디에도 가로 스크롤이 없다
 // ② 펼친 동안은 안쪽을 자르지 않는다(얼굴·밝히기 그림자) · 접으면 높이 0 + visibility:hidden + 안을 뗀다
 // ③ 같은 틱에 두 번 눌러도 · transitionend가 안 와도 같은 끝 · ④ 움직임 줄이기면 바로
+// **되돌리기**: Fold.jsx의 시간 끝내기(setTimeout)를 지우고 finished를 막으면 ③이(안이 남는다), index.css의
+// .dc-fold[data-fold='closed'] display:none을 지우면 ②·③·④의 접힌 끝이 깨진다(68-d). 움직임은 height만이다(68-e · 아이폰 화면 녹화).
+{
+  const LONG = '수련회 둘째 날 저녁 집회 뒤 소그룹 나눔 자리 배치표를 조장들과 한 번 더 맞추고 바뀐 명단을 미디어팀에 넘기기 '.repeat(3).trim();
+  await seedOne(baseTask('e1', { title: '쪼개기 확인', content: '다듬기 전 본문',
+    subtasks: [{ id: 's1', title: '짧은 일', done: true, assignee: '노준석' }, { id: 's2', title: LONG, done: true, assignee: '노준석, 조해리' }],
+    comments: Array.from({ length: 4 }, (_, k) => ({ id: 'ec' + k, author: '조해리', text: '확인 부탁해요 ' + k, timestamp: '2026-08-02T00:00:00Z', parentId: null })),
+    activityLog: Array.from({ length: 4 }, (_, k) => ({ id: 'ea' + k, action: '상태를 진행 중으로 변경했습니다.', author: '노준석', timestamp: '2026-08-01T00:00:00Z' })) }));
+  await ev(`document.querySelector('.board-card').click()`); await sleep(900);
+  // ② 보기 화면의 하위 업무 얼굴
+  const faces = await ev(`(() => { const row = [...document.querySelectorAll('.fixed.z-50 .subtask-row')][1]; if (!row) return null;
+    const fs = [...row.querySelectorAll('span.flex.items-center.shrink-0 > *')].map(e => { const r = e.getBoundingClientRect(); return { l: r.left, w: r.width, ring: getComputedStyle(e).boxShadow !== 'none' }; });
+    return { n: fs.length, w: fs.map(f => f.w), step: fs.length > 1 ? Math.round(fs[1].l - fs[0].l) : null, ring: fs.map(f => f.ring) }; })()`);
+  check('② 하위 업무 줄의 얼굴 쌓기: 21px · 6px 겹침(15px 간격) · 둘째부터 고리',
+    !!faces && faces.n === 2 && faces.w.every(w => Math.round(w) === 21) && faces.step === 15 && !faces.ring[0] && faces.ring[1], JSON.stringify(faces));
+  // ④ 뼈대 — 게스트는 상세를 읽지 않아 뼈대가 서지 않는다. 같은 패널 자리에 ListSkeleton을 직접 그려 실제 줄과 잰다
+  // (앱과 같은 react 주소를 main.jsx에서 읽어 같은 인스턴스로 그린다)
+  const renderSkel = (kind) => ev(`(async () => {
+    const main = await (await fetch('/src/main.jsx')).text();
+    const reactUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)?.[1];
+    const clientUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)?.[1];
+    if (!reactUrl || !clientUrl) return null;
+    // 미리 묶은 의존성은 CJS를 감싼 것이라 default에 들어 있다
+    const R = await import(reactUrl), C = await import(clientUrl);
+    const React = R.default ?? R, createRoot = (C.default ?? C).createRoot;
+    const { ListSkeleton } = await import('/src/modals/comments.jsx');
+    const box = [...document.querySelectorAll('.fixed.z-50 .flex-1.overflow-y-auto.p-4')].find(b => b.offsetParent);
+    if (!box) return null;
+    document.getElementById('skel-host')?.remove();
+    const host = document.createElement('div'); host.id = 'skel-host'; box.appendChild(host);
+    createRoot(host).render(React.createElement(ListSkeleton, { kind: ${JSON.stringify(kind)}, rows: 3 }));
+    await new Promise(r => setTimeout(r, 300));
+    const rows = [...host.querySelectorAll('[data-skel-row]')].map(e => e.getBoundingClientRect());
+    host.remove();
+    return rows.length === 3 ? { pitch: rows[2].top - rows[1].top, h1: rows[1].height } : null;
+  })()`, true);
+  const realComment = await ev(`(() => { const rows = [...document.querySelectorAll('.fixed.z-50 .divide-y > div.py-3')].filter(r => r.querySelector('.comment-stamp')).map(e => e.getBoundingClientRect());
+    return rows.length >= 3 ? { pitch: rows[2].top - rows[1].top, h1: rows[1].height } : null; })()`);
+  const skelComment = await renderSkel('comment');
+  check('④ 댓글 뼈대 한 줄 높이 ≈ 실제 댓글 한 줄(±4px)', !!realComment && !!skelComment && Math.abs(realComment.pitch - skelComment.pitch) <= 4 && Math.abs(realComment.h1 - skelComment.h1) <= 4,
+    JSON.stringify({ realComment, skelComment }));
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '활동')?.click()`); await sleep(400);
+  const realAct = await ev(`(() => { const rows = [...document.querySelectorAll('.fixed.z-50 .space-y-4.relative > div.relative.flex')].map(e => e.getBoundingClientRect());
+    return rows.length >= 3 ? { pitch: rows[2].top - rows[1].top, h1: rows[1].height } : null; })()`);
+  const skelAct = await renderSkel('activity');
+  check('④ 활동 뼈대 한 줄 높이 ≈ 실제 활동 한 줄(±4px)', !!realAct && !!skelAct && Math.abs(realAct.pitch - skelAct.pitch) <= 4 && Math.abs(realAct.h1 - skelAct.h1) <= 4,
+    JSON.stringify({ realAct, skelAct }));
+  // ① 수정 화면 — 끝낸 줄의 이름은 글자(span)라 긴 제목이 줄 폭을 다 쓴다
+  await enterEdit();
+  const trash = await ev(`(() => { const rows = [...document.querySelectorAll('.fixed.z-50 .subtask-row')]; if (rows.length < 2) return null;
+    const at = (row) => { const t = row.querySelector('button[aria-label$=" 삭제"]')?.getBoundingClientRect(); const c = row.querySelector('button[aria-pressed]')?.getBoundingClientRect();
+      return t && c ? { x: Math.round(t.left), dy: Math.round(Math.abs((t.top + t.height / 2) - (c.top + c.height / 2))), h: Math.round(row.getBoundingClientRect().height) } : null; };
+    return { short: at(rows[0]), long: at(rows[1]) }; })()`);
+  check('① 긴 하위 업무의 휴지통이 짧은 줄과 같은 x · 체크와 같은 줄(다음 줄로 떨어지지 않는다)',
+    !!trash?.short && !!trash?.long && trash.long.x === trash.short.x && trash.long.dy <= 2 && trash.long.h > trash.short.h, JSON.stringify(trash));
+  // ③ 수정 화면의 다듬기 — AiService.polishText를 바꿔 끼운다(같은 모듈 주소 · 게스트에는 AI가 없다)
+  const polishWith = (text) => ev(`(async () => { const m = await import('/src/services/ai.js'); window.__polishOrig ??= m.AiService.polishText;
+    m.AiService.polishText = async () => ${JSON.stringify(text)}; return true; })()`, true);
+  const bodyNow = () => ev(`(() => { const t = document.querySelector('.fixed.z-50 .tiptap'); return t ? t.textContent : null; })()`);
+  const hasUndo = () => ev(`!!${byLabel('되돌리기')}`);
+  await polishWith('다듬은 본문');
+  await ev(`${byLabel('AI 문맥 다듬기')}?.click()`); await sleep(500);
+  const live1 = { body: await bodyNow(), undo: await hasUndo() };
+  await ev(`${byLabel('되돌리기')}?.click()`); await sleep(500);
+  const live2 = { body: await bodyNow(), undo: await hasUndo() };
+  await polishWith('AI 기능은 로그인 후 사용할 수 있어요.');
+  await ev(`${byLabel('AI 문맥 다듬기')}?.click()`); await sleep(500);
+  const live3 = { body: await bodyNow(), undo: await hasUndo() };
+  check("③ 수정 화면: 다듬은 글이 서고 '되돌리기'로 원래 글 · 안내 문구는 본문에 안 들어간다",
+    /다듬은 본문/.test(live1.body || '') && live1.undo && /다듬기 전 본문/.test(live2.body || '') && !live2.undo && /다듬기 전 본문/.test(live3.body || '') && !live3.undo,
+    JSON.stringify({ live1, live2, live3 }));
+  await ev(`${byLabel('닫기')}.click()`); await sleep(400);
+  // ③ 새 업무 폼의 다듬기
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(900);
+  await ev(`(() => { const t = document.querySelector('.fixed.z-50 .tiptap'); t?.focus(); })()`); await sleep(100);
+  await send('Input.insertText', { text: '새 업무 본문' }); await sleep(300);
+  await polishWith('다듬은 새 본문');
+  await ev(`${byLabel('AI 문맥 다듬기')}?.click()`); await sleep(500);
+  const form1 = { body: await bodyNow(), undo: await hasUndo() };
+  await ev(`${byLabel('되돌리기')}?.click()`); await sleep(500);
+  const form2 = { body: await bodyNow(), undo: await hasUndo() };
+  check("③ 새 업무 폼: 다듬은 글이 서고 '되돌리기'로 원래 글",
+    /다듬은 새 본문/.test(form1.body || '') && form1.undo && /새 업무 본문/.test(form2.body || '') && !form2.undo, JSON.stringify({ form1, form2 }));
+  await ev(`(async () => { const m = await import('/src/services/ai.js'); if (window.__polishOrig) m.AiService.polishText = window.__polishOrig; })()`, true);
+}
+
+
+// ── 업무 잠금(0099 · 20차 ⑨ · 사용자 결정 2026-10-13) ────────────────────────────────────────────
+// 게스트는 로컬 해시로 같은 흐름(viewPw.js — 서버는 0099 함수). 지키는 것:
+//   ① 자물쇠 버튼은 만든 사람에게만 · 공유 바로 왼쪽 · 얼굴 묶음은 머리줄 안에 온전히(잘리거나 버튼과 겹치지 않는다 — 1440·375)
+//   ② 팝오버 `업무 잠그기` · 두 칸이 비었거나 다르면 그 칸이 흔들리고(.dc-shake) 빨간 테두리 · 토스트 없음
+//   ③ 잠그면 버튼이 눌린 모양 · 만든 사람에게는 본문이 그대로
+//   ④ 다른 사람 화면에서 잠기면 본문이 흐려지며 판으로 접힌다(data-lock-phase=closing) → 잠금 판(`이 업무는 현재 잠겨있어요` · `입력`) ·
+//      `수정`·댓글 사이드바·자물쇠 버튼 없음 · 틀리면 흔들림 · 맞히면 판이 걷힌다(opening) → 본문
+//   ⑤ 움직임 줄이기면 판이 즉시 바뀌고(data-lock-phase 없음) 흔들림 애니메이션이 none · 게스트도 1분에 5번
+// **되돌리기**: LockGate에서 phase를 안 세우면 ④가, CardLockButton의 lockFormError 검사를 빼면 ②가, modals의 isMine 조건을 빼면 ④의
+// '자물쇠 버튼 없음'이 깨진다.
+{
+  const LOCKED_SRC = '잠기는 본문 — 임원진 후보 명단';
+  // 바로 앞 묶음이 새 업무 폼에 글을 친 채로 끝난다 — 그대로 떠나면 beforeunload 확인 창에 걸려 멈춘다. 묻는 쪽으로 닫는다.
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(250);
+  await ev(`${byLabel('무시하고 닫기')}?.click()`); await sleep(300);
+  await seedOne(baseTask('k1', { title: '잠글 업무', content: LOCKED_SRC }));
+  await ev(`window.__coeditFake = [[11, { user: { id: 'me', name: '노준석', color: '#2f6fb5' } }], [12, { user: { id: 'u2', name: '조해리', color: '#c0392b' } }], [14, { user: { id: 'u3', name: '정민경', color: '#8e44ad' } }]]`);
+  const HEAD = `(() => { const m = document.querySelector('.fixed.z-50'); if (!m) return null;
+    const head = m.querySelector('[data-coedit-faces]')?.parentElement?.parentElement; const f = m.querySelector('[data-coedit-faces]');
+    const lock = m.querySelector('[data-card-lock-btn]'); const share = m.querySelector('button[title*="공유"]');
+    if (!head || !f) return { faces: !!f, lock: !!lock };
+    const H = head.getBoundingClientRect(), F = f.getBoundingClientRect(), K = lock?.getBoundingClientRect(), S = share?.getBoundingClientRect();
+    const kids = [...f.children].map(k => k.getBoundingClientRect());
+    return { lock: !!lock, pressed: lock?.getAttribute('aria-pressed'), inHead: F.left >= H.left - 0.5 && F.right <= H.right + 0.5,
+      faceW: kids.map(r => Math.round(r.width)), facesBeforeLock: !!K && F.right <= K.left + 0.5, lockBeforeShare: !!K && !!S && K.right <= S.left + 0.5,
+      shrink: getComputedStyle(f).flexShrink, noScroll: head.scrollWidth <= head.clientWidth + 1 }; })()`;
+  for (const [w, h, mobile] of [[1440, 900, false], [375, 760, true]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile });
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=k1' }); await wait('Page.loadEventFired'); await sleep(1400);
+    await ev(`window.__coeditFake = [[11, { user: { id: 'me', name: '노준석', color: '#2f6fb5' } }], [12, { user: { id: 'u2', name: '조해리', color: '#c0392b' } }], [14, { user: { id: 'u3', name: '정민경', color: '#8e44ad' } }]]`);
+    if (!(await isOpen())) { await ev(`document.querySelector('.board-card')?.click()`); await sleep(800); }
+    else { await ev(`${byLabel('닫기')}?.click()`); await sleep(400); await ev(`document.querySelector('.board-card')?.click()`); await sleep(800); }
+    const hd = await ev(HEAD);
+    check(`잠금 ① ${w}: 자물쇠는 만든 사람에게 · 공유 왼쪽 · 얼굴 묶음(셋)은 머리줄 안에 통째로 · 버튼과 안 겹친다`,
+      !!hd && hd.lock && hd.pressed === 'false' && hd.inHead && hd.facesBeforeLock && hd.lockBeforeShare && hd.shrink === '0'
+      && hd.faceW?.length === 3 && hd.faceW.every(x => x === 22) && hd.noScroll, JSON.stringify(hd));
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1300);
+  await ev(`delete window.__coeditFake`);
+  await openCard();
+  // ② 팝오버 — 비었을 때 · 다를 때
+  await ev(`document.querySelector('.fixed.z-50 [data-card-lock-btn]').click()`); await sleep(300);
+  const FIELD = (k) => `(() => { const i = document.querySelector('[data-card-lock-pop] [data-lock-field="${k}"]'); if (!i) return null;
+    return { bad: i.getAttribute('aria-invalid'), shake: i.classList.contains('dc-shake'), border: getComputedStyle(i).borderTopColor,
+      red: getComputedStyle(document.documentElement).getPropertyValue('--app-tag-red-fg').trim() }; })()`;
+  const pop = await ev(`(() => { const p = document.querySelector('[data-card-lock-pop]'); if (!p) return null;
+    return { text: p.innerText.replace(/\\s+/g, ' ').trim(), labels: [...p.querySelectorAll('label')].map(l => l.firstChild.textContent.trim()),
+      buttons: [...p.querySelectorAll('button')].map(b => b.textContent.trim()) }; })()`);
+  check("잠금 ② 팝오버: '업무 잠그기' · '비밀번호' · '비밀번호 확인' · 취소/잠그기(안 잠겼으면 '잠금 해제' 없음)",
+    !!pop && pop.text.startsWith('업무 잠그기') && JSON.stringify(pop.labels) === '["비밀번호","비밀번호 확인"]' && JSON.stringify(pop.buttons) === '["취소","잠그기"]', JSON.stringify(pop));
+  // 테두리 색은 0.15초 전환(transition-colors)이라 그 뒤에 잰다
+  await ev(`document.querySelector('[data-lock-submit]').click()`); await sleep(300);
+  const empty = await ev(FIELD('pw'));
+  const typeIn = async (k, text) => { await ev(`document.querySelector('[data-card-lock-pop] [data-lock-field="${k}"]').focus()`); await send('Input.insertText', { text }); await sleep(60); };
+  await typeIn('pw', '1234'); await typeIn('confirm', '9999');
+  await ev(`document.querySelector('[data-lock-submit]').click()`); await sleep(300);
+  const diff = await ev(FIELD('confirm'));
+  const toRgb = (hex) => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
+  check('잠금 ② 비밀번호가 비었으면 첫 칸 · 두 칸이 다르면 확인 칸이 흔들리고 빨간 테두리',
+    !!empty && empty.bad === 'true' && empty.shake && !!diff && diff.bad === 'true' && diff.shake && diff.border === toRgb(diff.red), JSON.stringify({ empty, diff }));
+  check('잠금 ② 토스트 없음 · 판은 열린 채', !(await ev(`!!document.querySelector('[data-toast]')`)) && await ev(`!!document.querySelector('[data-card-lock-pop]')`));
+  // ③ 맞게 넣고 잠그기
+  await ev(`(() => { const i = document.querySelector('[data-card-lock-pop] [data-lock-field="confirm"]'); i.select(); })()`);
+  await send('Input.insertText', { text: '1234' }); await sleep(80);
+  await ev(`document.querySelector('[data-lock-submit]').click()`); await sleep(600);
+  const locked = await ev(`(() => { const t = window.__store.getState().tasks.byId.k1; const m = document.querySelector('.fixed.z-50');
+    return { locked: t.locked, open: t.lockedOpen, hash: !!t.lockPw?.view_pw, pop: !!document.querySelector('[data-card-lock-pop]'),
+      pressed: m.querySelector('[data-card-lock-btn]')?.getAttribute('aria-pressed'), body: m.querySelector('[data-view-body]')?.textContent || '',
+      panel: !!m.querySelector('[data-lock-panel]'), stored: JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.k1.locked }; })()`);
+  check('잠금 ③ 잠그면 버튼이 눌린 모양 · 만든 사람에게는 본문 그대로 · 로컬에 해시', !!locked && locked.locked && locked.open && locked.hash && !locked.pop
+    && locked.pressed === 'true' && locked.body.includes(LOCKED_SRC) && !locked.panel && locked.stored === true, JSON.stringify(locked));
+  // 다시 열면 '잠금 해제'가 선다
+  await ev(`document.querySelector('.fixed.z-50 [data-card-lock-btn]').click()`); await sleep(300);
+  check("잠금 ③ 잠긴 뒤 팝오버에 '잠금 해제'", await ev(`!!document.querySelector('[data-card-lock-pop] [data-lock-release]')`));
+  await ev(`${byLabel('취소')}?.click()`); await sleep(200);
+  // ④ 다른 사람이 만든 업무로 바꾸고(나에게 안 열림) — 열린 창에서 잠긴다
+  await ev(`window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'k1', author: '조해리', lockedOpen: false } })`);
+  await sleep(60);
+  const closing = await ev(`(() => { const g = document.querySelector('.fixed.z-50 [data-lock-phase]'); return g ? { phase: g.dataset.lockPhase,
+    blur: !!g.querySelector('.dc-lock-blur-out'), veil: !!g.querySelector('.dc-lock-veil-in'), shut: !!g.querySelector('.dc-lock-shut') } : null; })()`);
+  check('잠금 ④ 잠기는 순간 본문이 흐려지며 판이 접혀 들어온다(closing · 고리 닫힘)', !!closing && closing.phase === 'closing' && closing.blur && closing.veil && closing.shut, JSON.stringify(closing));
+  await sleep(600);
+  const shut = await ev(`(() => { const m = document.querySelector('.fixed.z-50'); const p = m.querySelector('[data-lock-panel]');
+    return { phase: !!m.querySelector('[data-lock-phase]'), panel: p ? p.innerText.replace(/\\s+/g, ' ').trim() : null, enter: !!p?.querySelector('[data-lock-enter]'),
+      placeholder: p?.querySelector('input')?.placeholder, body: !!m.querySelector('[data-view-body]'), leak: m.innerText.includes(${JSON.stringify(LOCKED_SRC)}),
+      edit: [...m.querySelectorAll('button')].some(b => b.textContent.trim() === '수정'), lockBtn: !!m.querySelector('[data-card-lock-btn]'),
+      cmtInput: !!m.querySelector('textarea[placeholder*="댓글"]'), title: m.querySelector('[data-task-view] h2')?.textContent }; })()`);
+  check("잠금 ④ 잠금 판: '이 업무는 현재 잠겨있어요' · 비밀번호 칸 + '입력' · 제목은 보이고 본문·수정·댓글 칸·자물쇠 버튼은 없다",
+    !!shut && !shut.phase && shut.panel === '이 업무는 현재 잠겨있어요 입력 비밀번호를 까먹었어요' && shut.enter && shut.placeholder === '비밀번호' && !shut.body && !shut.leak
+    && !shut.edit && !shut.lockBtn && !shut.cmtInput && shut.title === '잠글 업무', JSON.stringify(shut));
+  const tryPw = async (text) => {
+    await ev(`(() => { const i = document.querySelector('.fixed.z-50 [data-lock-field="unlock"]'); i.focus(); i.select(); })()`);
+    await send('Input.insertText', { text }); await sleep(60);
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+    await sleep(150);
+  };
+  await tryPw('0000');
+  const wrong = await ev(`(() => { const i = document.querySelector('.fixed.z-50 [data-lock-field="unlock"]'); return i ? { bad: i.getAttribute('aria-invalid'), shake: i.classList.contains('dc-shake'),
+    panel: !!document.querySelector('.fixed.z-50 [data-lock-panel]'), toast: !!document.querySelector('[data-toast]') } : null; })()`);
+  check('잠금 ④ 틀리면 칸이 흔들리고 빨간 테두리 · 판 그대로 · 토스트 없음', !!wrong && wrong.bad === 'true' && wrong.shake && wrong.panel && !wrong.toast, JSON.stringify(wrong));
+  await tryPw('1234');
+  const opening = await ev(`(() => { const g = document.querySelector('.fixed.z-50 [data-lock-phase]'); return g ? { phase: g.dataset.lockPhase,
+    blurIn: !!g.querySelector('.dc-lock-blur-in'), veilOut: !!g.querySelector('.dc-lock-veil-out'), lift: !!g.querySelector('.dc-lock-lift') } : null; })()`);
+  check('잠금 ④ 맞히면 고리가 올라가며 판이 걷히고 본문이 또렷해진다(opening)', !!opening && opening.phase === 'opening' && opening.blurIn && opening.veilOut && opening.lift, JSON.stringify(opening));
+  await sleep(600);
+  const opened = await ev(`(() => { const m = document.querySelector('.fixed.z-50'); return { panel: !!m.querySelector('[data-lock-panel]'),
+    body: m.querySelector('[data-view-body]')?.textContent || '', open: window.__store.getState().tasks.byId.k1.lockedOpen,
+    stored: JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.k1.lockedOpen }; })()`);
+  await sleep(400);
+  const storedOpen = await ev(`JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.k1.lockedOpen`);
+  check('잠금 ④ 열린 뒤 본문 · 그 계정은 계속 열림(저장)', !opened.panel && opened.body.includes(LOCKED_SRC) && opened.open && storedOpen === true, JSON.stringify({ opened, storedOpen }));
+  // ⑤ 움직임 줄이기 — 즉시 · 흔들림 none · 게스트도 1분 5회
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await sleep(100);
+  await ev(`window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'k1', lockedOpen: false } })`);
+  await sleep(40);
+  const rm = await ev(`({ phase: !!document.querySelector('.fixed.z-50 [data-lock-phase]'), panel: !!document.querySelector('.fixed.z-50 [data-lock-panel]') })`);
+  await tryPw('0000');
+  const rmShake = await ev(`(() => { const i = document.querySelector('.fixed.z-50 [data-lock-field="unlock"]'); return { cls: i.classList.contains('dc-shake'), anim: getComputedStyle(i).animationName, bad: i.getAttribute('aria-invalid') }; })()`);
+  check('잠금 ⑤ 움직임 줄이기: 판이 곧바로 바뀌고 흔들림은 none(빨간 테두리는 그대로)', !rm.phase && rm.panel && rmShake.cls && rmShake.anim === 'none' && rmShake.bad === 'true', JSON.stringify({ rm, rmShake }));
+  for (const p of ['0001', '0002', '0003', '0004']) await tryPw(p);   // 앞의 0000 둘 + 넷 = 1분에 여섯 번째부터 막힌다
+  await tryPw('1234');
+  const capped = await ev(`({ panel: !!document.querySelector('.fixed.z-50 [data-lock-panel]'), open: window.__store.getState().tasks.byId.k1.lockedOpen })`);
+  check('잠금 ⑤ 1분에 5번 넘게 틀리면 맞는 비밀번호도 안 받는다(서버와 같은 흐름)', capped.panel && !capped.open, JSON.stringify(capped));
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  // ⑥ 비밀번호를 까먹었어요(0106 · v5 B) — 확인 → 요청이 그 업무에 남고 '개발자에게 요청했어요' · 게스트는 마스터이기도 해서
+  //    보기 위 한 줄 + '새 비밀번호 설정' → 두 칸 → 토스트 '새 비밀번호를 설정했어요' · 요청이 걷힌다.
+  // **되돌리기**: modals의 askReset을 null로 두면 '버튼', LockResetNotice 줄을 빼면 '마스터 한 줄', resetPw의 lockReset: null을 빼면 '걷힌다'가 깨진다.
+  await ev(`document.querySelector('.fixed.z-50 [data-lock-forgot]')?.click()`); await sleep(350);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '요청하기')?.click()`); await sleep(400);
+  const asked = await ev(`(() => { const m = document.querySelector('.fixed.z-50'); const t = window.__store.getState().tasks.byId.k1;
+    return { asked: m.querySelector('[data-lock-forgot-asked]')?.textContent.trim() || null, btn: !!m.querySelector('[data-lock-forgot]'), by: t.lockReset?.by || null,
+      notice: m.querySelector('[data-lock-reset-ask]')?.innerText.replace(/\\s+/g, ' ').trim() || null }; })()`);
+  check("잠금 ⑥ 요청하면 '개발자에게 요청했어요' · 그 업무에 누가 · 마스터에게 보기 위 한 줄",
+    asked.asked === '개발자에게 요청했어요' && !asked.btn && asked.by === '노준석' && !!asked.notice?.startsWith('노준석님이 비밀번호를 다시 설정해 달라고 요청했어요'), JSON.stringify(asked));
+  const oldHash = await ev(`window.__store.getState().tasks.byId.k1.lockPw?.view_pw`);
+  await ev(`document.querySelector('.fixed.z-50 [data-lock-reset-open]')?.click()`); await sleep(350);
+  const rpop = await ev(`(() => { const p = document.querySelector('[data-card-lock-pop]'); return p ? { title: p.firstElementChild?.textContent.trim(), buttons: [...p.querySelectorAll('button')].map(b => b.textContent.trim()) } : null; })()`);
+  check("잠금 ⑥ '새 비밀번호 설정' → 잠그기와 같은 두 칸 · 취소/설정", !!rpop && rpop.title === '새 비밀번호 설정' && JSON.stringify(rpop.buttons) === '["취소","설정"]', JSON.stringify(rpop));
+  await ev(`document.querySelector('[data-card-lock-pop] [data-lock-field="pw"]')?.focus()`); await send('Input.insertText', { text: '5678' }); await sleep(60);
+  await ev(`document.querySelector('[data-card-lock-pop] [data-lock-field="confirm"]')?.focus()`); await send('Input.insertText', { text: '5678' }); await sleep(60);
+  await ev(`document.querySelector('[data-card-lock-pop] [data-lock-submit]')?.click()`); await sleep(600);
+  const reset = await ev(`(() => { const t = window.__store.getState().tasks.byId.k1;
+    return { toast: [...document.querySelectorAll('[data-toast]')].map(x => x.textContent).join('|'), req: t.lockReset || null, hash: t.lockPw?.view_pw || null,
+      notice: !!document.querySelector('.fixed.z-50 [data-lock-reset-ask]'), forgot: !!document.querySelector('.fixed.z-50 [data-lock-forgot]') }; })()`);
+  check("잠금 ⑥ 설정하면 토스트 '새 비밀번호를 설정했어요' · 해시가 바뀌고 요청·한 줄이 걷힌다 · 버튼이 다시 선다",
+    reset.toast.includes('새 비밀번호를 설정했어요') && !reset.req && !!reset.hash && reset.hash !== oldHash && !reset.notice && reset.forgot, JSON.stringify({ ...reset, oldHash }));
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(300);
+}
+
+// ── 반응형 점검 후속(2026-10-14 · PITFALLS 49-c·49-d) ─────────────────────────────────────────
+// ① 보기에서 본문이 비면 120px 자리를 잡지 않는다(칸과 첨부 사이 빈 띠) — 본문이 있으면 그대로 120px.
+//    **되돌리기**: modals.jsx TaskView 본문 통을 늘 `min-h-[120px]`로 두면 첫 줄이 깨진다.
+// ② 첨부 사진 미리보기(1440×900)의 넘김 필 '1 / N'이 사진 아래 끝을 덮지 않는다 — 앱과 같은 react로 FilePreviewModal을 직접 그린다.
+//    **되돌리기**: FilePreviewModal 미리보기 칸의 `pb-14 md:pb-14`를 걷으면 필이 사진 위로 올라와 깨진다.
+{
+  await seedOne(baseTask('v0', { title: '빈 본문 보기', content: '' }));
+  await openCard();
+  const emptyBody = await ev(`(() => { const b = document.querySelector('.fixed.z-50 [data-view-body]'); return b ? Math.round(b.getBoundingClientRect().height) : null; })()`);
+  await ev(`window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'v0', content: '한 줄 본문' } })`); await sleep(300);
+  const fullBody = await ev(`(() => { const b = document.querySelector('.fixed.z-50 [data-view-body]'); return b ? Math.round(b.getBoundingClientRect().height) : null; })()`);
+  check('① 보기: 빈 본문은 120px 자리를 잡지 않는다 · 본문이 있으면 120px 그대로', emptyBody !== null && emptyBody < 40 && fullBody >= 120, JSON.stringify({ emptyBody, fullBody }));
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(300);
+
+  const pager = await ev(`(async () => {
+    const main = await (await fetch('/src/main.jsx')).text();
+    const reactUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)?.[1];
+    const clientUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)?.[1];
+    if (!reactUrl || !clientUrl) return null;
+    const R = await import(reactUrl), C = await import(clientUrl);
+    const React = R.default ?? R, createRoot = (C.default ?? C).createRoot;
+    const { FilePreviewModal } = await import('/src/components/FilePreviewModal.jsx');
+    // 창보다 가로로 긴 사진 — 칸 높이를 꽉 채우는 쪽(그림 아래 끝이 칸 아래 끝)이라 필과 겹치기 쉽다
+    const cv = document.createElement('canvas'); cv.width = 1400; cv.height = 1000;
+    const g = cv.getContext('2d'); g.fillStyle = '#2a6fb0'; g.fillRect(0, 0, 1400, 1000);
+    // 올리는 중인 첨부 모양(source 'local' · _file + _url) — 받으러 가지 않고 그 파일로 그린다
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+    const url = URL.createObjectURL(blob);
+    const rows = [0, 1, 2].map(i => ({ id: 'img' + i, name: 'photo' + i + '.png', mime_type: 'image/png', source: 'local', _file: blob, _url: url, size_bytes: blob.size }));
+    const host = document.createElement('div'); host.id = 'pv-host'; document.body.appendChild(host);
+    const root = createRoot(host);
+    root.render(React.createElement(FilePreviewModal, { row: rows[0], rows, onClose: () => {} }));
+    await new Promise(r => setTimeout(r, 1200));
+    const label = [...document.querySelectorAll('span')].find(s => /^1 \\/ 3$/.test(s.textContent.trim()));
+    const pill = label?.closest('.rounded-full');
+    const img = [...document.querySelectorAll('[data-zoom-layer] img')].find(i => i.getBoundingClientRect().height > 0);
+    const out = pill && img ? { pillTop: Math.round(pill.getBoundingClientRect().top), imgBottom: Math.round(img.getBoundingClientRect().bottom), imgH: Math.round(img.getBoundingClientRect().height) }
+      : { pill: !!pill, img: !!img, imgs: [...document.querySelectorAll('[data-zoom-layer] img')].map(i => [i.complete, Math.round(i.getBoundingClientRect().height), i.src.slice(0, 30)]), layer: document.querySelector('[data-zoom-layer]')?.outerHTML.slice(0, 300) };
+    root.unmount(); host.remove();
+    return out;
+  })()`, true);
+  check('② 사진 미리보기(1440×900): 넘김 필이 사진 아래 끝을 덮지 않는다', !!pager && pager.imgH > 300 && pager.pillTop >= pager.imgBottom, JSON.stringify(pager));
+}
+
+// ── 미리보기 — 실패 카드 '다시 시도'(C9) · PDF는 화면 가까운 쪽만 그리고 '3 / 7' 알약(C11) (2026-10-15 · UX 다듬기 2차 · PITFALLS 60-d·60-e) ──
+// 앱과 같은 react로 FilePreviewModal을 직접 그린다(위 ②와 같은 길).
+// ① 드라이브 PDF를 게스트에서 열면 받기가 실패한다(로그인 토큰이 없다) — 실패 카드 위 그림은 'PDF' 글자 칩(48px) · '다시 시도'(accent)와
+//    '새 탭에서 열기'(옅은 버튼) · 다시 시도는 실제로 다시 받는다(실패 경고가 한 번 더). 그리기 실패(깨진 PDF 바이트)에는 '다시 시도'가 없다.
+// ② 60쪽 PDF — 쪽마다 자리는 다 깔리고(스크롤 높이) 캔버스는 화면 가까운 몇 장뿐 · 가운데로 내리면 그 쪽이 그려지고 첫 쪽은 빈 자리로 돌아간다 ·
+//    내리는 동안 알약 'N / 60'이 바닥에서 24px · 멎고 1.2초 뒤 걷힌다. 예전에는 50쪽에서 끊고 알약이 없었다.
+// 되돌리기: FilePreviewModal Fallback의 onRetry 갈래를 지우면 ①이, PdfView를 앞 판(다 그리고 50쪽 상한)으로 돌리면 ②가 깨진다.
+{
+  const pv = await ev(`(async () => {
+    const main = await (await fetch('/src/main.jsx')).text();
+    const reactUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)?.[1];
+    const clientUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)?.[1];
+    if (!reactUrl || !clientUrl) return null;
+    const R = await import(reactUrl), C = await import(clientUrl);
+    const React = R.default ?? R, createRoot = (C.default ?? C).createRoot;
+    const { FilePreviewModal } = await import('/src/components/FilePreviewModal.jsx');
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const until = async (fn, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = fn(); if (v) return v; await sleep(80); } return null; };
+    const warns = []; const ow = console.warn, oe = console.error;
+    console.warn = (...a) => { warns.push(String(a[0])); }; console.error = () => {};
+    const host = document.createElement('div'); document.body.appendChild(host);
+    const root = createRoot(host);
+    const out = {};
+    try {
+      // ① 받기 실패 → 종류 칩 · 다시 시도 · 옅은 새 탭
+      const row = { id: 'pdf-drive', name: '26.10.04 청년콘티.pdf', mime_type: 'application/pdf', source: 'drive', drive_file_id: 'abcdefghijklmnop', web_view_link: 'https://drive.google.com/file/d/x/view' };
+      root.render(React.createElement(FilePreviewModal, { row, rows: [row], onClose: () => {} }));
+      const btnOf = (t) => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === t);
+      await until(() => btnOf('다시 시도'));
+      const chipEl = document.querySelector('[data-kind-chip="pdf"]');
+      const chip = chipEl ? { t: chipEl.textContent.trim(), w: Math.round(chipEl.getBoundingClientRect().width) } : null;
+      const again = btnOf('다시 시도'), ext = btnOf('새 탭에서 열기');
+      const fails0 = warns.filter(w => w.includes('미리보기 실패')).length;
+      again?.click();
+      await sleep(900);
+      out.fail = { chip,
+        againAccent: !!again && / bg-accent /.test(' ' + again.className + ' '), extSoft: !!ext && /bg-accent-weak/.test(ext.className),
+        fails0, fails1: warns.filter(w => w.includes('미리보기 실패')).length, againBack: !!btnOf('다시 시도') };
+      // 그리기 실패(깨진 바이트) — 다시 시도 없음 · 새 탭은 진한 버튼 그대로
+      const bad = new Blob(['not a pdf at all'], { type: 'application/pdf' });
+      const broken = { id: 'pdf-bad', name: 'broken.pdf', mime_type: 'application/pdf', source: 'local', _file: bad, size_bytes: bad.size };
+      root.render(React.createElement(FilePreviewModal, { key: 'b', row: broken, rows: [broken], onClose: () => {} }));
+      await until(() => document.body.innerText.includes('그릴 수 없어요'), 15000);
+      await sleep(300);
+      out.draw = { retry: !!btnOf('다시 시도'), ext: !!btnOf('새 탭에서 열기') };
+
+      // ② 60쪽 PDF(쪽마다 'Page N')
+      const mkPdf = (n) => {
+        const NL = String.fromCharCode(10);
+        const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+        const kids = [];
+        for (let i = 0; i < n; i++) {
+          kids.push((4 + i * 2) + ' 0 R');
+          const c = 'BT /F1 48 Tf 100 700 Td (Page ' + (i + 1) + ') Tj ET';
+          objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ' + (5 + i * 2) + ' 0 R >>');
+          objs.push('<< /Length ' + c.length + ' >>' + NL + 'stream' + NL + '' + c + '' + NL + 'endstream');
+        }
+        objs[1] = '<< /Type /Pages /Kids [' + kids.join(' ') + '] /Count ' + n + ' >>';
+        let s = '%PDF-1.4' + NL + ''; const offs = [];
+        objs.forEach((o, k) => { offs.push(s.length); s += (k + 1) + ' 0 obj' + NL + '' + o + '' + NL + 'endobj' + NL + ''; });
+        const x = s.length;
+        s += 'xref' + NL + '0 ' + (objs.length + 1) + '' + NL + '0000000000 65535 f ' + NL + '' + offs.map(o => String(o).padStart(10, '0') + ' 00000 n ' + NL + '').join('');
+        s += 'trailer' + NL + '<< /Size ' + (objs.length + 1) + ' /Root 1 0 R >>' + NL + 'startxref' + NL + '' + x + '' + NL + '%%EOF';
+        return new Blob([s], { type: 'application/pdf' });
+      };
+      const blob = mkPdf(60);
+      const doc = { id: 'pdf-60', name: '60쪽.pdf', mime_type: 'application/pdf', source: 'local', _file: blob, size_bytes: blob.size };
+      root.render(React.createElement(FilePreviewModal, { key: 'p', row: doc, rows: [doc], onClose: () => {} }));
+      const layer = await until(() => { const l = document.querySelector('[data-zoom-layer]'); return l && l.querySelector('canvas') && l.parentElement.className.indexOf('opacity-0') < 0 ? l : null; }, 15000);
+      if (!layer) return { ...out, pdf: 'no-layer' };
+      await sleep(600);
+      const box = layer.parentElement;
+      const canvases = () => layer.querySelectorAll('canvas').length;
+      out.first = { slots: layer.children.length, canvases: canvases(), scrollH: box.scrollHeight, clientH: box.clientHeight,
+        page1: layer.children[0]?.tagName, pill: !!document.querySelector('[data-pdf-page]') };
+      // 가운데(30쪽)로
+      const target = layer.children[29];
+      box.scrollTop = target.offsetTop - 40;
+      box.dispatchEvent(new Event('scroll'));
+      await until(() => layer.children[29]?.tagName === 'CANVAS', 8000);
+      await sleep(500);
+      const pill = document.querySelector('[data-pdf-page]');
+      const pr = pill?.getBoundingClientRect(), wr = box.parentElement.getBoundingClientRect();
+      out.mid = { p30: layer.children[29]?.tagName, p1: layer.children[0]?.tagName, canvases: canvases(),
+        pillText: pill?.textContent.trim(), pillOpacity: pill ? getComputedStyle(pill).opacity : null,
+        pillGap: pr ? Math.round(wr.bottom - pr.bottom) : null };
+      await sleep(1900);
+      out.later = { pillOpacity: pill ? getComputedStyle(pill).opacity : null };
+    } finally {
+      console.warn = ow; console.error = oe;
+      root.unmount(); host.remove();
+    }
+    return out;
+  })()`, true);
+  const f = pv?.fail || {};
+  check('미리보기 실패(받기): PDF 글자 칩 48px · 다시 시도(accent) + 새 탭에서 열기(옅은) · 다시 시도가 다시 받는다',
+    f.chip?.t === 'PDF' && f.chip?.w === 48 && f.againAccent && f.extSoft && f.fails1 === f.fails0 + 1 && f.againBack, JSON.stringify(pv?.fail ?? pv));
+  check('미리보기 실패(그리기): 다시 시도 없이 새 탭에서 열기만', pv?.draw && !pv.draw.retry && pv.draw.ext, JSON.stringify(pv?.draw ?? pv));
+  const a = pv?.first || {}, b = pv?.mid || {}, c = pv?.later || {};
+  check('PDF 60쪽: 쪽 자리는 다 깔리고 캔버스는 화면 가까운 몇 장뿐(50쪽 상한 없음)',
+    a.slots === 60 && a.canvases >= 1 && a.canvases <= 12 && a.scrollH > a.clientH * 20 && a.page1 === 'CANVAS', JSON.stringify(pv?.first ?? pv));
+  check('PDF 60쪽: 가운데로 내리면 그 쪽을 그리고 멀어진 첫 쪽은 빈 자리로 돌린다',
+    b.p30 === 'CANVAS' && b.p1 === 'DIV' && b.canvases <= 12, JSON.stringify(b));
+  check("PDF 쪽 알약: 내리는 동안 'N / 60'이 바닥에서 24px · 멎고 1.2초 뒤 걷힌다",
+    /^(29|30|31) \/ 60$/.test(b.pillText || '') && Number(b.pillOpacity) > 0.9 && Math.abs((b.pillGap ?? 0) - 24) <= 1 && Number(c.pillOpacity) < 0.05,
+    JSON.stringify({ b, c }));
+}
+
+// ── 폰 키보드 · 뒤로가기 · 닫은 뒤 초점 (2026-10-14 점검 · PITFALLS 47-a~d) ──────────────────────────────
+// 키보드는 visualViewport 높이만 줄여 흉내 낸다(PITFALLS 42-g — 레이아웃 뷰포트는 그대로라 아이폰과 같다).
+// 되돌리기 검사: App.jsx caretGap의 스크롤 통 자르기를 빼면 ①이, index.css `.cmt-input` 비키기를 빼면 ①(SE 폭)이,
+// MarkdownEditor 멘션 목록을 예전 `top: 커서 + 4`로 두면 ②가, openTaskModal의 push를 빼면 ③이, modals.jsx의 Esc 효과를 빼면 ④가 깨진다.
+{
+  const kbOn = (h) => ev(`(() => { const H = ${h}; Object.defineProperty(visualViewport, 'height', { configurable: true, get: () => H }); visualViewport.dispatchEvent(new Event('resize')); return H; })()`);
+  const kbOff = () => ev(`(() => { delete visualViewport.height; visualViewport.dispatchEvent(new Event('resize')); return true; })()`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 2, mobile: true });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await ev(readFileSync(join(import.meta.dirname, 'seed.js'), 'utf8'));
+  // 멘션 후보를 여덟 명 더 — 목록이 커서 아래(키보드 위) 남은 자리보다 길어야 위/아래 고르기를 잰다
+  await ev(`(() => { const s = JSON.parse(localStorage.getItem('church_app_v4')); ['노아','노을','노현','노민','노지','노경','노태','노하은'].forEach((n, i) => { const t = s.tasks.byId['t' + (10 + i)]; if (t) t.assignees = [n]; }); localStorage.setItem('church_app_v4', JSON.stringify(s)); })()`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
+  await wait('Page.loadEventFired');
+  await sleep(1500);
+  await send('Page.bringToFront');
+  // ① 답글 칸 — 키보드가 올라오면 칸·취소·답글 버튼이 통째로 키보드와 아래 댓글 입력 칸 위에
+  await ev(`document.querySelectorAll('.board-card')[1].click()`); await sleep(900);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => /^댓글/.test(b.textContent.trim()))?.click()`); await sleep(500);
+  await ev(`(() => { const b = [...document.querySelectorAll('.fixed.z-50 button')].filter(x => x.textContent.trim() === '답글'); b[b.length - 1]?.click(); })()`); await sleep(600);
+  await ev(`document.querySelector('.fixed.z-50 [data-kb-keep] textarea')?.focus()`); await sleep(150);
+  await kbOn(367);
+  await sleep(1000);
+  const reply = await ev(`(() => {
+    const t = document.querySelector('.fixed.z-50 [data-kb-keep] textarea');
+    if (!t) return { found: false };
+    const box = t.closest('[data-cmt-box]').getBoundingClientRect();
+    const btns = [...t.closest('[data-kb-keep]').querySelectorAll('button')].map(b => b.getBoundingClientRect());
+    const r = t.getBoundingClientRect();
+    const low = Math.min(box.bottom, visualViewport.height);
+    const input = document.querySelector('.fixed.z-50 .cmt-input');
+    return { found: true, top: Math.round(r.top), boxTop: Math.round(box.top), btnBottom: Math.round(Math.max(...btns.map(b => b.bottom))), low: Math.round(low),
+      inputHidden: !input || getComputedStyle(input).display === 'none' };
+  })()`);
+  check('키보드: 답글 칸·취소·답글 버튼이 통째로 보인다(목록 통 바닥 · 보이는 창 안 · 375×367)',
+    reply.found && reply.top >= reply.boxTop && reply.btnBottom <= reply.low && reply.inputHidden, JSON.stringify(reply));
+  await kbOff(); await ev(`document.activeElement.blur()`); await sleep(400);
+  const inputBack = await ev(`(() => { const i = document.querySelector('.fixed.z-50 .cmt-input'); return !!i && getComputedStyle(i).display !== 'none'; })()`);
+  check('키보드가 내려가면 아래 댓글 입력 칸이 돌아온다', inputBack);
+  // ② 본문 편집기의 @멘션 목록 — 키보드가 떠 있으면 커서 위로 연다(보이는 창 안)
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '상세')?.click()`); await sleep(300);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '수정')?.click()`); await sleep(1500);
+  await ev(`(() => { const e = document.querySelector('.fixed.z-50 [contenteditable=true]'); e.focus(); const s = getSelection(); s.selectAllChildren(e); s.collapseToEnd(); })()`);
+  await sleep(150);
+  await kbOn(367); await sleep(800);
+  await send('Input.insertText', { text: ' @노' }); await sleep(700);
+  const ment = await ev(`(() => {
+    const l = [...document.querySelectorAll('.max-h-48')].find(e => e.getBoundingClientRect().height > 0);
+    const s = getSelection(); const c = s.rangeCount ? s.getRangeAt(0).getBoundingClientRect() : null;
+    if (!l || !c) return { found: !!l, caret: !!c };
+    const r = l.getBoundingClientRect();
+    return { found: true, top: Math.round(r.top), bottom: Math.round(r.bottom), caretTop: Math.round(c.top), vh: visualViewport.height, left: Math.round(r.left), right: Math.round(r.right), vw: innerWidth };
+  })()`);
+  check('키보드: 본문 @멘션 목록은 커서 위로 열리고 보이는 창 안이다',
+    ment.found && ment.bottom <= ment.caretTop + 1 && ment.top >= 0 && ment.bottom <= ment.vh && ment.left >= 0 && ment.right <= ment.vw, JSON.stringify(ment));
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await kbOff(); await sleep(300);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '수정 완료')?.click()`); await sleep(500);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '닫기')?.click()`); await sleep(700);
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+
+  // ③ 뒤로가기는 업무 창을 닫는다 — 앱 안에서 연 창만 한 자리 · 닫기 버튼은 그 자리를 걷는다 · 딥링크는 그대로
+  const hist = () => ev(`({ url: location.pathname + location.search, len: history.length, tagged: !!history.state?.taskModal, open: !!document.querySelector('.fixed.z-50'),
+    focus: document.activeElement?.classList?.contains('board-card') || false })`);
+  // 못 찾아도 던지지 않는다(PITFALLS 40 — 되돌리기 검사에서 창이 안 닫힌 채 남으면 카드가 없다)
+  const openWithFocus = () => ev(`(() => { const c = document.querySelectorAll('.board-card')[1]; c?.focus(); c?.click(); })()`);
+  const h0 = await hist();
+  await openWithFocus(); await sleep(800);
+  const h1 = await hist();
+  await ev(`history.back()`); await sleep(800);
+  const h2 = await hist();
+  check('뒤로가기: 앱 안에서 연 업무 창은 history 한 자리 · 뒤로가기는 창만 닫는다',
+    !h0.open && h1.open && h1.tagged && !h2.open && !h2.tagged && h2.url === h0.url, JSON.stringify({ h0, h1, h2 }));
+  // ③-b 뒤로가기도 ✕처럼 걷히며 닫힌다(2026-10-15 · PITFALLS 60-g) — 창에 .dc-out이 붙었다가 내린다 · 움직임 줄이기면 곧바로(.dc-out 없이).
+  //      되돌리기: App onPop의 '✕ 누르기'를 예전 곧바로 내리기로 돌리면 첫 단정(out)이 깨진다.
+  const watchOut = `(() => { window.__outSeen = false; window.__outMo?.disconnect();
+    window.__outMo = new MutationObserver(() => { if (document.querySelector('[data-task-modal] .dc-out')) window.__outSeen = true; });
+    window.__outMo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] }); return true; })()`;
+  await openWithFocus(); await sleep(800);
+  await ev(watchOut);
+  await ev(`history.back()`); await sleep(90);
+  const b1 = { open: await ev(`!!document.querySelector('.fixed.z-50')`) };
+  await sleep(700);
+  const b2 = { ...(await hist()), out: await ev('window.__outSeen') };
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await openWithFocus(); await sleep(800);
+  await ev(watchOut);
+  await ev(`history.back()`); await sleep(90);
+  const b3 = { ...(await hist()), out: await ev('window.__outSeen') };
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  await ev('window.__outMo?.disconnect()');
+  check('뒤로가기도 걷히며 닫힌다(.dc-out 뒤에 내림 · 자리·주소 그대로) · 움직임 줄이기면 곧바로',
+    b1.open && b2.out && !b2.open && !b2.tagged && b2.url === h0.url && !b3.open && !b3.out && b3.url === h0.url, JSON.stringify({ b1, b2, b3 }));
+  await openWithFocus(); await sleep(800);
+  const h3 = await hist();
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(800);
+  const h4 = await hist();
+  await openWithFocus(); await sleep(800);
+  const h5 = await hist();
+  check('닫기 버튼은 창 자리를 뒤로 걷는다(다시 열어도 자리가 쌓이지 않는다) · 닫으면 연 카드로 초점',
+    h3.len === h1.len && !h4.open && !h4.tagged && h4.url === h0.url && h4.focus && h5.len === h1.len, JSON.stringify({ h3, h4, h5 }));
+  // ④ 보기 화면 Esc(하드웨어 키보드) — 창을 닫고 · 떠 있는 판이 있으면 그 판만
+  await ev(`document.querySelector('.fixed.z-50 [title="업무 삭제"]')?.click()`); await sleep(400);
+  const esc = async () => { await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }); await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }); await sleep(500); };
+  const popUp = await ev(`document.body.innerText.includes('이 업무를 삭제할까요?')`);
+  await esc();
+  const afterPop = await ev(`({ open: !!document.querySelector('.fixed.z-50'), pop: document.body.innerText.includes('이 업무를 삭제할까요?') })`);
+  await esc();
+  const h6 = await hist();
+  check('보기 화면 Esc: 떠 있는 확인 판만 먼저 닫고, 다음 Esc가 창을 닫는다(자리도 걷는다 · 카드로 초점)',
+    popUp && afterPop.open && !afterPop.pop && !h6.open && !h6.tagged && h6.focus, JSON.stringify({ popUp, afterPop, h6 }));
+  // 딥링크로 들어온 창은 자리를 남기지 않는다(뒤로가기는 들어오기 전 페이지로)
+  const tid = await ev(`JSON.parse(localStorage.getItem('church_app_v4')).tasks.allIds[1]`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=p1&t=${tid}` });
+  await wait('Page.loadEventFired');
+  await sleep(1500);
+  const d0 = await hist();
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(600);
+  const d1 = await hist();
+  check('딥링크로 연 창은 자리를 남기지 않고, 닫으면 주소만 고친다',
+    d0.open && !d0.tagged && !d1.open && d1.len === d0.len && d1.url === '/?p=p1', JSON.stringify({ d0, d1 }));
+  // ⑤ 새 업무 폼도 한 자리 — 뒤로가기는 ✕와 같은 확인을 연다(2026-10-15 · PITFALLS 55-a). 예전에는 자리가 없어 뒤로가기가
+  // 묻지 않고 폼을 닫고 앞 화면으로 나가 적던 것이 사라졌다. 되돌리기: openTaskModal의 `!modalOpenRef.current` 앞에 `task?.id &&`를
+  // 되살리면 n1.tagged가, onPop의 새 업무 갈래를 지우면 n4(묻기)가 깨진다.
+  const asking = `document.body.innerText.includes('저장하지 않은 내용이 있어요')`;
+  const n0 = await hist();
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(800);
+  const n1 = await hist();
+  await ev(`history.back()`); await sleep(800);
+  const n2 = await hist();
+  check('새 업무 폼(빈 채)도 한 자리 · 뒤로가기는 묻지 않고 창만 닫는다(화면 그대로)',
+    !n0.open && n1.open && n1.tagged && !n2.open && !n2.tagged && n2.url === n0.url, JSON.stringify({ n0, n1, n2 }));
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(800);
+  await setTitle('적다 만 업무'); await sleep(200);
+  const n3 = await hist();
+  await ev(`history.back()`); await sleep(800);
+  const n4 = { ...(await hist()), asking: await ev(asking), title: await ev(`document.querySelector('input[name="title"]')?.value || ''`) };
+  check('적은 것이 있으면 뒤로가기가 ✕와 같은 확인을 연다 — 창·글은 그대로 · 자리도 다시 선다',
+    n3.tagged && n4.open && n4.asking && n4.tagged && n4.title === '적다 만 업무' && n4.url === n0.url, JSON.stringify({ n3, n4 }));
+  await ev(`history.back()`); await sleep(800);
+  const n5 = { ...(await hist()), asking: await ev(asking) };
+  check('확인이 떠 있는 채 또 뒤로가기 — 확인은 그대로(✕ 토글로 닫히지 않는다)', n5.open && n5.asking && n5.tagged, JSON.stringify(n5));
+  await ev(`${byLabel('무시하고 닫기')}?.click()`); await sleep(900);
+  const n6 = { ...(await hist()), asking: await ev(asking) };
+  check("'무시하고 닫기'는 창과 그 자리를 같이 걷는다(쌓이지 않는다)",
+    !n6.open && !n6.tagged && !n6.asking && n6.url === n0.url && n6.len === n1.len, JSON.stringify({ n1, n6 }));
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+}
+
+// ── UX 다듬기 α (2026-10-15 · PITFALLS 54) — 댓글로 열기 · 쓰던 글 · 자라는 칸 · 삭제 되돌리기 · 토스트 두 자리 · 키보드 ──────────
+// ① 댓글에만 걸린 검색 결과를 고르면 그 댓글을 보며 연다 — 데스크톱은 접어 둔 댓글 칸을 펴고(접은 기억은 그대로) · 접힌 '이전 댓글'도 펴서
+//    그 댓글을 칸 안에 세우고 잠깐 밝힌다 · 폰은 댓글 탭으로
+// ② 쓰던 댓글·답글은 탭을 옮겨도 · 창을 닫았다 열어도 남고 · 등록하면 지워진다
+// ③ 댓글 칸은 글을 따라 자라고 여섯 줄을 넘으면 칸 안에서 구른다
+// ④ 업무 삭제 → 화면에서 바로 빠지고 '되돌리기' 토스트 · 그냥 토스트가 와도 되돌리기가 남는다 · 되돌리면 그대로 돌아온다
+// ⑤ '/'는 찾기 칸으로(업무 창이 떠 있으면 아니다) · 새 업무 제목의 Enter는 본문으로 · Ctrl+Enter는 만들기
+// 되돌리기 검사: modals.jsx '댓글로 열기'의 setSideOpen(true)를 지우면 ①이, comments.jsx CommentInput의 draftOf 초기값을 ''로 두면 ②가,
+// useAutoGrow의 높이 줄을 지우면 ③이, Toast.jsx emit을 한 자리(setAct만)로 되돌리면 ④가, searchBox의 '/' 효과를 지우면 ⑤가 깨진다.
+{
+  const cmts = Array.from({ length: 13 }, (_, k) => ({ id: 'x' + k, author: k % 2 ? '조해리' : '노준석',
+    text: k === 1 ? '오래된 고유어찾기 댓글이에요' : '보통 댓글 ' + k, timestamp: `2026-08-${String(2 + k).padStart(2, '0')}T00:00:00Z`, parentId: null }));
+  const T = (id, title, extra = {}) => ({ id, projectId: 'p1', title, content: '본문', status: '진행 중', assignees: ['노준석'], teams: ['찬양팀'],
+    startDate: '', dueDate: '2026-09-01', position: 1, author: '노준석', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
+    comments: [], activityLog: [], attachments: [], ...extra });
+  const st = { currentUser: { name: '노준석', team: '임원진' },
+    projects: { byId: { p1: { id: 'p1', title: 'UX 프로젝트', pinnedLinks: [], year: 2026 } }, allIds: ['p1'] },
+    tasks: { byId: { u1: T('u1', '댓글 많은 업무', { comments: cmts }), u2: T('u2', '지울 업무', { position: 2 }) }, allIds: ['u1', 'u2'] } };
+  const load = async (w, h, mobile) => {
+    await send('Emulation.setTouchEmulationEnabled', { enabled: !!mobile, maxTouchPoints: mobile ? 5 : 1 });
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: mobile ? 2 : 1, mobile: !!mobile });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))}); localStorage.setItem('task_side_closed', '1')`);
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+    await sleep(1300);
+  };
+  const key = async (k, extra = {}) => {
+    const base = { key: k, code: extra.code || k, windowsVirtualKeyCode: extra.vk || 0, modifiers: extra.modifiers || 0 };
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
+    if (extra.text) await send('Input.dispatchKeyEvent', { type: 'char', ...base, text: extra.text });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  };
+  const FOCUSED = `(() => { const m = document.querySelector('.fixed.z-50'); const box = m?.querySelector('[data-cmt-box]');
+    const el = box?.querySelector('[data-comment-id="x1"]'); if (!el) return { found: false };
+    const b = box.getBoundingClientRect(), r = el.getBoundingClientRect();
+    const side = box.closest('.shrink-0.overflow-hidden');
+    return { found: true, inView: r.top >= b.top - 1 && r.bottom <= b.bottom + 1, flash: el.hasAttribute('data-flash'),
+      sideW: side ? Math.round(side.getBoundingClientRect().width) : null, tab: [...m.querySelectorAll('button')].find(x => /border-accent/.test(x.className) && /^댓글/.test(x.textContent.trim()))?.textContent.trim() || null }; })()`;
+
+  // ① 데스크톱 — 댓글 칸을 접어 둔 채로 찾기
+  await load(1440, 900, false);
+  await ev(`(() => { const i = document.querySelector('input[placeholder="프로젝트나 업무를 검색해봐요!"]'); i.focus(); })()`);
+  await send('Input.insertText', { text: '고유어찾기' }); await sleep(700);
+  await ev(`[...document.querySelectorAll('.z-\\\\[80\\\\] button')].find(b => /댓글 많은 업무/.test(b.textContent))?.click()`);
+  await sleep(1100);
+  const d1 = await ev(FOCUSED);
+  const kept = await ev(`localStorage.getItem('task_side_closed')`);
+  check('댓글에 걸린 검색 결과(데스크톱): 접어 둔 댓글 칸이 펴지고 · 접힌 이전 댓글 속 그 댓글이 칸 안에 서서 밝다 · 접은 기억은 그대로',
+    d1.found && d1.inView && d1.flash && d1.sideW >= 300 && kept === '1', JSON.stringify({ d1, kept }));
+  await sleep(1900);
+  check('밝힘은 잠깐이다', (await ev(FOCUSED)).flash === false);
+  await ev(`${byLabel('닫기')}.click()`); await sleep(500);
+
+  // ⑤ '/'는 찾기 칸으로 · 업무 창이 떠 있으면 건드리지 않는다
+  await ev(`document.activeElement?.blur()`);
+  await key('/', { code: 'Slash', vk: 191, text: '/' }); await sleep(200);
+  const slash = await ev(`({ focus: document.activeElement?.getAttribute('placeholder'), val: document.activeElement?.value ?? null })`);
+  check("'/'를 누르면 찾기 칸으로 간다('/' 글자는 안 들어간다)", slash.focus === '프로젝트나 업무를 검색해봐요!' && slash.val === '', JSON.stringify(slash));
+  await ev(`document.activeElement?.blur()`);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(800);
+  await ev(`document.activeElement?.blur()`);
+  await key('/', { code: 'Slash', vk: 191, text: '/' }); await sleep(200);
+  check("업무 창이 떠 있으면 '/'가 뒤의 찾기 칸으로 가지 않는다", (await ev(`document.activeElement?.getAttribute('placeholder') || ''`)) !== '프로젝트나 업무를 검색해봐요!');
+
+  // ② 쓰던 댓글·답글 — 이 창(데스크톱 · 칸은 위에서 펴졌다)
+  const cmtBoxArea = `document.querySelector('.fixed.z-50 .cmt-input textarea')`;
+  const tabBtn = (t) => `[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim().startsWith(${JSON.stringify(t)}))`;
+  await ev(`${cmtBoxArea}.focus()`);
+  await send('Input.insertText', { text: '쓰다 만 댓글' }); await sleep(150);
+  await ev(`${tabBtn('활동')}.click()`); await sleep(300);
+  await ev(`${tabBtn('댓글')}.click()`); await sleep(400);
+  const afterTab = await ev(`${cmtBoxArea}?.value`);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].filter(b => /^답글( [0-9]+)?$/.test(b.textContent.trim())).at(-1).click()`); await sleep(400);
+  await ev(`[...document.querySelectorAll('p')].find(x => /님에게 답글$/.test(x.textContent.trim())).parentElement.querySelector('textarea').focus()`);
+  await send('Input.insertText', { text: '쓰다 만 답글' }); await sleep(150);
+  await ev(`${tabBtn('활동')}.click()`); await sleep(300);
+  await ev(`${tabBtn('댓글')}.click()`); await sleep(400);
+  const writing = await ev(`[...document.querySelectorAll('.fixed.z-50 button')].some(b => / · 작성 중$/.test(b.textContent.trim()))`);
+  await ev(`${byLabel('닫기')}.click()`); await sleep(500);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(900);
+  const reopened = await ev(`${cmtBoxArea}?.value`);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => / · 작성 중$/.test(b.textContent.trim()))?.click()`); await sleep(400);
+  const replyBack = await ev(`[...document.querySelectorAll('p')].find(x => /님에게 답글$/.test(x.textContent.trim()))?.parentElement.querySelector('textarea')?.value`);
+  check('쓰던 댓글은 탭을 옮겨도 · 창을 닫았다 열어도 남는다', afterTab === '쓰다 만 댓글' && reopened === '쓰다 만 댓글', JSON.stringify({ afterTab, reopened }));
+  check("쓰던 답글도 남는다('· 작성 중' · 다시 열면 그 글)", writing && replyBack === '쓰다 만 답글', JSON.stringify({ writing, replyBack }));
+
+  // ③ 자라는 칸 — 지금 든 글(한 줄) · 네 줄 · 열 줄
+  const H = `(() => { const t = ${cmtBoxArea}; const cs = getComputedStyle(t); return { h: Math.round(t.getBoundingClientRect().height), oy: cs.overflowY, line: parseFloat(cs.lineHeight) }; })()`;
+  const setVal = (v) => ev(`(() => { const t = ${cmtBoxArea}; t.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(t, ${JSON.stringify(v)}); t.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  const h1 = await ev(H);
+  await setVal('하나\n둘\n셋\n넷'); await sleep(150);
+  const h4 = await ev(H);
+  await setVal(Array.from({ length: 10 }, (_, i) => '줄 ' + i).join('\n')); await sleep(150);
+  const h10 = await ev(H);
+  check('댓글 칸은 글을 따라 자라고(최소 56px) 여섯 줄을 넘으면 칸 안에서 구른다',
+    h1.h === 56 && h4.h > h1.h && h4.oy === 'hidden' && h10.h > h4.h && h10.h <= Math.round(h10.line * 6 + 16 + 2) + 1 && h10.oy === 'auto', JSON.stringify({ h1, h4, h10 }));
+  // 등록하면 지운다
+  await ev(`${byLabel('등록')}.click()`); await sleep(300);
+  await ev(`${byLabel('닫기')}.click()`); await sleep(500);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(900);
+  const cleared = await ev(`${cmtBoxArea}?.value`);
+  const h0 = await ev(H);
+  check('등록하면 쓰던 글이 지워지고 칸도 처음 높이로', cleared === '' && h0.h === 56, JSON.stringify({ cleared, h0 }));
+  await ev(`${byLabel('닫기')}.click()`); await sleep(500);
+
+  // ④ 삭제 되돌리기 · 토스트 두 자리
+  const cards = () => ev(`[...document.querySelectorAll('.board-card')].map(c => c.textContent).filter(t => /지울 업무/.test(t)).length`);
+  await ev(`[...document.querySelectorAll('.board-card')].find(c => /지울 업무/.test(c.textContent)).click()`); await sleep(800);
+  await ev(`document.querySelector('.fixed.z-50 [title="업무 삭제"]').click()`); await sleep(400);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '삭제')?.click()`); await sleep(600);
+  const del = await ev(`(() => { const t = document.querySelector('[data-toast="action"]');
+    return { open: !!document.querySelector('.fixed.z-50'), text: t?.innerText.replace(/\\s+/g, ' ').trim() || null,
+      stored: !!JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.u2 }; })()`);
+  const gone = await cards();
+  check("업무를 지우면 화면에서 바로 빠지고 \"'지울 업무'을(를) 삭제했어요 · 되돌리기\" 토스트",
+    !del.open && gone === 0 && del.text === "'지울 업무'을(를) 삭제했어요 되돌리기", JSON.stringify({ del, gone }));
+  // 그냥 토스트 하나 — 새 업무 폼을 제목 없이 `만들기`(앱 화면으로 띄운다 · 모듈을 import()로 부르면 HMR 뒤에는 다른 사본이라 안 뜬다)
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(1000);
+  await ev(`${byLabel('만들기')}?.click()`); await sleep(300);
+  const two = await ev(`[...document.querySelectorAll('[data-toast]')].map(t => ({ kind: t.getAttribute('data-toast'), text: t.innerText.trim(), bottom: Math.round(t.getBoundingClientRect().bottom) }))`);
+  check('그냥 토스트가 와도 되돌리기는 남는다(그냥 토스트는 그 위에)',
+    two.length === 2 && two[0].kind === '' && two[0].text === '업무 제목을 먼저 적어주세요' && two[1].kind === 'action' && two[0].bottom < two[1].bottom, JSON.stringify(two));
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(400);
+  await ev(`[...(document.querySelector('[data-toast="action"]')?.querySelectorAll('button') || [])].find(b => b.textContent.trim() === '되돌리기')?.click()`); await sleep(600);
+  const back = await cards();
+  const backStored = await ev(`!!JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.u2`);
+  check('되돌리면 업무가 그대로 돌아온다(화면 · 저장)', back === 1 && backStored, JSON.stringify({ back, backStored }));
+
+  // ⑤ 새 업무 — 제목 Enter는 본문으로 · Ctrl+Enter는 만들기
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(1500);
+  await setTitle('키보드로 만든 업무'); await sleep(150);
+  await key('Enter', { code: 'Enter', vk: 13 }); await sleep(250);
+  const toBody = await ev(`(() => { const a = document.activeElement; return { editable: !!a?.isContentEditable, inForm: !!a?.closest('form') }; })()`);
+  check('새 업무: 제목 칸의 Enter는 본문 편집기로 넘어간다', toBody.editable && toBody.inForm, JSON.stringify(toBody));
+  await ev(`document.querySelector('input[name="title"]').focus()`);
+  await key('Enter', { code: 'Enter', vk: 13, modifiers: 2 }); await sleep(900);
+  const made = await ev(`(() => { const m = document.querySelector('.fixed.z-50');
+    return { view: !!m?.querySelector('[data-task-view]'), h2: m?.querySelector('[data-task-view] h2')?.textContent || null,
+      stored: Object.values(JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId).some(t => t.title === '키보드로 만든 업무') }; })()`);
+  check('새 업무: Ctrl+Enter가 만들기다', made.view && made.h2 === '키보드로 만든 업무' && made.stored, JSON.stringify(made));
+  // 못 만들었으면 폼이 적힌 채 남는다 — 그대로 두면 다음 이동이 '떠나기 전 확인'(beforeunload)에 걸려 멈춘다
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(400);
+  if (!made.view) { await ev(`${byLabel('무시하고 닫기')}?.click()`); await sleep(400); }
+
+  // ① 폰 — 댓글 탭으로
+  await load(390, 844, true);
+  await ev(`document.querySelector('button[title="검색"]')?.click()`); await sleep(400);
+  await send('Input.insertText', { text: '고유어찾기' }); await sleep(700);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => /댓글 많은 업무/.test(b.textContent))?.click()`);
+  // 폰 업무 창은 .dc-rise(380ms)로 떠오른 뒤에 댓글을 찾아 굴린다 — 고정 대기 대신 찾힐 때까지 본다(최대 3초)
+  let m1 = { found: false };
+  for (let i = 0; i < 15 && !(m1.found && m1.inView && m1.flash); i++) { await sleep(200); m1 = await ev(FOCUSED); }
+  check('댓글에 걸린 검색 결과(폰): 댓글 탭으로 열고 그 댓글이 칸 안에 서서 밝다', m1.found && m1.inView && m1.flash && /^댓글/.test(m1.tab || ''), JSON.stringify(m1));
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(500);
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+}
+
+// ── UX 다듬기 2차 P1 (2026-10-15 · PITFALLS 59) — 댓글 달기 실패 · 업무 창 저장 실패 · 보기 화면 상태 칩 · 유튜브 링크 카드 ──────────
+// 게스트에는 서버가 없어 실패하는 길이 없다 — 개발 빌드의 `window.__devFail`(controllers.js devFail)로 쓰기를 실패로 만든다.
+// 유튜브 제목은 `window.__ytTitleFake`(RichText askTitle)가 답한다 — 게스트는 api/yt에 못 닿아 카드를 걷는 것이 정상이다.
+// ① 댓글 달기 실패 → 그 자리에 흐리게 남고 '댓글 달기에 실패했어요' + '다시 보내기' · 수정·삭제·반응·답글 없음 · 창이 열려 있으면 토스트 없음 ·
+//    실시간 재조회가 목록을 갈아 끼워도 남는다 · 또 실패하면 그대로 · 되면 보통 댓글로
+// ② 업무 창 저장 실패 → '저장됨' 자리에 '저장하지 못했어요' + '다시 시도' · 다른 칸 저장이 또 실패해도 남는다 · 다시 시도가 못 간 칸(제목)을 실어 간다
+// ③ 보기 화면 상태 칩 → 보드와 같은 팝오버(칩 아래 · 왼쪽 맞춤) · 고르면 저장 + 되돌리기 토스트 · 되돌리면 상태·자리 그대로 · 잠긴 업무는 글자
+// ④ 유튜브 영상 주소 줄 아래 카드(썸네일 곧바로 · 제목은 도착하면) · 못 받으면 카드 없이 링크만 · 같은 영상은 한 번만 묻는다 · 댓글에도
+// 되돌리기 검사(§3-5): comments.jsx CommentPanel의 failed 합치기(`extra`)를 빼면 ①의 '갈아 끼워도 남는다'가, modals.jsx commit의 `t.base`를
+// `cur`로 되돌리면 ②의 '못 간 칸을 실어 간다'가, TaskView의 상태 칩을 글자로 되돌리면 ③이, RichText의 `{yt(block.value)}`를 빼면 ④가 깨진다.
+{
+  const YT = 'sA-Qbfj2Zeg';
+  const T2 = (id, title, extra = {}) => ({ id, projectId: 'p1', title, content: '본문', status: '진행 중', assignees: ['노준석'], teams: ['찬양팀'],
+    startDate: '', dueDate: '2026-09-01', position: 1, author: '노준석', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
+    comments: [], activityLog: [], attachments: [], ...extra });
+  const st = { currentUser: { name: '노준석', team: '임원진' },
+    projects: { byId: { p1: { id: 'p1', title: 'P1 프로젝트', pinnedLinks: [], year: 2026 } }, allIds: ['p1'] },
+    tasks: { byId: {
+      v1: T2('v1', '실패 확인 업무', { position: 1, comments: [{ id: 'k0', author: '조해리', text: '먼저 단 댓글 https://youtu.be/' + YT, timestamp: '2026-08-02T00:00:00Z', parentId: null }],
+        content: `10월 찬양예배 기획안\n- 참고 자료: [워리커 in 제주](https://www.youtube.com/watch?v=${YT})\n- 못 받는 영상: https://youtu.be/AAAAAAAAAAA` }),
+      v2: T2('v2', '상태 칩 업무', { position: 2 }),
+      v3: T2('v3', '앞에 있던 업무', { position: 0, status: '완료' }),
+      v4: T2('v4', '잠긴 업무', { position: 3, author: '조해리', locked: true, lockPw: { view_pw: 'x', salt: 'y' } }),
+    }, allIds: ['v1', 'v2', 'v3', 'v4'] } };
+  const load = async () => {
+    await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))}); localStorage.removeItem('task_side_closed')`);
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+    await sleep(1300);
+  };
+  const openTask = async (title) => { await ev(`[...document.querySelectorAll('.board-card')].find(c => c.textContent.includes(${JSON.stringify(title)}))?.click()`); await sleep(900); };
+  const closeTask = async () => { await ev(`${byLabel('닫기')}?.click()`); await sleep(500); };
+  const live = (id) => ev(`window.__store.getState().tasks.byId[${JSON.stringify(id)}]`);
+  const key = async (k, extra = {}) => {
+    const base = { key: k, code: extra.code || k, windowsVirtualKeyCode: extra.vk || 0, modifiers: extra.modifiers || 0 };
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  };
+  await load();
+  await ev(`window.__ytAsks = 0; window.__ytTitleFake = new Proxy({ ${JSON.stringify(YT)}: new Promise(r => { window.__ytResolve = r; }), AAAAAAAAAAA: null },
+    { get(t, k) { if (typeof k === 'string' && k.length === 11) window.__ytAsks++; return t[k]; } })`);
+
+  // ④ 유튜브 카드 — 본문(보기) · 댓글
+  await openTask('실패 확인 업무');
+  const card = (scope) => `[...document.querySelectorAll(${JSON.stringify(scope + ' [data-yt-card]')})]`;
+  const y1 = await ev(`(() => { const c = ${card('[data-view-body]')};
+    const one = c.find(x => x.getAttribute('data-yt-card') === ${JSON.stringify(YT)});
+    return { n: c.length, inLine: one?.closest('li')?.textContent.includes('워리커 in 제주') || false, img: one?.querySelector('img')?.getAttribute('src') || null,
+      skel: !!one?.querySelector('.dc-skeleton'), title: one?.querySelector('.worship-song-link')?.textContent || null }; })()`);
+  await ev(`window.__ytResolve('워십 리더 커뮤니티 | 워리커 & 워밴커 in JEJU Full.ver')`); await sleep(300);
+  const y2 = await ev(`(() => { const c = ${card('[data-view-body]')}; const one = c[0];
+    return { n: c.length, title: one?.querySelector('.worship-song-link')?.textContent.trim() || null, skel: !!one?.querySelector('.dc-skeleton'),
+      href: one?.getAttribute('href'), plainLink: [...document.querySelectorAll('[data-view-body] a')].some(a => a.href.includes('AAAAAAAAAAA') && !a.hasAttribute('data-yt-card')),
+      cmt: ${card('[data-cmt-box]')}.length, asks: window.__ytAsks }; })()`);
+  check('④ 유튜브 영상 주소 줄 아래 카드 — 썸네일은 곧바로, 제목은 막대로 기다린다',
+    y1.n === 1 && y1.inLine && y1.img === `https://i.ytimg.com/vi/${YT}/mqdefault.jpg` && y1.skel && y1.title === null, JSON.stringify(y1));
+  check('④ 제목이 오면 글자로 · 못 받은 영상은 카드 없이 링크만 · 댓글의 주소에도 카드',
+    y2.n === 1 && /^워십 리더 커뮤니티/.test(y2.title || '') && !y2.skel && y2.href === `https://www.youtube.com/watch?v=${YT}` && y2.plainLink && y2.cmt === 1, JSON.stringify(y2));
+  await closeTask(); await openTask('실패 확인 업무'); await sleep(300);
+  const y3 = await ev(`({ asks: window.__ytAsks, title: ${card('[data-view-body]')}[0]?.querySelector('.worship-song-link')?.textContent.trim() || null })`);
+  check('④ 같은 영상은 이 탭에서 한 번만 묻는다(다시 열면 곧바로 제목)', y3.asks === y2.asks && /^워십 리더 커뮤니티/.test(y3.title || ''), JSON.stringify({ y2: y2.asks, y3 }));
+
+  // ① 댓글 달기 실패 — 창은 열린 채(데스크톱 사이드바 댓글 칸)
+  await ev(`window.__devFail = { comment: true }`);
+  const cmtArea = `document.querySelector('.fixed.z-50 .cmt-input textarea')`;
+  await ev(`${cmtArea}.focus()`); await send('Input.insertText', { text: '내일 오전에 다시 확인해 볼게요' }); await sleep(150);
+  await ev(`${byLabel('등록')}.click()`); await sleep(500);
+  const FAILED = `(() => { const el = document.querySelector('.fixed.z-50 [data-comment-failed]'); if (!el) return { found: false };
+    const row = el.closest('.py-3');
+    return { found: true, text: el.textContent.includes('내일 오전에 다시 확인해 볼게요'), line: el.textContent.includes('댓글 달기에 실패했어요'),
+      resend: [...el.querySelectorAll('button')].some(b => b.textContent.trim() === '다시 보내기'), edit: !!el.querySelector('[title="수정"], [title="삭제"]'),
+      react: !!el.querySelector('[aria-label="좋아요"]'), reply: [...(row?.querySelectorAll('button') || [])].some(b => /^답글/.test(b.textContent.trim())),
+      faded: getComputedStyle(el.querySelector('.text-xs.text-fg-secondary')).opacity, toast: [...document.querySelectorAll('[data-toast]')].some(t => /댓글을 남기지 못했어요/.test(t.innerText)),
+      input: ${cmtArea}.value }; })()`;
+  const f1 = await ev(FAILED);
+  check('① 댓글 달기 실패 — 그 자리에 흐리게 남고 실패 한 줄 + 다시 보내기 · 수정·삭제·반응·답글 없음 · 창이 열려 있으면 토스트 없음 · 칸은 비었다',
+    f1.found && f1.text && f1.line && f1.resend && !f1.edit && !f1.react && !f1.reply && f1.faded === '0.5' && !f1.toast && f1.input === '', JSON.stringify(f1));
+  // 실시간 재조회가 목록을 서버 것(못 보낸 댓글 없음)으로 갈아 끼운다
+  await ev(`(() => { const t = window.__store.getState().tasks.byId.v1; window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'v1', comments: t.comments.filter(c => c.id === 'k0') } }); })()`);
+  await sleep(300);
+  const f2 = await ev(FAILED);
+  check('① 실시간 재조회가 목록을 갈아 끼워도 못 보낸 댓글은 그 자리에 남는다', f2.found && f2.line, JSON.stringify(f2));
+  await ev(`[...document.querySelectorAll('.fixed.z-50 [data-comment-failed] button')].find(b => b.textContent.trim() === '다시 보내기')?.click()`); await sleep(400);
+  const f3 = await ev(FAILED);
+  await ev(`window.__devFail = {}`);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 [data-comment-failed] button')].find(b => b.textContent.trim() === '다시 보내기')?.click()`); await sleep(500);
+  const f4 = await ev(`(() => { const t = window.__store.getState().tasks.byId.v1; const el = [...document.querySelectorAll('.fixed.z-50 [data-comment-id]')].find(n => n.textContent.includes('내일 오전에 다시 확인해 볼게요'));
+    return { failed: !!document.querySelector('.fixed.z-50 [data-comment-failed]'), shown: !!el, react: !!el?.querySelector('[aria-label="좋아요"]'),
+      inStore: t.comments.filter(c => c.text === '내일 오전에 다시 확인해 볼게요').length }; })()`);
+  check('① 또 실패하면 그대로 · 다시 보내기가 되면 보통 댓글(반응 줄) · 한 벌만', f3.found && f3.line && !f4.failed && f4.shown && f4.react && f4.inStore === 1, JSON.stringify({ f3, f4 }));
+  await closeTask();
+
+  // ② 업무 창 저장 실패
+  await openTask('상태 칩 업무'); await enterEdit();
+  await ev(`window.__devFail = { task: true }`);
+  await setTitle('상태 칩 업무 고침'); await ev(`document.querySelector('input[name="title"]').blur()`); await sleep(500);
+  const MARK = `(() => { const m = document.querySelector('[data-save-state]'); return { state: m?.getAttribute('data-save-state') || null, text: m?.textContent.replace(/\\s+/g, ' ').trim() || '',
+    retry: [...(m?.querySelectorAll('button') || [])].some(b => b.textContent.trim() === '다시 시도') }; })()`;
+  const s1 = await ev(MARK);
+  check("② 저장이 실패하면 '저장됨' 자리에 '저장하지 못했어요' + '다시 시도'", s1.state === 'failed' && s1.text.replace(/\s/g, '') === '저장하지못했어요다시시도' && s1.retry, JSON.stringify(s1));
+  // 다른 칸(하위 업무 없음 → 팀) 저장도 실패 — 남는다
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '보류 중')?.click()`); await sleep(400);
+  const s2 = await ev(MARK);
+  check('② 다른 칸 저장이 또 실패해도 그대로 남는다', s2.state === 'failed', JSON.stringify(s2));
+  const titleLogs = async () => ((await live('v2')).activityLog || []).filter(l => /제목/.test(l.action)).length;
+  const before = await titleLogs();
+  await ev(`window.__devFail = {}`);
+  await ev(`[...document.querySelectorAll('[data-save-state] button')].find(b => b.textContent.trim() === '다시 시도')?.click()`); await sleep(500);
+  const s3 = { ...(await ev(MARK)), titleLogs: await titleLogs(), before };
+  check("② '다시 시도'가 못 간 칸(제목)을 다시 실어 가고, 되면 '저장됨'으로", s3.state === 'saved' && s3.titleLogs === before + 1, JSON.stringify(s3));
+  await ev(`${byLabel('수정 완료')}?.click()`); await sleep(400);
+  await closeTask();
+
+  // ③ 보기 화면 상태 칩
+  await openTask('상태 칩 업무');
+  const chip = `document.querySelector('.fixed.z-50 [data-status-chip]')`;
+  const c0 = await ev(`(() => { const b = ${chip}; return b ? { text: b.textContent.trim(), haspopup: b.getAttribute('aria-haspopup'), label: b.getAttribute('aria-label') } : null; })()`);
+  await ev(`${chip}?.click()`); await sleep(300);
+  const pop = await ev(`(() => { const p = [...document.querySelectorAll('.dc-pop')].at(-1); const b = ${chip}?.getBoundingClientRect();
+    if (!p || !b) return null; const r = p.getBoundingClientRect();
+    return { items: [...p.querySelectorAll('button')].map(x => x.textContent.trim()), portal: p.parentElement === document.body, w: Math.round(r.width),
+      left: Math.round(r.left - b.left), below: Math.round(r.top - b.bottom) }; })()`);
+  check('③ 보기 화면 상태 칩(▾) — 보드와 같은 150px 팝오버가 칩 아래 왼쪽 맞춤으로(body 포털)',
+    c0?.text === '보류 중' && c0.haspopup === 'menu' && pop && pop.portal && pop.w === 150 && pop.left === 0 && pop.below >= 0 && pop.below <= 12
+      && pop.items.join(',') === '시작 전,진행 중,보류 중,완료,상시', JSON.stringify({ c0, pop }));
+  const pos0 = (await live('v2')).position;
+  await ev(`[...document.querySelectorAll('.dc-pop button')].find(b => b.textContent.trim() === '완료')?.click()`); await sleep(500);
+  const m1 = await ev(`(() => { const t = document.querySelector('[data-toast="action"]'); return { chip: ${chip}?.textContent.trim(), toast: t?.innerText.replace(/\\s+/g, ' ').trim() || null,
+    pop: !!document.querySelector('.dc-pop') }; })()`);
+  const v2a = await live('v2');
+  check("③ 고르면 바로 저장 · 그 상태 맨 위 자리 · '상태 칩 업무 고침'을 완료로 옮겼어요 · 되돌리기",
+    m1.chip === '완료' && !m1.pop && v2a.status === '완료' && v2a.position < 0 && m1.toast === "'상태 칩 업무 고침'을 완료로 옮겼어요 되돌리기", JSON.stringify({ m1, status: v2a.status, pos: v2a.position }));
+  await ev(`[...(document.querySelector('[data-toast="action"]')?.querySelectorAll('button') || [])].find(b => b.textContent.trim() === '되돌리기')?.click()`); await sleep(500);
+  const v2b = await live('v2');
+  check('③ 되돌리면 상태와 자리가 그대로', v2b.status === '보류 중' && v2b.position === pos0 && (await ev(`${chip}?.textContent.trim()`)) === '보류 중', JSON.stringify({ status: v2b.status, pos: v2b.position, pos0 }));
+  await ev(`${chip}?.click()`); await sleep(250);
+  await key('Escape', { code: 'Escape', vk: 27 }); await sleep(250);
+  const esc = await ev(`({ pop: !!document.querySelector('.dc-pop'), open: !!document.querySelector('.fixed.z-50') })`);
+  check('③ Esc는 팝오버만 닫는다(창은 그대로)', !esc.pop && esc.open, JSON.stringify(esc));
+  await closeTask();
+  await openTask('잠긴 업무');
+  const locked = await ev(`({ chip: !!${chip}, text: document.querySelector('.fixed.z-50 [data-task-view]')?.textContent.includes('진행 중') })`);
+  check('③ 잠긴 업무(나에게 닫힌 것)는 상태가 글자 그대로 — 칩이 아니다', !locked.chip && locked.text, JSON.stringify(locked));
+  await closeTask();
+}
+
+// ── 해결한 댓글 한 줄 · 접고 펴기 끝 상태(폰 · 사용자 지적 2026-10-18 아이폰 · PITFALLS 68-c) ─────────────────────────────
+// ① 긴 첫 줄은 줄 안에서 말줄임 — 업무 창 어디에도 가로 스크롤이 없다
+// ② 펼친 동안은 안쪽을 자르지 않는다(얼굴·밝히기 그림자) · 접으면 높이 0 + visibility:hidden + 안을 뗀다
+// ③ 같은 틱에 두 번 눌러도 · transitionend가 안 와도 같은 끝 · ④ 움직임 줄이기면 바로
 // **되돌리기**: index.css .dc-fold의 grid-template-columns: minmax(0, 1fr)와 Fold 안쪽의 min-w-0을 지우면 ①이(가로 496px 넘침),
 // Fold.jsx의 시간 끝내기(setTimeout)를 지우면 ③의 'transitionend 없이'가(안이 남는다), .dc-fold의 visibility를 지우면 ②·③이 깨진다.
 // .dc-fold[data-fold='closed']의 display:none을 지우면 ②·③·④의 접힌 끝이 깨진다(68-d).

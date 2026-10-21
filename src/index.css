@@ -349,21 +349,13 @@
 }
 
 /* ── 그 자리에서 접고 펴기 (v5 2묶음 · 2026-10-18 · components/Fold.jsx) ──────────────────
-   표 정렬의 오름/내림 · 해결한 댓글 펼치기. 위 '최근 활동'과 같은 0fr ↔ 1fr + 투명도 · quint .28s(90%에 닿는 때 약 90ms · PITFALLS 57-a).
+   표 정렬의 오름/내림 · 해결한 댓글 펼치기. 움직임은 Fold.jsx가 height만 Web Animations로(quint .28s) — 투명도·grid 전이는
+   걷었다(아이폰에서 투명도 합성 층이 얼어 얼굴·이름 한 토막이 남았다 · PITFALLS 68-e). 여기는 다 접힌 끝만 맡는다:
+   판째 뺀다(display:none · 68-d).
    .dc-move-in — 고정 묶음에 새로 든 댓글처럼 자리를 옮겨 다시 서는 줄(dc-row와 같은 모양 · 조금 길게). */
-/* 열은 minmax(0,1fr) — 안의 한 줄 글(truncate)이 열을 제 폭만큼 늘려 판을 가로로 밀지 않게. 접힌 끝은 visibility:hidden(전이가 끝난 뒤 —
-   펼 때는 바로 보인다) · 끝에서 안을 떼는 것은 components/Fold.jsx(PITFALLS 68-c) */
-.dc-fold {
-  display: grid; grid-template-rows: 0fr; grid-template-columns: minmax(0, 1fr); opacity: 0; visibility: hidden;
-  transition: grid-template-rows .28s var(--ease-out-quint), opacity .28s var(--ease-out-quint), visibility 0s linear .28s;
-}
-.dc-fold[data-open='true'] { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition-delay: 0s; }
-/* 다 접힌 끝은 판째 뺀다(PITFALLS 68-d) — 아이폰 Safari는 높이 0 · 숨김 · 안을 뗀 뒤에도 투명도 전이에 쓰던 층의 그림을
-   지우지 않을 때가 있어, 펴고 다시 접으면 얼굴·이름 한 토막이 해결됨 줄 밑에 남았다(사용자 지적 2026-10-21) */
-.dc-fold[data-fold='closed'] { display: none; }
+.dc-fold[data-fold='closed'] { display: none; visibility: hidden; }
 .dc-move-in { animation: dc-row-in .34s var(--ease-out-quint) backwards; }
 @media (prefers-reduced-motion: reduce) {
-  .dc-fold { transition: none; }
   .dc-move-in { animation: none; }
 }
 

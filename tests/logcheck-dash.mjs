@@ -1325,6 +1325,9 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/\['table', '표'\]\]/.test(pvw) && !/gantt|간트/i.test(pvw), '보기 전환은 보드 · 캘린더 · 그래프 · 표(간트 없음)');
   assert.ok(!existsSync(new URL('../src/components/gantt.jsx', import.meta.url)), 'gantt.jsx는 들이지 않았다');
   const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
-  assert.ok(/\.dc-fold \{[^}]*grid-template-rows: 0fr[^}]*var\(--ease-out-quint\)/.test(css) && /prefers-reduced-motion: reduce\) \{\s*\.dc-fold \{ transition: none; \}/.test(css), '접고 펴기는 quint · 움직임 줄이기면 바로');
+  // 접고 펴기는 height만 움직인다(PITFALLS 68-e — 아이폰에서 투명도 합성 층이 얼어 토막이 남았다) · 움직임 줄이기면 바로
+  const fold = readFileSync(new URL('../src/components/Fold.jsx', import.meta.url), 'utf8');
+  assert.ok(/el\.animate\(\[\{ height: [^\]]*\{ height: /.test(fold) && !/opacity/.test(fold.replace(/^\s*\/\/.*$/gm, '')) && /reduced \? \(open \? 'open' : 'closed'\)/.test(fold)
+    && !/\.dc-fold[^{]*\{[^}]*(opacity|transition|grid-template-rows)/.test(css) && /\.dc-fold\[data-fold='closed'\] \{ display: none;/.test(css), '접고 펴기는 height만 quint · 투명도 없음 · 움직임 줄이기면 바로');
   console.log('PASS  표 정렬·거르기 · 세부 항목 · 정렬 방향 펴기 · 댓글 고정·해결(권한·문구)');
 }

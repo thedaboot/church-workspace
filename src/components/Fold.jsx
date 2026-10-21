@@ -1,50 +1,58 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useReducedMotion } from '../hooks/useReducedMotion.js';
 
 // ============================================================================
 // 그 자리에서 접고 펴기 (v5 2묶음 · 2026-10-18 — 사용자 지적 "뚝 바뀌지 않게")
 // ----------------------------------------------------------------------------
-// 높이 0 ↔ 제 높이 + 투명도를 quint로(index.css `.dc-fold` · PITFALLS 57). 높이를 추정하지 않는다(grid 0fr ↔ 1fr — max-height
-// 방식은 끝에서 뚝 끊긴다 · 최근 활동 '더보기'와 같은 판단). 움직임 줄이기면 바로 바뀐다(CSS가 transition: none).
-// 단계는 넷 — closed(안을 그리지 않는다) · opening · open(다 펴짐) · closing. 끝은 transitionend **또는 시간**(FOLD_MS + 여유)으로 낸다:
-//   · transitionend는 안 올 때가 있다 — 펴기 첫 프레임 전에 다시 접으면 전이가 아예 안 돌고, 탭이 가려지거나 전이가 끊겨도
-//     안 온다. 그 끝을 기다리던 옛 판은 접힌 뒤에도 안을 쥔 채 남았고, 폰에서 접은 댓글의 얼굴·이름 한 토막이 해결됨 줄 밑에
-//     잘려 남았다(사용자 지적 2026-10-18 · PITFALLS 68-c). 그래서 시간으로도 끝낸다 — 접힌 끝은 늘 '안을 떼고 visibility:hidden'.
-//   · 빨리 다시 누르면 앞 단계의 rAF·시계를 걷고 새 방향에서 이어 간다(전이는 그 자리에서 되돈다).
-//   · 다 펴진 뒤에만 안쪽의 overflow를 푼다 — 안의 초점 테두리·밝히기 그림자(댓글 flash)·얼굴이 잘리지 않게(움직이는 동안만 자른다).
-//   · 열은 minmax(0,1fr)·안쪽은 min-w-0 — 그냥 grid면 열이 안의 한 줄 글(truncate) 전체 폭으로 늘어 판이 가로로 밀렸다(68-c).
-//   · 다 접힌 끝(closed)은 판째 display:none(index.css · 68-d) — 아이폰에서 펴고 다시 접으면 지운 안의 그림이 한 토막 남았다
-//     (사용자 지적 2026-10-21). 펴기는 opening(0fr로 다시 그린다) → rAF 두 번 → data-open이라 전이는 그대로 돈다.
-// 쓰는 자리: 표 정렬의 오름/내림 · 해결한 댓글 펼치기.
+// **높이만** 움직인다 — 지금 높이(px) ↔ 0을 Web Animations로, quint(index.css --ease-out-quint와 같은 곡선). 움직임 줄이기면 바로.
+//   · 옛 판은 CSS grid 0fr ↔ 1fr + 투명도 전이였다. 아이폰 Safari에서 접는 도중 투명도가 한 번도 안 움직이고 높이만 줄다가
+//     얼굴·이름 한 토막을 쥔 채 멈췄다(사용자 화면 녹화 2026-10-21 · 30fps로 보면 잘 닫힐 때는 흐려지고, 남을 때는 안 흐려진다 —
+//     투명도 전이에 쓰는 합성 층이 얼어붙은 것으로 본다 · PITFALLS 68-e). 그래서 투명도·visibility 전이를 걷고,
+//     합성 층을 만들지 않는 height만 움직인다(매 프레임 다시 그린다).
+// 단계는 넷 — closed(안을 그리지 않고 판째 display:none) · opening · open(높이 auto · 안을 자르지 않는다) · closing.
+//   · 끝은 animation.finished **또는 시간**(FOLD_MS + 여유) — 둘 중 먼저(68-c와 같은 이유: 끝 신호를 하나만 믿지 않는다).
+//   · 움직이는 도중에 다시 누르면 그 순간의 높이에서 새 방향으로 이어 간다.
+//   · 다 펴진 뒤에만 안쪽을 자르지 않는다 — 안의 초점 테두리·밝히기 그림자(댓글 flash)·얼굴이 잘리지 않게(움직이는 동안만 자른다).
+//   · 안쪽은 min-w-0 — 한 줄 글(truncate)이 판을 가로로 밀지 않게(68-c).
+// 쓰는 자리: 표 정렬의 오름/내림 · 해결한 댓글 펼치기 · 행사 시각 · 인계 카드 · 찬양 더보기.
 // ============================================================================
-export const FOLD_MS = 280;   // index.css .dc-fold의 전이 길이와 같다
+export const FOLD_MS = 280;
+const EASE = 'cubic-bezier(.16, 1, .3, 1)';   // index.css --ease-out-quint
 
 export function Fold({ open, children, className = '', ...rest }) {
   const reduced = useReducedMotion();
   const [phase, setPhase] = useState(open ? 'open' : 'closed');
-  // 펴는 첫 프레임은 0fr에서 시작해야 전이가 돈다 — 안을 붙인 다음 프레임에 data-open을 켠다
-  const [shown, setShown] = useState(open);
+  const ref = useRef(null);
+  const anim = useRef(null);
+  const prev = useRef(open);
+  // open이 바뀌면 방향만 정한다(StrictMode에서 두 번 돌아도 같은 값이면 아무것도 안 한다)
   useEffect(() => {
-    if (reduced) { setShown(open); setPhase(open ? 'open' : 'closed'); return undefined; }
-    let alive = true, r1 = 0, r2 = 0;
-    if (open) {
-      setPhase(p => (p === 'open' ? p : 'opening'));
-      r1 = requestAnimationFrame(() => { r2 = requestAnimationFrame(() => { if (alive) setShown(true); }); });
-    } else {
-      setShown(false);
-      setPhase(p => (p === 'closed' ? p : 'closing'));
-    }
-    // transitionend가 안 와도 끝낸다(위 머리말) — 펴기는 rAF 두 번 뒤에 시작하니 그만큼 더 기다린다
-    const t = setTimeout(() => { if (alive) setPhase(open ? 'open' : 'closed'); }, FOLD_MS + 120);
-    return () => { alive = false; cancelAnimationFrame(r1); cancelAnimationFrame(r2); clearTimeout(t); };
+    if (prev.current === open) return;
+    prev.current = open;
+    setPhase(reduced ? (open ? 'open' : 'closed') : (open ? 'opening' : 'closing'));
   }, [open, reduced]);
-  const end = (e) => {
-    if (e.target !== e.currentTarget || e.propertyName !== 'grid-template-rows') return;
-    setPhase(open ? 'open' : 'closed');
-  };
+  // 단계 → 움직임. 그리기 전에(layout effect) 높이를 잡아 첫 프레임이 튀지 않게 한다.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (phase === 'open' || phase === 'closed') { anim.current?.cancel(); anim.current = null; return undefined; }
+    const target = phase === 'opening' ? 'open' : 'closed';
+    let alive = true;
+    const done = () => { if (alive) setPhase(p => (p === phase ? target : p)); };
+    if (!el || typeof el.animate !== 'function') { done(); return () => { alive = false; }; }
+    // 움직이는 중이면 그 순간 높이에서 · 닫혀 있다 펴면 0에서 · 펴져 있다 접으면 제 높이에서
+    const from = anim.current || phase === 'closing' ? el.getBoundingClientRect().height : 0;
+    anim.current?.cancel();
+    const to = phase === 'opening' ? el.scrollHeight : 0;
+    const a = el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: FOLD_MS, easing: EASE, fill: 'forwards' });
+    anim.current = a;
+    a.finished.then(done, () => {});
+    const t = setTimeout(done, FOLD_MS + 120);
+    return () => { alive = false; clearTimeout(t); };
+  }, [phase]);
+  const moving = phase === 'opening' || phase === 'closing';
   return (
-    <div {...rest} className={`dc-fold ${className}`} data-open={shown ? 'true' : 'false'} data-fold={phase} inert={!open} onTransitionEnd={end}>
-      <div className={phase === 'open' ? 'min-h-0 min-w-0' : 'min-h-0 min-w-0 overflow-hidden'}>{phase !== 'closed' ? children : null}</div>
+    <div {...rest} ref={ref} className={`dc-fold ${moving ? 'overflow-hidden' : ''} ${className}`} data-open={open ? 'true' : 'false'} data-fold={phase} inert={!open}>
+      <div className="min-w-0">{phase !== 'closed' ? children : null}</div>
     </div>
   );
 }
