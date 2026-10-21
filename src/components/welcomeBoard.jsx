@@ -418,7 +418,7 @@ function CardModal({ c, sun, suns, members, people, meName, pickFor, onMove, onA
   const primary = () => {
     if (showSuns && (assignable || pickFor)) return assignBtn;   // 순을 바꿔 골랐거나 순 칸으로 끌어 온 참이면 배정이 먼저다
     switch (c.stage) {
-      case 'visit1': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'visit2')}>두 번째 방문 완료</button>;
+      case 'visit1': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'visit2')}>재방문 완료</button>;
       case 'visit2': return <button type="button" className={BTN_CONFIRM} onClick={() => W.markContacted(c.id, meName || '나')}>컨택 완료</button>;
       case 'contact': return <button type="button" className={BTN_CONFIRM} onClick={() => onMove(c, 'register')} data-welcome-register="">등록 완료</button>;
       case 'register': return <button type="button" className={BTN_CONFIRM} onClick={() => W.addMeet(c.id)}>교육 완료</button>;

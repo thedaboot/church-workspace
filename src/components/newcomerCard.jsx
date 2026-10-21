@@ -108,12 +108,14 @@ export function NewcomerCardPage() {
               </label>
               <div>
                 <span className={LABEL}>어떻게 오셨어요? <span className="font-normal">(선택)</span></span>
-                <div className="flex flex-wrap gap-1.5">
+                {/* 칩은 한 줄 — 넘치면 줄을 바꾸지 않고 옆으로 민다(사용자 2026-10-21 · 앱의 칩 줄 TEAM_CHIP_ROW와 같은 짜임).
+                    판 가장자리까지 밀리게 판 여백(-mx-5 px-5)만큼 넓히고, 끝 여백은 ::after(넘친 내용에는 padding이 안 걸린다) */}
+                <div className="-mx-5 px-5 flex items-center gap-1.5 flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock after:content-[''] after:shrink-0 after:w-3.5" data-how-row="">
                   {HOW.map(h => {
                     const on = form.how === h;
                     return (
                       <button key={h} type="button" aria-pressed={on} onClick={() => setForm(f => ({ ...f, how: on ? '' : h }))}
-                        className={`inline-flex items-center gap-1 h-8 px-3 rounded-full text-[12.5px] font-semibold border transition active:scale-95 ${
+                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 h-8 px-3 rounded-full text-[12.5px] font-semibold border transition active:scale-95 ${
                           on ? 'bg-[#e8eefa] text-[#3f6fc4] border-transparent' : 'bg-white text-[#6b6675] border-[#dcd8dc] hover:bg-[#f6f5f7]'}`}>
                         {on && <Check size={12} />}{h}
                       </button>

@@ -19,13 +19,14 @@ import { guestStore } from './people.js';
 // ============================================================================
 
 export const STAGES = [
-  ['visit1', '첫 방문'],
-  ['visit2', '두 번째 방문'],
-  ['contact', '웰컴팀 컨택'],
-  ['register', '새신자 등록'],
-  ['meet', '새신자 교육'],   // 순 배정 전 리더(리더순장·전도사님)가 새신자를 알아 가며 어느 순이 맞을지 보는 시간(사용자 이름 2026-10-21)
-  ['sun', '순 배정'],
-  ['settled', '정착'],
+  // 칸 이름 = 그 칸으로 옮기는 버튼 이름('OO 완료' · 사용자 결정 2026-10-21 — 칸에는 그 일을 마친 사람이 선다)
+  ['visit1', '첫 방문 완료'],
+  ['visit2', '재방문 완료'],
+  ['contact', '컨택 완료'],
+  ['register', '등록 완료'],
+  ['meet', '교육 완료'],   // 새신자 교육 — 순 배정 전 리더(리더순장·전도사님)가 새신자를 알아 가며 어느 순이 맞을지 보는 시간(사용자 이름 2026-10-21)
+  ['sun', '배정 완료'],
+  ['settled', '정착 완료'],
 ];
 export const STAGE_LABEL = Object.fromEntries(STAGES);
 export const STAGE_INDEX = Object.fromEntries(STAGES.map(([k], i) => [k, i]));
@@ -127,7 +128,7 @@ const patch = (id, fn) => {
   return cards.find(c => c.id === id);
 };
 
-// 새가족 카드(QR로 쓴 것) → '첫 방문'
+// 새가족 정보(QR로 보낸 것) → '첫 방문 완료'
 export function addNewcomerCard({ name, phone, how, note }) {
   const today = kstToday();
   const card = { id: generateId(), name, phone, how, note, stage: 'visit1', created_at: today,
@@ -161,13 +162,13 @@ export const addMeet = (id) => patch(id, c => ({ meets: [...c.meets, kstToday()]
 // 카드 한 줄 아래 말(다음에 할 일 · 사용자 문구 2026-10-21)
 export function nextStep(c, sunName) {
   switch (c.stage) {
-    case 'visit1': return '두 번째 방문을 기다려요';
+    case 'visit1': return '재방문을 기다려요';
     case 'visit2': return '웰컴팀이 컨택할 차례예요';
     case 'contact': return '교회 등록 여부를 정해요';
     case 'register': return '리더진이 케어해요';
     case 'meet': return '순을 배정해요';
     case 'sun': return '잘 정착하는지 지켜봐요';
-    case 'settled': return sunName ? `${sunName} 순원` : '정착';
+    case 'settled': return sunName ? `${sunName} 순원` : '정착 완료';
     default: return c.note || HOLD_LABEL;
   }
 }
