@@ -307,6 +307,8 @@ const PANEL_PREFS = PANEL.replace('max-h-96', 'max-h-[min(36rem,calc(100dvh-5.5r
 
 // 판 높이가 내용을 따라 quint로 자란다(목록 ↔ 알림 설정 · PITFALLS 57) — 안쪽 실제 높이를 재서 겉 높이로 준다.
 // 겉은 overflow: clip(스크롤 통이 되지 않는다 — 머리 줄의 sticky가 판을 기준으로 그대로 붙는다). 첫 높이는 전이 없이.
+// 내용이 판(스크롤 칸)의 최대 높이보다 길면 높이를 재지 않고 auto로 둔다 — 그대로 재면 잘려 보이던 목록(710px)에서 설정(516px)으로
+// 넘어갈 때 판이 설정용 최대 높이까지 늘었다가 줄었다(사용자 지적 2026-10-22 · 실측). auto에서 숫자로는 움직이지 않으니 그때만 바로 바뀐다.
 function useSmoothHeight() {
   const inner = useRef(null);
   const [h, setH] = useState(null);
@@ -314,7 +316,11 @@ function useSmoothHeight() {
   useLayoutEffect(() => {
     const el = inner.current;
     if (!el) return undefined;
-    const read = () => setH(el.offsetHeight);
+    const read = () => {
+      const panel = el.parentElement?.parentElement;
+      const max = panel ? parseFloat(getComputedStyle(panel).maxHeight) - (panel.offsetHeight - panel.clientHeight) : NaN;
+      setH(Number.isFinite(max) && el.offsetHeight > max ? null : el.offsetHeight);
+    };
     read();
     const ro = new ResizeObserver(read);
     ro.observe(el);
