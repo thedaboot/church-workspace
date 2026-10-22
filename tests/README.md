@@ -8,6 +8,8 @@
 브라우저를 실제로 띄워 화면을 재는 검증 스위트. 단위 테스트 프레임워크는 쓰지 않는다 —
 각 파일이 헤드리스 Chrome을 CDP로 붙잡고, 화면을 만들고, 좌표·계산값·localStorage를 재서
 `PASS` / `FAIL` 줄을 찍고 종료 코드로 결과를 알린다.
+**새 스위트도 소켓을 연 바로 다음 줄에 `Browser.setDownloadBehavior { behavior: 'deny' }`를 보낸다** — 헤드리스 Chrome은
+누른 내려받기(.ics·공유 이미지)를 PC 사용자의 다운로드 폴더에 그대로 저장한다(2026-10-22 사용자 지적 · 실측). 내용은 blob을 가로채 잰다.
 
 ```bash
 npm run verify -- calfit drag  # **골라서 — 고친 것과 관련된 것만. 이게 기본이다**

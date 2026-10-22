@@ -11,6 +11,7 @@ async function tg(){for(let i=0;i<40;i++){try{const l=await(await fetch(`http://
 const page = await tg();
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise(r => ws.addEventListener('open', r));
+ws.send(JSON.stringify({ id: 0, method: 'Browser.setDownloadBehavior', params: { behavior: 'deny' } }));   // 누른 내려받기(.ics·공유 이미지)가 사용자 다운로드 폴더에 쌓이지 않게(2026-10-22)
 let id=0; const pend=new Map(); const evs=[];
 ws.addEventListener('message', e=>{const m=JSON.parse(e.data);if(m.id&&pend.has(m.id)){const{res,rej}=pend.get(m.id);pend.delete(m.id);m.error?rej(new Error(JSON.stringify(m.error))):res(m.result);}else if(m.method)evs.push(m);});
 const send=(m,p={})=>new Promise((res,rej)=>{const i=++id;pend.set(i,{res,rej});ws.send(JSON.stringify({id:i,method:m,params:p}));});
