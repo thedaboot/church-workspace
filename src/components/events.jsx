@@ -198,6 +198,7 @@ const kindChipStyle = (k, on) => ({
 // 누르면 그 자리(업무 창 위)에 새 일정 창이 업무 값으로 채워져 열린다 — 제목 · 시작 = 시작일(없으면 마감일 · 둘 다 없으면 오늘) ·
 // 종료 = 마감일 · 관련 업무 = 이 업무 · 종류 '행사'. 채운 칸은 모두 고칠 수 있고, 닫으면 업무 창으로 돌아온다.
 // 이미 이 업무를 관련 업무로 둔 행사가 있으면 같은 줄이 '행사 일정' + 그 행사 칩(누르면 그 일정 창이 그 자리에서 · 둘 이상이면 나란히).
+// 줄 높이는 위 속성 줄(py-2.5 · 글자 한 줄)과 같다 — 버튼·칩은 음수 세로 여백으로 누르는 자리만 크다(사용자 지적 2026-10-22).
 // 고칠 수 없고 이어진 행사도 없으면 줄이 없다. 목록은 행사 칸과 같은 한 벌(eventStore · 실시간 'events').
 export function TaskEventRow({ task }) {
   useEventsSync(null);
@@ -214,13 +215,13 @@ export function TaskEventRow({ task }) {
     setWin({ draft: { title: task.title || '', start, end, startTime: '', endTime: '', timed: false, place: '', memo: '', kind: 'event', taskIds: [task.id] } });
   };
   return (
-    <div className="flex items-center gap-0 py-2" data-task-event-row="">
+    <div className="flex items-center gap-0 py-2.5" data-task-event-row="">
       <span className="w-24 shrink-0 text-fg-muted">{linked.length ? '행사 일정' : '일정 추가'}</span>
       {linked.length ? (
         <span className="flex flex-wrap gap-1.5 min-w-0">
           {linked.map(ev => (
             <button key={ev.id} type="button" onClick={() => setWin({ id: ev.id })} data-task-event={ev.id}
-              className="inline-flex items-center gap-1.5 max-w-full h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition active:scale-95 hover:brightness-95"
+              className="inline-flex items-center gap-1.5 max-w-full h-6 -my-1 px-2.5 rounded-full text-[11.5px] font-semibold transition active:scale-95 hover:brightness-95"
               style={{ background: eventPaint(ev).background, color: eventPaint(ev).color }}>
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: eventDot(ev) }} />
               <span className="truncate">{[ev.title, eventRangeLabel(ev)].filter(Boolean).join(' · ')}</span>
@@ -229,7 +230,7 @@ export function TaskEventRow({ task }) {
         </span>
       ) : (
         <button type="button" onClick={add} data-task-event-add=""
-          className="inline-flex items-center gap-1 -ml-2 h-7 md:h-6 px-2 rounded-md text-[12px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-95">
+          className="inline-flex items-center gap-1 -ml-2 h-7 md:h-6 -my-1.5 md:-my-1 px-2 rounded-md text-[12px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-95">
           <Plus size={13} />행사 일정에 추가
         </button>
       )}

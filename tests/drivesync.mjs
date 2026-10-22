@@ -666,7 +666,7 @@ check('모임 보고서도 업무 첨부와 같은 업로드 한 벌을 지나�
   const groups = read('src/services/groups.js');
   const gview = read('src/views/groupsView.jsx');
   assert.strictEqual((groups.match(/uploadMeetingFile\(/g) || []).length, 1, 'groups.js에 드라이브로 가는 자리가 둘 이상이다');
-  assert.match(groups, /export async function removeMeetingReport[\s\S]*?return deleteAttachment\(row\);/, '보고서 지우기가 두 번째 구현이다(§6-29-e)');
+  assert.match(groups, /export async function removeMeetingReport[\s\S]*?return deleteAttachment\(/, '보고서 지우기가 두 번째 구현이다(§6-29-e)');
   const send = gview.slice(gview.indexOf('const sendReports = useCallback'));
   const folderAt = send.search(/await ensureMeetingDriveFolder\(club, meeting\)/);
   const upAt = send.search(/await uploadMeetingReport\(club, meeting, file, folderId/);
@@ -1304,7 +1304,7 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
         let r = table === 'profiles' ? Object.entries(profiles).map(([id, p]) => ({ id, ...p }))
           : table === 'files' ? files : table === 'admins' ? admins.map(email => ({ email })) : (tables[table] || []);
         for (const [k, v, op] of filters) {
-          r = r.filter(x => (op === 'ilike' ? String(x[k]).toLowerCase() === String(v).toLowerCase() : x[k] === v));
+          r = r.filter(x => (op === 'ilike' ? String(x[k]).toLowerCase() === String(v).toLowerCase() : op === 'in' ? v.includes(x[k]) : (x[k] ?? null) === v));
         }
         return r;
       };
@@ -1312,6 +1312,9 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
         select: () => q,
         eq: (k, v) => { filters.push([k, v]); return q; },
         ilike: (k, v) => { filters.push([k, v, 'ilike']); return q; },
+        in: (k, v) => { filters.push([k, v, 'in']); return q; },
+        is: (k, v) => { filters.push([k, v]); return q; },
+        limit: () => q,
         single: async () => ({ data: rows()[0] ?? null }),
         maybeSingle: async () => ({ data: rows()[0] ?? null }),
         then: (ok, bad) => Promise.resolve({ data: rows() }).then(ok, bad),
@@ -1385,22 +1388,32 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
 
   // 모임 활동 보고서(0093)는 **그 동아리장도** — DB의 can_edit_meeting과 같은 경계(관리자가 올린 보고서를 동아리장이 고친다).
   // 되돌리기 검사: mayGrantEditors의 `leadsClubOf(…)` 갈래를 `false`로 바꾸면 첫 줄이 깨진다.
+  const THIS_YEAR = Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4));
   const mdb = mockDb({
     profiles: { L: { approved: true }, C: { approved: true }, X: { approved: true } },
     files: [{ uploaded_by: 'ADMIN', preview_file_id: 'COPY_M', meeting_id: 'M1' }, { uploaded_by: 'A', preview_file_id: 'COPY_CARD', meeting_id: null }],
     tables: {
       group_meetings: [{ id: 'M1', group_id: 'G1' }],
       groups: [{ id: 'G1', leader_person_id: 'P_L' }, { id: 'G2', leader_person_id: 'P_X' }],
-      people: [{ id: 'P_L', profile_id: 'L', removed_at: null }, { id: 'P_X', profile_id: 'X', removed_at: null }],
+      people: [{ id: 'P_L', profile_id: 'L', removed_at: null }, { id: 'P_X', profile_id: 'X', removed_at: null },
+        { id: 'P_T', profile_id: 'T', removed_at: null }, { id: 'P_O', profile_id: 'O', removed_at: null }],
+      people_roles: [{ person_id: 'P_T', year: THIS_YEAR, role: 'treasurer' }, { person_id: 'P_O', year: THIS_YEAR - 1, role: 'treasurer' }],
     },
   });
   const mmay = async (id, fileId) => drive.mayGrantEditors(mdb, { id, email: `${id.toLowerCase()}@x.com` }, fileId);
-  const mgrant = { leader: await mmay('L', 'COPY_M'), member: await mmay('C', 'COPY_M'), otherLeader: await mmay('X', 'COPY_M'), leaderOnCard: await mmay('L', 'COPY_CARD') };
+  const mgrant = { leader: await mmay('L', 'COPY_M'), member: await mmay('C', 'COPY_M'), otherLeader: await mmay('X', 'COPY_M'), leaderOnCard: await mmay('L', 'COPY_CARD'),
+    treasurer: await mmay('T', 'COPY_M'), oldTreasurer: await mmay('O', 'COPY_M'), treasurerOnCard: await mmay('T', 'COPY_CARD') };
   check('모임 보고서 사본은 그 동아리장도 편집자로 붙는다 — 다른 동아리장·구성원·업무 첨부는 아니다 (0093)', () => {
     assert.strictEqual(mgrant.leader, true, '그 동아리장');
     assert.strictEqual(mgrant.member, false, '구성원');
     assert.strictEqual(mgrant.otherLeader, false, '다른 동아리의 동아리장');
     assert.strictEqual(mgrant.leaderOnCard, false, '동아리장이라고 업무 첨부 사본까지 붙지는 않는다');
+  });
+  // 0122 — 올해 총무는 모든 동아리 보고서(사용자 결정 2026-10-22). 되돌리기 검사: isTreasurer 갈래를 빼면 첫 줄이 깨진다.
+  check('모임 보고서 사본은 올해 총무도 편집자로 붙는다 — 지난해 총무·업무 첨부는 아니다 (0122)', () => {
+    assert.strictEqual(mgrant.treasurer, true, '올해 총무');
+    assert.strictEqual(mgrant.oldTreasurer, false, '지난해 총무');
+    assert.strictEqual(mgrant.treasurerOnCard, false, '총무라고 업무 첨부 사본까지 붙지는 않는다');
   });
 
   check('uploadFromUrl은 우리 Storage의 attachments 서명 주소만 (isOurSignedUrl)', () => {

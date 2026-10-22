@@ -15,6 +15,7 @@ import { fetchReportBoard, setSupportPaid } from '../services/clubReport.js';
 // 그 해의 지난 모임 전부 — 위에 상태 셋의 수와 '지급할 지원금'(제출 완료인데 아직 지급 전) 합계, 아래에 모임마다 한 줄:
 //   동아리 · 모임 날짜·제목 · 참석 · 지원금(참석자 × 5,000원) · 보고서 상태 · 지급 체크.
 // 지급 체크는 **제출 완료한 모임만** 있다(보고서를 보고 지급한다 · 지급할 수 없는 줄에는 버튼을 두지 않는다 — 폰에서 흐린 버튼이 줄마다 자리를 차지했다).
+// 폰은 지급 버튼이 줄 오른쪽 아래(상태 칩 밑 · 지급한 사람·날은 그 왼쪽 · 사용자 요청 2026-10-22) · 데스크톱은 끝 열.
 // 줄을 누르면 그 동아리 상세로 간다(보고서를 열어 본다). 지급 체크는 먼저 바꾸고 실패하면 되돌린다(set_support_paid · 마스터·총무만).
 // 읽기 실패는 그 자리 실패 묶음(FailLeft · 다시 시도) · 처음 읽는 동안은 줄 모양 스켈레톤.
 // ============================================================================
@@ -127,7 +128,7 @@ export function ClubReportBoard({ year, me = '', people = [], onOpenClub, onBack
               <span className="row-start-1 col-start-2 md:row-start-auto md:col-start-auto justify-self-end md:justify-self-start">
                 <span className={`px-1.5 py-px rounded-xs text-[10.5px] font-bold ${tone}`}>{label}</span>
               </span>
-              <span className={`col-span-2 md:col-span-1 items-center gap-2 min-w-0 ${canPay ? 'flex' : 'hidden md:flex'}`}>
+              <span className={`col-span-2 md:col-span-1 flex-row-reverse md:flex-row items-center gap-2 min-w-0 ${canPay ? 'flex' : 'hidden md:flex'}`}>
                 {canPay && <button type="button" role="checkbox" aria-checked={!!r.paidAt} onClick={() => toggle(r)}
                   data-board-paid={r.paidAt ? 'true' : 'false'}
                   className={`shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40

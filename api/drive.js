@@ -68,7 +68,7 @@ async function editorsFor(supabase, user) {
 // 아무 파일 id로 자기를 편집자로 붙일 수 있었다. 사본은 `files.preview_file_id`로 앱이 안다.
 // 올린 사람은 **두 id를 다 내 것으로 본다**(합친 계정 · §6-34-i · DB의 files_delete와 같은 규칙).
 // **모임 활동 보고서(0093)는 그 동아리장도 붙는다** — 보고서를 고치는 자격이 DB의 can_edit_meeting(관리자 ·
-// 그 동아리장)이라, 관리자가 올린 보고서를 동아리장이 못 고치면 화면의 '편집'이 거짓말이 된다.
+// 그 동아리장 · 0122부터 총무)이라, 관리자가 올린 보고서를 동아리장이 못 고치면 화면의 '편집'이 거짓말이 된다.
 export async function mayGrantEditors(supabase, user, fileId) {
   if (!fileId) return false;
   const { data: rows } = await supabase.from('files').select('uploaded_by, meeting_id').eq('preview_file_id', fileId);
@@ -77,7 +77,17 @@ export async function mayGrantEditors(supabase, user, fileId) {
   if (rows.some(r => mine.has(r.uploaded_by))) return true;
   if (await isAdminEmail(supabase, user.email)) return true;
   const meetingId = rows.find(r => r.meeting_id)?.meeting_id;
-  return !!meetingId && leadsClubOf(supabase, mine, meetingId);
+  return !!meetingId && (await leadsClubOf(supabase, mine, meetingId) || await isTreasurer(supabase, mine));
+}
+
+// 올해 총무인가(0122 can_edit_meeting — 총무는 모든 동아리 보고서를 고친다 · 0035 has_role('treasurer')와 같은 줄)
+async function isTreasurer(supabase, mine) {
+  const { data: ps } = await supabase.from('people').select('id').in('profile_id', [...mine]).is('removed_at', null);
+  if (!ps?.length) return false;
+  const year = Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4));
+  const { data: r } = await supabase.from('people_roles').select('person_id').in('person_id', ps.map(p => p.id))
+    .eq('year', year).eq('role', 'treasurer').limit(1);
+  return !!r?.length;
 }
 
 // 이 모임이 달린 동아리의 동아리장이 나인가(0035 group_meetings_write의 leader_person_id = my_person_id()와 같은 줄)

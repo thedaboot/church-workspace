@@ -49,6 +49,13 @@ function GrowText({ value, rows, ...rest }) {
   }, [fit]);
   return <textarea ref={ref} value={value} rows={rows} {...rest} />;
 }
+// 저장·제출 중 — 글자는 자리만 남기고(invisible) 그 위 가운데에 도는 표시. 폭이 그대로라 옆 버튼이 밀리지 않는다(사용자 지적 2026-10-22)
+const Busy = ({ on, children }) => (
+  <>
+    <span className={on ? 'invisible' : undefined}>{children}</span>
+    {on && <Loader2 size={14} className="animate-spin absolute inset-0 m-auto" />}
+  </>
+);
 const shortDay = (d) => { const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(d || '')); return m ? `${+m[1]}월 ${+m[2]}일` : ''; };
 
 function PhotoGroup({ label, list, onAdd, onDrop, busy }) {
@@ -190,11 +197,11 @@ export function MeetingReportForm({ club, meeting, people = [], onSave, onClose 
           <button type="button" onClick={close} className={`${BTN_CONFIRM_QUIET} px-3`}>취소</button>
           <span className="flex-1" />
           <button type="button" onClick={() => save(false)} disabled={!!saving || !!busy} data-report-save=""
-            className={`${BTN_CONFIRM_QUIET} text-accent-text`}>
-            {saving === 'save' && <Loader2 size={14} className="animate-spin" />}저장
+            className={`${BTN_CONFIRM_QUIET} relative text-accent-text`}>
+            <Busy on={saving === 'save'}>저장</Busy>
           </button>
-          <button type="button" onClick={() => save(true)} disabled={!!saving || !!busy} data-report-submit="" className={BTN_CONFIRM}>
-            {saving === 'submit' && <Loader2 size={14} className="animate-spin" />}{submitted ? '다시 제출' : '제출'}
+          <button type="button" onClick={() => save(true)} disabled={!!saving || !!busy} data-report-submit="" className={`${BTN_CONFIRM} relative`}>
+            <Busy on={saving === 'submit'}>{submitted ? '다시 제출' : '제출'}</Busy>
           </button>
         </div>
       </div>

@@ -610,6 +610,9 @@ const pure = await ev(`(async () => {
       m.canManageClub(m.groupPerms({ isMaster: true }), 'gc2'),
       m.canManageClub(m.groupPerms({ isAdmin: true }), 'gc2'),
       m.canManageClub(m.groupPerms({}), 'gc2')],
+    // 모임·보고서(0122) — 명단 경계 + 총무(모든 동아리). 총무는 명단(canManageClub)은 못 고친다
+    meetClub: [m.canMeetClub(led, 'gc1'), m.canMeetClub(led, 'gc2'), m.canMeetClub(m.groupPerms({ myRoles: ['treasurer'] }), 'gc2'),
+      m.canManageClub(m.groupPerms({ myRoles: ['treasurer'] }), 'gc2'), m.canMeetClub(m.groupPerms({}), 'gc2')],
     // 이름·설명 고치기(0039 groups_update) — 관리자 또는 **그** 동아리장. 0045부터
     // 명단 자격(canManageClub)과 같은 경계다.
     editClub: (() => {
@@ -739,6 +742,8 @@ check('총무·리더팀장 줄만으로는 순 편성 자격이 아니다(0043)
 // 0045 — 예전에는 마스터 + 그 리더라, 관리자가 이름·설명은 고치면서 사람은 못 넣었다
 check('동아리 멤버 추가·제거는 그 동아리장 + 관리자(마스터 포함)',
   JSON.stringify(pure.club) === '[true,false,true,true,false]', JSON.stringify(pure.club));
+check('동아리 모임·보고서는 그 동아리장 + 관리자 + 총무(모든 동아리 · 명단은 아니다 · 0122)',
+  JSON.stringify(pure.meetClub) === '[true,false,true,false,false]', JSON.stringify(pure.meetClub));
 check('동아리 이름·설명은 그 동아리장 또는 관리자만 고친다',
   JSON.stringify(pure.editClub) === '[true,false,false,true]', JSON.stringify(pure.editClub));
 check('리더가 맨 앞에 서고 겹치는 사람은 하나로, 나머지는 가나다순',

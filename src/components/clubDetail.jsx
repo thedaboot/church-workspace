@@ -7,7 +7,7 @@ import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON, EXIT, useClosing, NEW_H, DATE_TRIGGER, PEOPLE_GRID,
   PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark, FailTail,
 } from './groupsParts.jsx';
-import { groupPeople, canManageClub, canEditClub, notInGroup, lastReportOf } from '../services/groups.js';
+import { groupPeople, canManageClub, canMeetClub, canEditClub, notInGroup, lastReportOf } from '../services/groups.js';
 import { MeetingReport } from './meetingReport.jsx';
 import { formatServiceDate } from '../services/worship.js';
 import { imeComposing } from '../utils.js';
@@ -54,6 +54,7 @@ export function ClubDetail({
   const list = useMemo(() => groupPeople({ people, group: club, members }), [people, club, members]);
   const byId = useMemo(() => new Map(people.map(p => [p.id, p])), [people]);
   const manage = canManageClub(perms, club.id);
+  const meet = canMeetClub(perms, club.id);   // 모임·보고서 — 총무도(0122)
   // 신청 수락·거절만 아직 **마스터 + 그 동아리장**이다(0035 club_applications_update).
   // 0045는 멤버 추가·제거(group_members_write)와 모임(group_meetings_write)만 관리자까지
   // 열었으므로 이 자리는 따로 잰다 — 자격이 없는데 버튼이 보이면 눌렀을 때 RLS가 막는다.
@@ -231,9 +232,9 @@ export function ClubDetail({
           머리 오른쪽이다(만들 수 있는 사람에게만 — manage). 다가오는 쪽이 비면 상태 한 줄 `다음 모임 미정`
           (예전의 그림 + '예정된 모임이 아직 없어요'를 대신한다 · §8 문구 톤), 지난 쪽이 비면 구역째 없다.
           지난 모임의 칩은 흐리게 하지 않는다(출석 수정 자격은 manage 하나 — 구성원에게는 이미 .6이다). */}
-      {(meetings.length > 0 || manage || !!meetingsFail) && (
+      {(meetings.length > 0 || meet || !!meetingsFail) && (
         <div className="club-meetings mt-6">
-          <SectionHead right={manage && !adding && (
+          <SectionHead right={meet && !adding && (
             <button type="button" onClick={() => setAdding(true)}
               className={`club-meet-new-open ${WITH_ICON} px-2 py-1 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95`}>
               <Plus size={12} /><span>모임 만들기</span>
@@ -290,7 +291,7 @@ export function ClubDetail({
               {upcoming.length > 0 ? (
                 <div className="club-meet-upcoming space-y-2">
                   {upcoming.map(m => (
-                    <MeetingRow key={m.id} meeting={m} list={list} manage={manage}
+                    <MeetingRow key={m.id} meeting={m} list={list} manage={meet}
                       onToggle={onToggleMeeting} onDelete={onDeleteMeeting} />
                   ))}
                 </div>
@@ -302,12 +303,12 @@ export function ClubDetail({
                   <SectionHead>지난 모임</SectionHead>
                   {(() => {
                     const pastRow = (m) => (
-                      <MeetingRow key={m.id} meeting={m} list={list} manage={manage}
+                      <MeetingRow key={m.id} meeting={m} list={list} manage={meet}
                         onToggle={onToggleMeeting} onDelete={onDeleteMeeting}
                         report={report && (
                           // 활동 보고서는 **지난 모임에만**(시안 4-C) — 가져올 지난 보고서는 이 모임에 보고서가 없을 때만 찾는다
-                          <MeetingReport meeting={m} manage={manage} people={people}
-                            prev={manage && !(m.files || []).length ? lastReportOf(meetings, m) : null}
+                          <MeetingReport meeting={m} manage={meet} people={people}
+                            prev={meet && !(m.files || []).length ? lastReportOf(meetings, m) : null}
                             onPick={files => report.onPick(club, m, files)} onRetry={id => report.onRetry(club, m, id)}
                             onRemove={row => report.onRemove(m, row)} onCopyLast={prev => report.onCopyLast(club, m, prev)}
                             onGrantEdit={report.onGrantEdit} club={club}

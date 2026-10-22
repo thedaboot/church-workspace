@@ -110,6 +110,10 @@ export const canEditClub = (perms, club) => !!perms?.isAdmin
 export const canManageClub = (perms, groupId) =>
   !!perms?.isAdmin || (!!groupId && (perms?.ledClubIds || []).includes(groupId));
 
+// 동아리 모임(만들기·지우기·출석)과 활동 보고서 — 위 경계 + **총무**(모든 동아리 · 사용자 결정 2026-10-22 —
+// 총무가 지난 보고서를 모두 올린다 · 0122 can_edit_meeting · group_meetings_write). 명단·이름은 위 경계 그대로다.
+export const canMeetClub = (perms, groupId) => canManageClub(perms, groupId) || !!perms?.isTreasurer;
+
 // 이름 순서는 people.js의 byName 한 벌이다(예배와 같이 쓴다). 화면이 이 파일에서 가져가던
 // 자리가 있어 그대로 다시 내보낸다.
 export { byName };
@@ -697,13 +701,16 @@ export async function grantReportEditors(row) {
 }
 
 // 지우는 길은 업무 첨부와 한 벌이다 — DB 행부터, 실체는 그 뒤 최선으로(§6-29-e)
+// 구글 사본((표))의 id는 DB에서 다시 읽는다 — 화면의 행에는 몇 초 뒤 붙은 사본 id가 없을 수 있고, 그러면 원본만 휴지통에 가고
+// 사본은 모임 폴더에 남아 쌓였다(사용자 지적 2026-10-22 '계속 쌓이는 듯' — 작성 화면이 저장마다 앞 엑셀을 걷는 길).
 export async function removeMeetingReport(row) {
   if (!supabase) {
     guestReportBytes.delete(row.id);
     guestSet('files', guestRows('files').filter(f => f.id !== row.id));
     return;
   }
-  return deleteAttachment(row);
+  const { data } = await supabase.from('files').select('preview_file_id').eq('id', row.id).maybeSingle();
+  return deleteAttachment(data?.preview_file_id ? { ...row, preview_file_id: data.preview_file_id } : row);
 }
 
 // ── 쓰기 · 구성원 ───────────────────────────────────────────────────────────
