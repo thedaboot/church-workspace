@@ -596,7 +596,9 @@ export function GroupsView() {
       const slipNames = new Set(slips.map(f => f.name));
       patchMeeting(meeting.id, m => ({ ...m, report_form: form, files: (m.files || []).filter(f => !drop.some(d => d.id === f.id)) }));
       for (const d of drop) removeMeetingReport(d).catch(e => console.error('[groups] 뺀 영수증을 지우지 못했다:', e));
-      sendReports(club, meeting, [file, ...slips].map(stagedRow)).then(async (done) => {
+      // awaitCopy — 아래에서 행을 새 객체로 펴 넣으므로, 몇 초 뒤 사본 id를 원래 행에 적는 길(attachPreviewCopy)이 화면에 닿지 않는다.
+      // 사본이 선 뒤에 줄을 세워야 저장 직후에도 표 미리보기가 열린다(사용자 지적 2026-10-22 '이 파일은 표로 볼 수 없어요')
+      sendReports(club, meeting, [file, ...slips].map(stagedRow), { awaitCopy: true }).then(async (done) => {
         const row = done?.find(r => !slipNames.has(r.name));
         if (!row) return;
         try { await markGenerated(meeting.id, row.id); } catch (e) { console.error('[groups] 만든 보고서를 적지 못했다:', e); }
