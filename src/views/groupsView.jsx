@@ -317,16 +317,21 @@ export function GroupsView() {
   // 실패 두 줄 + '다시 시도'가 선다(meetingsFail · 토스트는 띄우지 않는다). meetingsTry는 다시 읽기 신호다.
   const [meetingsFail, setMeetingsFail] = useState(null);
   const [meetingsTry, setMeetingsTry] = useState(0);
+  // 읽는 동안은 빈 목록('다음 모임 미정')이 아니라 모임 카드 모양 스켈레톤(사용자 지적 2026-10-22 — 지난 모임이 늦게 툭 떴다)
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
   useEffect(() => {
     setMeetingsFail(null);
-    if (!openClubId) { setMeetings([]); return undefined; }
+    if (!openClubId) { setMeetings([]); setMeetingsLoading(false); return undefined; }
     let alive = true;
+    setMeetingsLoading(true);
+    setMeetings([]);   // 앞 동아리의 모임이 남아 보이지 않게
     fetchMeetings(openClubId)
       .then(rows => { if (alive) setMeetings(rows); })
       .catch(e => {
         console.error('[groups] 모임 일정 실패:', e);
         if (alive) { setMeetings([]); setMeetingsFail(e || true); }
-      });
+      })
+      .finally(() => { if (alive) setMeetingsLoading(false); });
     return () => { alive = false; };
   }, [openClubId, meetingsTry]);
 
@@ -928,6 +933,7 @@ export function GroupsView() {
         <ClubsPanel clubs={clubs} people={state.people} members={state.members} apps={state.apps}
           nextMeet={state.nextMeet || {}}
           perms={perms} openClub={openClub} meetings={meetings}
+          meetingsLoading={meetingsLoading}
           meetingsFail={meetingsFail ? { reason: errorReason(meetingsFail), onRetry: () => setMeetingsTry(n => n + 1) } : null}
           creating={creating === 'club'} closingCreate={closingCreate} onCloseCreate={shutCreate}
           onOpen={g => setOpenClubId(g.id)} onBack={() => setOpenClubId(null)}

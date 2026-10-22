@@ -19,6 +19,7 @@ import { visibleGroups, filterNotifs, flipOff } from '../services/notifyPrefs.js
 import { useGuestNotifs, setGuestNotifs } from '../services/opsDemo.js';
 import { useNotifOff, setNotifOff } from '../services/notifOff.js';
 import { ShareSwitch } from './bibleParts.jsx';
+import { Skeleton } from './media.jsx';
 
 // ============================================================================
 // 알림 종(클라우드 모드에서만 선다 · 데스크톱 TopNav와 폰 상단바가 같은 것을 쓴다).
@@ -156,7 +157,24 @@ const SystemIcon = ({ kind }) => {
 };
 
 // 게스트 시연(guest · 시안 v5 2묶음)은 브라우저에 심은 알림으로 같은 판을 그리고 '알림 설정'을 연다 — 클라우드 갈래는 그대로다.
+// 받는 사람에게만 서는 칩의 자격(모임 > 새가족 · 0121) — 종이 화면에 붙을 때 한 번 묻고 계정마다 기억한다.
+// 판을 열 때 물으면 칩이 늦게 서며 판 아래가 늘었다 줄었다(사용자 지적 2026-10-22). 클라우드는 DB 판정(0120 can_see_welcome) ·
+// 게스트는 켬(시연·검사) · 못 읽으면 세우지 않는다(닫힌 쪽).
+const welcomeAsk = { uid: undefined, promise: null, value: undefined };
+function askWelcome(uid) {
+  if (welcomeAsk.uid !== uid || !welcomeAsk.promise) {
+    welcomeAsk.uid = uid;
+    welcomeAsk.value = undefined;
+    const p = (supabase ? supabase.rpc('can_see_welcome').then(({ data, error }) => !error && !!data, () => false) : Promise.resolve(true))
+      .then(v => { if (welcomeAsk.promise === p) welcomeAsk.value = v; return v; });
+    welcomeAsk.promise = p;
+  }
+  return welcomeAsk.promise;
+}
+
 export function NotificationBell(props) {
+  const uid = useAuth().session?.user?.id || null;
+  useEffect(() => { askWelcome(uid); }, [uid]);
   return props.guest ? <GuestBell {...props} /> : <CloudBell {...props} />;
 }
 
@@ -463,16 +481,28 @@ function GuestBell({ onOpenLink }) {
 // 갈래가 꺼지면 칸은 흐리고(.4) 못 누른다 — 체크 상자는 저장된 항목 값을 그대로 보인다(갈래를 켜면 그대로 살아난다).
 // 누르는 즉시 바뀌고 저장된다(notifOff) — 저장이 실패하면 값이 되돌아가고 토스트. 흐려짐·색·체크는 quint로 바뀐다(.ops-ease · .ops-pop).
 function NotifPrefs({ off }) {
-  // 받는 사람에게만 서는 칩(모임 > 새가족 · 0121) — 자격은 판을 열 때 한 번 묻는다
-  const [can, setCan] = useState({});
+  // 받는 사람에게만 서는 칩(모임 > 새가족 · 0121) — 종이 붙을 때 미리 물어 둔 값(askWelcome) · 아직 모르면 목록 자리에 스켈레톤
+  const uid = useAuth().session?.user?.id || null;
+  const known = welcomeAsk.uid === uid ? welcomeAsk.value : undefined;
+  const [can, setCan] = useState(() => (known === undefined ? null : { welcome: known }));
   useEffect(() => {
     let alive = true;
-    // 클라우드는 DB 판정(0120 can_see_welcome) 한 번 · 게스트는 켬(시연·검사) · 못 읽으면 세우지 않는다(닫힌 쪽)
-    const ask = supabase ? supabase.rpc('can_see_welcome').then(({ data, error }) => !error && !!data) : Promise.resolve(true);
-    ask.then(v => { if (alive) setCan({ welcome: v }); }, () => {});
+    askWelcome(uid).then(v => { if (alive) setCan({ welcome: v }); });
     return () => { alive = false; };
-  }, []);
+  }, [uid]);
   const flip = (key) => setNotifOff(flipOff(off, key)).then(e => { if (e) showToast(failText('저장하지 못했어요', e)); });
+  if (!can) {
+    return (
+      <div className="divide-y divide-line/60" data-notif-prefs="" aria-busy="true">
+        {visibleGroups({}).map(g => (
+          <div key={g.key} className="px-3 py-3">
+            <div className="min-h-6 flex items-center gap-3"><Skeleton className="w-16 h-3.5" /><span className="flex-1" /><Skeleton className="w-9 h-5 rounded-full" /></div>
+            {g.items.length > 0 && <div className="grid grid-cols-2 gap-1.5 mt-2.5">{g.items.map(it => <Skeleton key={it.key} className="h-8" />)}</div>}
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="divide-y divide-line/60" data-notif-prefs="">
       {visibleGroups(can).map(g => {

@@ -9,7 +9,7 @@ import { FIELD } from './groupsParts.jsx';
 import { Skeleton } from './media.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { isBlankCanvas, corsImageUrl, toDataUrl } from '../services/shareImage.js';
+import { isBlankCanvas, corsImageUrl } from '../services/shareImage.js';
 import { deviceOf, screenOf, shotScale } from '../services/opsCore.js';
 import { sendFeedback } from '../services/ops.js';
 import { buildId } from '../services/errorReport.js';
@@ -43,13 +43,52 @@ const offscreen = (n, w, h) => {
   const r = n.getBoundingClientRect();
   return r.width > 0 && r.height > 0 && (r.bottom < 0 || r.right < 0 || r.top > h || r.left > w);
 };
+//   · 베끼는 스타일은 그림에 보이는 것만(SHOT_PROPS · 약 150개 · 빠뜨리면 그 모양만 빠진다 — 스크롤 막대·흐린 가장자리가 그랬다) — 라이브러리 기본은 요소마다 계산된 스타일 400여 개 전부라,
+//     실데이터 프로젝트 보드(요소 959 · 사진 31)가 그림 설명(SVG) 5.4MB였다. 아이폰 사파리는 이만큼 큰 그림을 못 그려 빈 그림이 되고
+//     '스크린샷 미첨부'로 떨어졌다(사용자 지적 2026-10-22). 연결 지도 실측(크롬 · 사파리 갈래) 2.7초 → 1.6초.
+//   · 사진은 화면에 그려진 크기 × 배율로 줄여 싣는다(smallImage) — 얼굴은 24px로 보이는데 640px 원본을 통째로 실었다. 줄인 것은
+//     창을 다시 열어도 쓴다(shrunk · 주소@폭).
+//   · 첫 시도가 실패하거나 빈 그림이면 한 번 더 가볍게(배율 1 · 글꼴 안 싣기) — 그래도 안 되면 사진 없이.
 const SHOT_MAX = 2560;
 const SAFARI_REDRAWS = 3;
-async function captureViewport() {
+const SHOT_PROPS = ["display","position","top","right","bottom","left","z-index","float","clear","box-sizing","overflow","overflow-x","overflow-y","visibility","opacity","width","height","min-width","min-height","max-width","max-height","aspect-ratio","margin-top","margin-right","margin-bottom","margin-left","padding-top","padding-right","padding-bottom","padding-left","flex-direction","flex-wrap","flex-grow","flex-shrink","flex-basis","justify-content","align-items","align-self","align-content","justify-items","justify-self","order","row-gap","column-gap","grid-template-columns","grid-template-rows","grid-template-areas","grid-auto-flow","grid-auto-columns","grid-auto-rows","grid-column-start","grid-column-end","grid-row-start","grid-row-end","grid-area","border-top-width","border-right-width","border-bottom-width","border-left-width","border-top-style","border-right-style","border-bottom-style","border-left-style","border-top-color","border-right-color","border-bottom-color","border-left-color","border-top-left-radius","border-top-right-radius","border-bottom-right-radius","border-bottom-left-radius","outline-width","outline-style","outline-color","outline-offset","background-color","background-image","background-size","background-position","background-repeat","background-clip","box-shadow","color","font-family","font-size","font-weight","font-style","font-variant-numeric","font-feature-settings","line-height","letter-spacing","text-align","text-decoration-line","text-decoration-color","text-transform","text-overflow","white-space","word-break","overflow-wrap","text-indent","vertical-align","-webkit-line-clamp","-webkit-box-orient","line-clamp","text-shadow","transform","transform-origin","filter","backdrop-filter","clip-path","mask-image","object-fit","object-position","fill","stroke","stroke-width","stroke-dasharray","stroke-linecap","stroke-linejoin","stroke-opacity","fill-opacity","r","cx","cy","x","y","rx","ry","list-style-type","table-layout","border-collapse","cursor","isolation","mix-blend-mode","scrollbar-width","scrollbar-color","-webkit-mask-image","mask-size","mask-position","mask-repeat","-webkit-mask-size","-webkit-mask-position","-webkit-mask-repeat","translate","scale","rotate","text-decoration-thickness","text-underline-offset","text-decoration-style","background-origin","background-attachment","-webkit-text-fill-color","-webkit-background-clip","caret-color","accent-color","direction","writing-mode","column-count","object-view-box","inset"];
+const shrunk = new Map();
+function smallImage(url, want) {
+  if (!/^https?:/.test(url)) return Promise.resolve(false);
+  // CORS 없는 카카오 프로필 사진은 썸네일 주소로 받는다(shareImage.corsImageUrl · 빠지면 얼굴 자리가 빈다 — 사용자 지적 2026-10-19)
+  const via = corsImageUrl(url);
+  const key = `${via}@${want}`;
+  if (!shrunk.has(key)) {
+    shrunk.set(key, (async () => {
+      try {
+        const res = await fetch(via, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) return false;
+        const bmp = await createImageBitmap(await res.blob());
+        const k = Math.min(1, want / Math.max(bmp.width, bmp.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(bmp.width * k));
+        c.height = Math.max(1, Math.round(bmp.height * k));
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+        bmp.close?.();
+        return c.toDataURL('image/png');
+      } catch {
+        shrunk.delete(key);   // 못 받은 것은 다음에 다시
+        return false;
+      }
+    })());
+  }
+  return shrunk.get(key);
+}
+async function captureOnce(scale, light) {
   const { createContext, destroyContext, domToCanvas } = await import('modern-screenshot');
   const w = window.innerWidth;
   const h = window.innerHeight;
-  const scale = shotScale(w, h, window.devicePixelRatio, SHOT_MAX);
+  const drawn = new Map();   // 주소 → 화면에 그려진 긴 변(px)
+  for (const img of document.images) {
+    const r = img.getBoundingClientRect();
+    const src = img.currentSrc || img.src;
+    drawn.set(src, Math.max(drawn.get(src) || 0, r.width, r.height));
+  }
   let ctx = null;
   ctx = await createContext(document.body, {
     width: w, height: h, scale,
@@ -59,21 +98,22 @@ async function captureViewport() {
     backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff',
     filter: (n) => !(n instanceof Element && (n.hasAttribute('data-feedback-scrim') || offscreen(n, w, h))),
     features: { restoreScrollPosition: true },
-    // CORS 없는 카카오 프로필 사진은 썸네일 주소로 받는다(shareImage.corsImageUrl) — 그 밖은 false로 기본 길에 맡긴다
-    fetchFn: async (url) => {
-      const via = corsImageUrl(url);
-      if (via === url) return false;
-      try {
-        const res = await fetch(via, { mode: 'cors', credentials: 'omit' });
-        return res.ok ? await toDataUrl(await res.blob()) : false;
-      } catch { return false; }
-    },
+    includeStyleProperties: SHOT_PROPS,
+    ...(light ? { font: false } : {}),
+    fetchFn: (url) => smallImage(url, Math.max(16, Math.ceil((drawn.get(url) || 160) * scale))),
   });
   let canvas;
   try { canvas = await domToCanvas(ctx); } finally { destroyContext(ctx); }
   if (!canvas || isBlankCanvas(canvas)) throw new Error('빈 그림');
   const webp = canvas.toDataURL('image/webp', 0.9);
   return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.9);
+}
+async function captureViewport() {
+  try { return await captureOnce(shotScale(window.innerWidth, window.innerHeight, window.devicePixelRatio, SHOT_MAX), false); }
+  catch (e) {
+    console.warn('[feedback] 화면 사진 첫 시도 실패 — 가볍게 다시:', e?.message || e);
+    return captureOnce(1, true);
+  }
 }
 
 export function FeedbackSend({ onClose }) {
@@ -100,13 +140,17 @@ export function FeedbackSend({ onClose }) {
   const { device, browser } = deviceOf(info.current.ua);
   const phone = /iPhone|안드로이드|갤럭시/.test(device);
 
+  // 굽기는 약속 하나(shotJob) — 다 굽기 전에 '보내기'를 눌러도 기다리지 않고 보낸다(글 먼저 · 사진은 다 구운 뒤 뒤에서 · ops.sendFeedback).
+  // 보내지 않고 닫으면 아직 시작 전인 굽기는 건너뛴다.
+  const shotJob = useRef(null);
+  const sent = useRef(false);
   useEffect(() => {
     let alive = true;
-    const t = setTimeout(() => {
-      captureViewport().then(url => { if (alive) setShot(url || null); })
-        .catch((e) => { console.warn('[feedback] 화면 사진을 굽지 못했어요:', e?.message || e); if (alive) setShot(null); });
-    }, 420);   // 시트 모션(380ms)이 끝난 뒤 — 굽는 동안 모션이 끊기지 않게
-    return () => { alive = false; clearTimeout(t); };
+    shotJob.current = new Promise(r => setTimeout(r, 420))   // 시트 모션(380ms)이 끝난 뒤 — 굽는 동안 모션이 끊기지 않게
+      .then(() => ((alive || sent.current) ? captureViewport() : null))
+      .catch((e) => { console.warn('[feedback] 화면 사진을 굽지 못했어요:', e?.message || e); return null; });
+    shotJob.current.then(url => { if (alive) setShot(url || null); });
+    return () => { alive = false; };
   }, []);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -125,7 +169,10 @@ export function FeedbackSend({ onClose }) {
     if (!canSend) return;
     setSending(true);
     try {
-      await sendFeedback({ user: me, text: text.trim(), shot: (!dropping && shot) || null, ...info.current });
+      sent.current = true;
+      // 아직 굽는 중이면 그 약속을 넘긴다 — 다 구워지면 뒤에서 올라간다
+      const photo = dropping || shot === null ? null : (shot !== undefined ? shot : shotJob.current);
+      await sendFeedback({ user: me, text: text.trim(), shot: photo, ...info.current });
       showToast('피드백을 보냈어요');
       close();
     } catch (e) {

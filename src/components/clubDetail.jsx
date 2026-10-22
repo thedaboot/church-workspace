@@ -9,6 +9,7 @@ import {
 } from './groupsParts.jsx';
 import { groupPeople, canManageClub, canMeetClub, canEditClub, notInGroup } from '../services/groups.js';
 import { MeetingReport } from './meetingReport.jsx';
+import { Skeleton } from './media.jsx';
 import { formatServiceDate } from '../services/worship.js';
 import { imeComposing } from '../utils.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
@@ -31,7 +32,7 @@ const MEET_FAIL = '모임 일정을 불러오지 못했어요';
 
 // ── 상세 ────────────────────────────────────────────────────────────────────
 export function ClubDetail({
-  club, people, members, apps, perms, meetings, meetingsFail = null, onBack, onApply, onCancelApply,
+  club, people, members, apps, perms, meetings, meetingsLoading = false, meetingsFail = null, onBack, onApply, onCancelApply,
   onAccept, onDecline, onAddMember, onRemoveMember, onEditClub, onCreateMeeting, onToggleMeeting,
   onDeleteMeeting, report = null,
 }) {
@@ -232,7 +233,7 @@ export function ClubDetail({
           머리 오른쪽이다(만들 수 있는 사람에게만 — manage). 다가오는 쪽이 비면 상태 한 줄 `다음 모임 미정`
           (예전의 그림 + '예정된 모임이 아직 없어요'를 대신한다 · §8 문구 톤), 지난 쪽이 비면 구역째 없다.
           지난 모임의 칩은 흐리게 하지 않는다(출석 수정 자격은 manage 하나 — 구성원에게는 이미 .6이다). */}
-      {(meetings.length > 0 || meet || !!meetingsFail) && (
+      {(meetings.length > 0 || meet || !!meetingsFail || meetingsLoading) && (
         <div className="club-meetings mt-6">
           <SectionHead right={meet && !adding && (
             <button type="button" onClick={() => setAdding(true)}
@@ -282,7 +283,7 @@ export function ClubDetail({
           )}
 
           {/* 못 읽었을 때는 없는 것과 가른다(D2) — 같은 그림 + 두 줄 + '다시 시도' */}
-          {meetingsFail ? (
+          {meetingsLoading && !meetings.length ? <MeetSkeleton /> : meetingsFail ? (
             <Empty className="club-meet-failed" mark={<MeetMark />} minH="28vh" title={MEET_FAIL}>
               <FailTail reason={meetingsFail.reason} onRetry={meetingsFail.onRetry} />
             </Empty>
@@ -359,6 +360,24 @@ export function ClubDetail({
 // deleteMeeting 주석). 확인은 ConfirmPopover 한 벌(§8), 자리는 줄 오른쪽 끝 — **늘 보인다**.
 // hover에서만 나타나게 하면 터치 기기에서는 기능이 없는 것처럼 보인다(§8).
 // `report` — 지난 모임이면 출석 칩 아래에 서는 활동 보고서 칸(meetingReport.jsx · 0093). 다가오는 모임은 null.
+// 모임을 읽는 동안 — 카드 모양 그대로(다가오는 모임 하나 · '지난 모임' 머리 · 보고서 칸이 있는 지난 모임 둘)
+function MeetSkeleton() {
+  const card = (report) => (
+    <div className={`p-3.5 ${CARD}`} style={CARD_STYLE}>
+      <div className="flex items-center gap-2"><Skeleton className="w-28 h-4" /><span className="flex-1" /><Skeleton className="w-8 h-3.5" /></div>
+      <div className="mt-3 flex gap-1.5">{[0, 1, 2, 3].map(i => <Skeleton key={i} className="w-14 h-6 rounded-full" />)}</div>
+      {report && <div className="mt-3 pt-2.5 flex items-center gap-2" style={{ borderTop: '1px solid var(--app-line)' }}><Skeleton className="w-20 h-3.5" /><span className="flex-1" /><Skeleton className="w-24 h-7" /></div>}
+    </div>
+  );
+  return (
+    <div className="club-meet-loading" aria-busy="true">
+      {card(false)}
+      <div className="mt-5 mb-2"><Skeleton className="w-16 h-3.5" /></div>
+      <div className="space-y-2">{card(true)}{card(true)}</div>
+    </div>
+  );
+}
+
 function MeetingRow({ meeting, list, manage, onToggle, onDelete, report = null }) {
   const present = useMemo(() => new Set(Array.isArray(meeting.attendance) ? meeting.attendance : []),
     [meeting.attendance]);

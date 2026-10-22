@@ -120,7 +120,8 @@ function dataUrlBlob(url) {
 
 // 피드백 보내기 — 사진을 못 올리면 사진 없이 보낸다(글이 먼저다 · 원문은 콘솔). 행을 못 넣으면 던진다.
 export async function sendFeedback({ text, shot, route, ua, size, build, screenName, user }) {
-  if (!cloud) { demo.addFeedback({ user, text, shot: shot || null, route, ua, size, build, screenName }); return; }
+  // shot은 dataUrl · null · 아직 굽는 중인 약속(feedbackSend shotJob) 셋 중 하나
+  if (!cloud) { demo.addFeedback({ user, text, shot: (await shot) || null, route, ua, size, build, screenName }); return; }
   const uid = await myUid();
   if (!uid) throw new Error('로그인이 필요합니다.');
   // 글 줄을 먼저 넣는다(창이 바로 닫힌다) — 화면 사진은 그 뒤 드라이브 `피드백` 폴더에 올리고 id를 적는다(0123 · 사용자 요청 2026-10-22).
@@ -132,7 +133,9 @@ export async function sendFeedback({ text, shot, route, ua, size, build, screenN
   }));
   if (shot) {
     (async () => {
-      const blob = dataUrlBlob(shot);
+      const url = await shot;
+      if (!url) return;
+      const blob = dataUrlBlob(url);
       const day = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16).replace(':', '-');
       const driveId = await uploadFeedbackShot(blob, `피드백 ${day} ${user || ''}`.trim() + (blob.type === 'image/webp' ? '.webp' : '.jpg'));
       unwrap(await client().rpc('set_feedback_shot', { p_id: id, p_drive: driveId }));
