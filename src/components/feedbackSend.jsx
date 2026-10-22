@@ -34,14 +34,20 @@ import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 //   · restoreScrollPosition: 안에서 구르는 칸(main · 창 안 목록)이 구른 자리 그대로 그려진다(modern-screenshot)
 //   · 카카오 프로필 사진(CORS 없음)은 fetchFn이 썸네일 주소로 받는다 — 빠지면 얼굴 자리가 빈다(사용자 지적 2026-10-19)
 //   · WebP 0.9(사파리처럼 WebP로 못 굽는 브라우저는 JPEG 0.9) · 한 색뿐인 그림은 실패로 본다(shareImage.isBlankCanvas)
+//   · 사파리 다시 그리기는 세 번까지(SAFARI_REDRAWS) — 라이브러리는 사파리에서 화면의 그림(img·CSS 그림)마다 한 번씩 0.1초 쉬고 화면 전체를
+//     다시 그린다(그림을 늦게 푸는 사파리 대비). 얼굴·아이콘이 수십 개인 화면은 그것만 몇 초였다(사용자 지적 2026-10-22 '엄청 오래 걸린다').
+//     맥락을 직접 만들어 SVG가 다 서고 그리기 직전(onCreateForeignObjectSvg)에 횟수를 깎는다.
 const SHOT_MAX = 2560;
+const SAFARI_REDRAWS = 3;
 async function captureViewport() {
-  const { domToCanvas } = await import('modern-screenshot');
+  const { createContext, destroyContext, domToCanvas } = await import('modern-screenshot');
   const w = window.innerWidth;
   const h = window.innerHeight;
   const scale = shotScale(w, h, window.devicePixelRatio, SHOT_MAX);
-  const canvas = await domToCanvas(document.body, {
+  let ctx = null;
+  ctx = await createContext(document.body, {
     width: w, height: h, scale,
+    onCreateForeignObjectSvg: () => { if (ctx) ctx.drawImageCount = Math.min(ctx.drawImageCount, SAFARI_REDRAWS); },
     // body 사본에 브라우저 기본 여백(8px)이 되살아나 그림이 오른쪽 아래로 밀렸다(2026-10-18 시안 점검) — 뿌리에서 0으로 박는다
     style: { margin: '0' },
     backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff',
@@ -57,6 +63,8 @@ async function captureViewport() {
       } catch { return false; }
     },
   });
+  let canvas;
+  try { canvas = await domToCanvas(ctx); } finally { destroyContext(ctx); }
   if (!canvas || isBlankCanvas(canvas)) throw new Error('빈 그림');
   const webp = canvas.toDataURL('image/webp', 0.9);
   return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.9);

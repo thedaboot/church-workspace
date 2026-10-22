@@ -2,6 +2,7 @@ import { useSyncExternalStore, useEffect } from 'react';
 import { isCloudEnabled, myUid } from './supabaseClient.js';
 import { client, unwrap } from './cloud/core.js';
 import { requestPush } from './cloud/notify.js';
+import { uploadFeedbackShot, driveImageFullUrl } from './cloud/drive.js';
 import { ROLE_LABEL } from './roster.js';
 import { auditText } from './opsCore.js';
 import * as demo from './opsDemo.js';
@@ -64,7 +65,7 @@ export const shotMime = (pathOrUrl) => {
 
 async function fetchFeedback() {
   const rows = unwrap(await client().from('feedback')
-    .select('id, sender_id, body, shot_path, route, ua, viewport, build, status, created_at, status_at, notified_at, sender:profiles!feedback_sender_id_fkey(display_name)')
+    .select('id, sender_id, body, shot_path, shot_drive_id, route, ua, viewport, build, status, created_at, status_at, notified_at, sender:profiles!feedback_sender_id_fkey(display_name)')
     .order('created_at', { ascending: false }).limit(300));
   const paths = rows.map(r => r.shot_path).filter(Boolean);
   const urls = new Map();
@@ -78,7 +79,8 @@ async function fetchFeedback() {
     id: r.id, at: r.created_at, user: r.sender?.display_name || '이름 미상', userId: r.sender_id,
     status: r.status, statusAt: r.status_at, notified: !!r.notified_at,
     route: r.route, ua: r.ua, size: r.viewport, build: r.build, text: r.body,
-    shot: (r.shot_path && urls.get(r.shot_path)) || null,
+    // 0123부터 드라이브(그림 CDN 주소 · 고정이라 캐시된다) · 그 전 줄은 Storage 서명 주소
+    shot: (r.shot_drive_id && driveImageFullUrl(r.shot_drive_id, 2560)) || (r.shot_path && urls.get(r.shot_path)) || null,
   }));
 }
 const feedbackCell = cloud ? remote(fetchFeedback) : null;
@@ -121,22 +123,21 @@ export async function sendFeedback({ text, shot, route, ua, size, build, screenN
   if (!cloud) { demo.addFeedback({ user, text, shot: shot || null, route, ua, size, build, screenName }); return; }
   const uid = await myUid();
   if (!uid) throw new Error('로그인이 필요합니다.');
-  let shotPath = null;
-  if (shot) {
-    try {
-      const blob = dataUrlBlob(shot);
-      const path = `${uid}/${crypto.randomUUID()}.${blob.type === 'image/webp' ? 'webp' : 'jpg'}`;
-      const { error } = await client().storage.from('feedback').upload(path, blob, { contentType: blob.type, upsert: false });
-      if (error) throw error;
-      shotPath = path;
-    } catch (e) {
-      console.warn('[feedback] 화면 사진을 올리지 못했어요 — 사진 없이 보낸다:', e?.message || e);
-    }
-  }
+  // 글 줄을 먼저 넣는다(창이 바로 닫힌다) — 화면 사진은 그 뒤 드라이브 `피드백` 폴더에 올리고 id를 적는다(0123 · 사용자 요청 2026-10-22).
+  // 사진이 못 올라가면 글만 남는다(원문은 콘솔). 탭을 바로 닫으면 사진이 빠질 수 있다 — 글이 먼저라 피드백 자체는 남는다.
+  const id = crypto.randomUUID();
   unwrap(await client().from('feedback').insert({
-    body: text, shot_path: shotPath, route: String(route || '').slice(0, 300), ua: String(ua || '').slice(0, 300),
+    id, body: text, route: String(route || '').slice(0, 300), ua: String(ua || '').slice(0, 300),
     viewport: String(size || '').slice(0, 20), build: String(build || '').slice(0, 40),
   }));
+  if (shot) {
+    (async () => {
+      const blob = dataUrlBlob(shot);
+      const day = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16).replace(':', '-');
+      const driveId = await uploadFeedbackShot(blob, `피드백 ${day} ${user || ''}`.trim() + (blob.type === 'image/webp' ? '.webp' : '.jpg'));
+      unwrap(await client().rpc('set_feedback_shot', { p_id: id, p_drive: driveId }));
+    })().catch(e => console.warn('[feedback] 화면 사진을 드라이브에 올리지 못했어요 — 글만 남는다:', e?.message || e));
+  }
 }
 
 // ── 앱 내 오류(client_errors 한 줄 = 지문·사람·빌드·화면·기기·날짜 · count) ────────

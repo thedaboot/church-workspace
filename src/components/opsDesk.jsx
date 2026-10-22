@@ -379,9 +379,12 @@ function SpeedTab() {
 const YEAR_UNIT = { 프로젝트: '개', '예배 출석': '번', 동아리: '곳', '명단 변화': '명' };
 const countText = (sh, skip = 0) => `${Math.max(0, sh.rows.length - 1 - skip)}${YEAR_UNIT[sh.name] || '개'}`;
 // 연도를 골라 표 다섯 장을 미리 보고 한 파일로 받는다(services/yearReport · services/xlsxWrite.buildWorkbook).
+const FIRST_YEAR = 2026;
 function YearTab() {
   const now = Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4));
   const [year, setYear] = useState(now);
+  // 워크스페이스는 2026년부터다 — 그 앞 해는 고를 것이 없다(사용자 지적 2026-10-22 · 2025년 탭을 뺐다) · 한 해뿐이면 고르기 자체가 없다
+  const years = Array.from({ length: Math.max(1, now - FIRST_YEAR + 1) }, (_, i) => now - i);
   // 그 해 재료를 읽어 표를 짓는다(services/yearReport · 클라우드는 마스터 세션) — 해를 바꾸면 다시 읽는다
   const [got, setGot] = useState({ year: null, data: null, error: null });
   const load = useCallback(() => {
@@ -410,7 +413,7 @@ function YearTab() {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 md:px-5 py-3" data-year-report="">
       <div className="flex items-center gap-2 flex-wrap">
-        <Filter label="연도" value={year} onPick={setYear} items={[[now, `${now}년`], [now - 1, `${now - 1}년`]]} />
+        {years.length > 1 && <Filter label="연도" value={year} onPick={setYear} items={years.map(y => [y, `${y}년`])} />}
         <span className="flex-1" />
         <button type="button" onClick={save} data-year-save="" disabled={!ready}
           className="disabled:opacity-40 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95">

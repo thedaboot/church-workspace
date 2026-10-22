@@ -1460,3 +1460,18 @@ export const readJson = async (req) => req.body;
     'notifications_respect_off', 'notif_allowed', 'notif_slot', 'guard_notif_off', 'notif_off'].every(w => rb.includes(w)), '⑦ 되돌리기 SQL');
   console.log(`PASS  0113 관리자 메뉴 — 알림 표 두 벌 · 정책(마스터 읽기 · 본인 넣기) · 함수 · 관리 기록 트리거 · 답 시간에 사람 칸 없음 ${n}가지`);
 }
+
+// ── 0123 피드백 화면 사진은 드라이브(사용자 요청 2026-10-22) — 글 먼저 · 사진은 뒤에서 · 적기는 본인 줄 · 비었을 때만 ──
+// 되돌리기: set_feedback_shot의 \`shot_drive_id is null\`이나 \`sender_id in\`을 빼면 ①이, sendFeedback이 사진을 올린 뒤에 insert하면 ②가 깨진다.
+{
+  const sql = readFileSync(new URL('../supabase/migrations/0123_feedback_drive_shot.sql', import.meta.url), 'utf8').split(/\r?\n/).filter(l => !l.trim().startsWith('--')).join('\n');
+  const fn = sql.slice(sql.indexOf('create or replace function public.set_feedback_shot'), sql.indexOf('$$;') + 3);
+  assert.ok(/security definer set search_path = public, pg_temp/.test(fn) && /shot_drive_id is null/.test(fn) && /sender_id in \(auth\.uid\(\), public\.effective_uid\(\)\)/.test(fn)
+    && /p_drive ~ '\^\[A-Za-z0-9_-\]\{10,\}\$'/.test(fn), '① set_feedback_shot — 본인 줄 · 비었을 때만 · id 모양');
+  assert.ok(/revoke all on function public\.set_feedback_shot\(uuid, text\) from public, anon;/.test(sql), '① 익명 회수');
+  const ops = readFileSync(new URL('../src/services/ops.js', import.meta.url), 'utf8');
+  const send = ops.slice(ops.indexOf('export async function sendFeedback'), ops.indexOf('// ── 앱 내 오류'));
+  assert.ok(send.indexOf(".from('feedback').insert(") > 0 && send.indexOf(".from('feedback').insert(") < send.indexOf('uploadFeedbackShot('), '② 글 줄을 먼저 넣고 사진은 그 뒤');
+  assert.ok(/\(async \(\) => \{[\s\S]*uploadFeedbackShot\([\s\S]*rpc\('set_feedback_shot'[\s\S]*\}\)\(\)\.catch\(/.test(send), '② 사진은 기다리지 않는다(뒤에서 · 실패는 콘솔)');
+  console.log('PASS  0123 피드백 사진 드라이브(본인 줄 · 비었을 때만 · 글 먼저)');
+}

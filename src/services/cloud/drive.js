@@ -117,6 +117,14 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   fr.readAsDataURL(file);
 });
 
+// 피드백 화면 사진 — 드라이브 `더다붓 워크스페이스/피드백`에 한 장(0123 · 사용자 요청 2026-10-22). 돌려주는 것: 드라이브 파일 id.
+// files 행이 없는 파일이라 uploadOwnedFile을 지나지 않는다 — 재시도·열쇠 확인 없이 한 번(실패하면 부르는 쪽이 사진 없이 둔다).
+export async function uploadFeedbackShot(blob, name) {
+  const out = await driveCall({ action: 'upload', path: ['피드백'], key: newKey(), name, mimeType: blob.type || 'image/jpeg', dataBase64: await fileToBase64(blob) });
+  if (!out?.id) throw new Error('드라이브가 파일 id를 주지 않았어요');
+  return out.id;
+}
+
 // 드라이브 파일의 그림 주소. 구글 이미지 CDN이 **줄여서** 내주므로 우리 대역폭이 0이다
 // (스크립트가 올릴 때 '링크를 아는 사람은 보기'로 열어 둔다 — 사용자 결정 2026-08-25).
 export const driveImageUrl = (fileId, size = 200) =>
