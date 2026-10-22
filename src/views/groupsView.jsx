@@ -563,6 +563,7 @@ export function GroupsView() {
           const named = { ...draft, receipts: nameReceipts(club?.name, meeting, draft.receipts) };
           const form = await importReportForm(meeting, named, row.id);
           patchMeeting(meeting.id, m => ({ ...m, report_form: form, files: (m.files || []).map(f => (f.id === row.id ? { ...f, generated: true } : f)) }));
+          showToast('엑셀의 내용이 추가되었어요');   // 사용자 문구 2026-10-22
           const slips = (await Promise.all(form.receipts.map(r => receiptFile(r).catch(() => null)))).filter(Boolean);
           if (slips.length) sendReports(club, meeting, slips.map(stagedRow));
         } catch (e) {
