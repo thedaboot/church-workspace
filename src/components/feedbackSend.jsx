@@ -143,7 +143,11 @@ export function FeedbackSend({ onClose }) {
   const pickShot = async (file) => {
     if (!file || !(file.type || '').startsWith('image/')) return;
     setShot(undefined);
-    try { setShot(await fileShot(file)); } catch (e) { console.warn('[feedback] 고른 사진을 읽지 못했어요:', e?.message || e); setShot(null); }
+    try { setShot(await fileShot(file)); } catch (e) {
+      console.warn('[feedback] 고른 사진을 읽지 못했어요:', e?.message || e);
+      showToast('스크린샷을 넣지 못했어요');   // 사용자 문구 2026-10-22
+      setShot(null);
+    }
   };
   const downOnScrim = useRef(false);
   // 보낼 때 그대로 싣는 값 — 창을 연 그 순간의 화면
@@ -237,13 +241,15 @@ export function FeedbackSend({ onClose }) {
             ) : manual ? (
               <button type="button" onClick={() => pickRef.current?.click()} data-feedback-pick=""
                 className="w-16 h-20 shrink-0 rounded-xs border border-dashed border-line text-fg-muted hover:bg-surface-hover flex flex-col items-center justify-center gap-1 text-[10.5px] font-semibold transition active:scale-95">
-                <ImagePlus size={16} /><span>사진 추가</span>
+                <ImagePlus size={16} /><span>스크린샷 추가</span>
               </button>
             ) : null}
             {manual && <input ref={pickRef} type="file" accept="image/*" className="hidden" tabIndex={-1} aria-hidden="true"
               onChange={e => { pickShot(e.target.files?.[0]); e.target.value = ''; }} />}
             <span className="flex-1 min-w-0 pt-0.5">
-              {shot !== null && <span className={`block text-[12px] font-semibold text-fg ops-ease${dropping ? ' opacity-0' : ''}`}>화면 스크린샷</span>}
+              {(shot !== null || manual) && <span className={`block text-[12px] font-semibold text-fg ops-ease${dropping ? ' opacity-0' : ''}`}>화면 스크린샷</span>}
+              {/* 폰에서 고르기 전 — 문구 사용자 확정 2026-10-22 */}
+              {manual && !shot && <span className="block mt-0.5 text-[11.5px] text-fg-muted" data-feedback-pick-hint="">문제가 발생한 화면의 스크린샷을 보내주세요</span>}
               <span className="flex items-center gap-1.5 mt-0.5 text-[11.5px] text-fg-muted" data-feedback-device="">
                 {phone ? <Smartphone size={12} className="shrink-0" /> : <Monitor size={12} className="shrink-0" />}
                 <span className="min-w-0 break-words">{[device, browser, info.current.size, info.current.screenName].join(' · ')}</span>
