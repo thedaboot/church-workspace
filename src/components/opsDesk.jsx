@@ -130,7 +130,8 @@ function FeedbackRow({ f, on, onPick, nameOf }) {
           <span className="block text-[12.5px] text-fg-secondary leading-snug mt-1 line-clamp-2">{f.text}</span>
           <span className="block text-[11px] text-fg-muted mt-1 truncate">{[nameOf(f.route, f.screenName), device, browser].join(' · ')}</span>
         </span>
-        {f.shot && <img src={f.shot} alt="" className="shrink-0 w-10 h-12 object-cover object-top rounded-xs border border-line bg-canvas" />}
+        {f.shot ? <img src={f.shot} alt="" className="shrink-0 w-10 h-12 object-cover object-top rounded-xs border border-line bg-canvas" />
+          : f.shotPending && <Skeleton className="shrink-0 w-10 h-12 rounded-xs" />}
       </button>
     </li>
   );
@@ -195,6 +196,8 @@ function FeedbackDetail({ f, me, onBack, nameOf }) {
             <img src={f.shot} alt="화면 스크린샷" draggable={false}
               className="block w-auto h-auto max-w-full max-h-[min(70dvh,640px)] object-contain dc-fade" />
           </button>
+        ) : f.shotPending ? (
+          <Skeleton className="w-full max-w-[320px] h-[min(50dvh,420px)]" />
         ) : (
           <span className="inline-flex items-center gap-1.5 text-[12px] text-fg-muted"><ImageOff size={13} />화면 스크린샷 미첨부</span>
         )}
@@ -210,6 +213,14 @@ function FeedbackDetail({ f, me, onBack, nameOf }) {
 function FeedbackTab({ isMobile }) {
   const res = useFeedbackList();
   const list = res.data || [];
+  // 사진이 올라가는 중인 줄이 있으면 4초마다 다시 읽는다 — 들어오는 대로 스켈레톤이 사진으로 바뀐다(0124 · 사용자 지적 2026-10-22)
+  const pending = list.some(f => f.shotPending);
+  const reload = res.reload;
+  useEffect(() => {
+    if (!pending) return undefined;
+    const t = setInterval(reload, 4000);
+    return () => clearInterval(t);
+  }, [pending, reload]);
   const gate = useLoadState(res);
   const me = useStore(selectCurrentUser).name;
   const nameOf = useScreenName();

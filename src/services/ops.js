@@ -65,7 +65,7 @@ export const shotMime = (pathOrUrl) => {
 
 async function fetchFeedback() {
   const rows = unwrap(await client().from('feedback')
-    .select('id, sender_id, body, shot_path, shot_drive_id, route, ua, viewport, build, status, created_at, status_at, notified_at, sender:profiles!feedback_sender_id_fkey(display_name)')
+    .select('id, sender_id, body, shot_path, shot_drive_id, shot_pending, route, ua, viewport, build, status, created_at, status_at, notified_at, sender:profiles!feedback_sender_id_fkey(display_name)')
     .order('created_at', { ascending: false }).limit(300));
   const paths = rows.map(r => r.shot_path).filter(Boolean);
   const urls = new Map();
@@ -81,6 +81,8 @@ async function fetchFeedback() {
     route: r.route, ua: r.ua, size: r.viewport, build: r.build, text: r.body,
     // 0123부터 드라이브(그림 CDN 주소 · 고정이라 캐시된다) · 그 전 줄은 Storage 서명 주소
     shot: (r.shot_drive_id && driveImageFullUrl(r.shot_drive_id, 2560)) || (r.shot_path && urls.get(r.shot_path)) || null,
+    // 사진이 뒤따라 올라가는 중(0124) — 5분이 지나도 안 오면 못 온 것으로 본다(탭을 닫아 끊긴 경우)
+    shotPending: !!r.shot_pending && !r.shot_drive_id && Date.now() - Date.parse(r.created_at) < 5 * 60 * 1000,
   }));
 }
 const feedbackCell = cloud ? remote(fetchFeedback) : null;
@@ -128,18 +130,21 @@ export async function sendFeedback({ text, shot, route, ua, size, build, screenN
   // 사진이 못 올라가면 글만 남는다(원문은 콘솔). 탭을 바로 닫으면 사진이 빠질 수 있다 — 글이 먼저라 피드백 자체는 남는다.
   const id = crypto.randomUUID();
   unwrap(await client().from('feedback').insert({
-    id, body: text, route: String(route || '').slice(0, 300), ua: String(ua || '').slice(0, 300),
+    id, body: text, shot_pending: !!shot, route: String(route || '').slice(0, 300), ua: String(ua || '').slice(0, 300),
     viewport: String(size || '').slice(0, 20), build: String(build || '').slice(0, 40),
   }));
   if (shot) {
     (async () => {
       const url = await shot;
-      if (!url) return;
+      if (!url) { await client().rpc('set_feedback_shot', { p_id: id, p_drive: null }); return; }   // 못 구웠다 — 올라가는 중 표시만 내린다
       const blob = dataUrlBlob(url);
       const day = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16).replace(':', '-');
       const driveId = await uploadFeedbackShot(blob, `피드백 ${day} ${user || ''}`.trim() + (blob.type === 'image/webp' ? '.webp' : '.jpg'));
       unwrap(await client().rpc('set_feedback_shot', { p_id: id, p_drive: driveId }));
-    })().catch(e => console.warn('[feedback] 화면 사진을 드라이브에 올리지 못했어요 — 글만 남는다:', e?.message || e));
+    })().catch(e => {
+      console.warn('[feedback] 화면 사진을 드라이브에 올리지 못했어요 — 글만 남는다:', e?.message || e);
+      client().rpc('set_feedback_shot', { p_id: id, p_drive: null }).then(() => {}, () => {});
+    });
   }
 }
 

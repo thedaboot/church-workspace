@@ -1473,5 +1473,9 @@ export const readJson = async (req) => req.body;
   const send = ops.slice(ops.indexOf('export async function sendFeedback'), ops.indexOf('// ── 앱 내 오류'));
   assert.ok(send.indexOf(".from('feedback').insert(") > 0 && send.indexOf(".from('feedback').insert(") < send.indexOf('uploadFeedbackShot('), '② 글 줄을 먼저 넣고 사진은 그 뒤');
   assert.ok(/\(async \(\) => \{[\s\S]*uploadFeedbackShot\([\s\S]*rpc\('set_feedback_shot'[\s\S]*\}\)\(\)\.catch\(/.test(send), '② 사진은 기다리지 않는다(뒤에서 · 실패는 콘솔)');
-  console.log('PASS  0123 피드백 사진 드라이브(본인 줄 · 비었을 때만 · 글 먼저)');
+  // 0124 — 올라가는 중 표시: 넣을 때 켜고, 적을 때·못 올렸을 때 내린다. 되돌리기: shot_pending: !!shot을 빼거나 실패 갈래의 null 적기를 빼면 깨진다.
+  const s24 = readFileSync(new URL('../supabase/migrations/0124_feedback_shot_pending.sql', import.meta.url), 'utf8');
+  assert.ok(/shot_pending = false/.test(s24) && /coalesce\(p_drive, shot_drive_id\)/.test(s24) && /sender_id in \(auth\.uid\(\), public\.effective_uid\(\)\)/.test(s24), '③ 0124 set_feedback_shot — null이면 표시만 내림 · 본인 줄');
+  assert.ok(/shot_pending: !!shot/.test(send) && (send.match(/rpc\('set_feedback_shot', \{ p_id: id, p_drive: null \}\)/g) || []).length === 2, '③ 넣을 때 표시를 켜고 · 못 구움/못 올림 둘 다 내린다');
+  console.log('PASS  0123 피드백 사진 드라이브(본인 줄 · 비었을 때만 · 글 먼저 · 올라가는 중 표시)');
 }

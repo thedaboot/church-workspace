@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Smartphone, Monitor } from 'lucide-react';
+import { X, Smartphone, Monitor, ImagePlus } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { useLeave } from '../hooks/useExit.js';
@@ -39,9 +39,11 @@ import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 //     맥락을 직접 만들어 SVG가 다 서고 그리기 직전(onCreateForeignObjectSvg)에 횟수를 깎는다.
 //   · 보이는 창 밖에 통째로 있는 요소는 베끼지 않는다(offscreen) — 라이브러리가 요소마다 계산된 스타일을 통째로 베껴서, 스크롤 아래 긴 목록·
 //     연결 지도 같은 큰 화면은 그 베끼기가 대부분이었다(사용자 지적 2026-10-22). 크기가 0인 요소는 안의 것이 밖으로 나올 수 있어 남긴다.
+//     **아래·오른쪽 밖만** 뺀다 — 위·왼쪽으로 지나간 것을 빼면 스크롤 칸의 앞이 비어 같은 스크롤 자리에 다음 것이 그려졌다
+//     (보드 '진행 중'에서 보냈는데 '보류 중'이 찍혔다 · 사용자 지적 2026-10-22).
 const offscreen = (n, w, h) => {
   const r = n.getBoundingClientRect();
-  return r.width > 0 && r.height > 0 && (r.bottom < 0 || r.right < 0 || r.top > h || r.left > w);
+  return r.width > 0 && r.height > 0 && (r.top > h || r.left > w);
 };
 //   · 베끼는 스타일은 그림에 보이는 것만(SHOT_PROPS · 약 150개 · 빠뜨리면 그 모양만 빠진다 — 스크롤 막대·흐린 가장자리가 그랬다) — 라이브러리 기본은 요소마다 계산된 스타일 400여 개 전부라,
 //     실데이터 프로젝트 보드(요소 959 · 사진 31)가 그림 설명(SVG) 5.4MB였다. 아이폰 사파리는 이만큼 큰 그림을 못 그려 빈 그림이 되고
@@ -108,6 +110,18 @@ async function captureOnce(scale, light) {
   const webp = canvas.toDataURL('image/webp', 0.9);
   return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.9);
 }
+// 폰에서 고른 스크린샷 — 긴 변 2560px로 줄여 굽는 것과 같은 모양(dataUrl · WebP, 안 되면 JPEG 0.9)으로
+async function fileShot(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  const k = Math.min(1, SHOT_MAX / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(bmp.width * k));
+  c.height = Math.max(1, Math.round(bmp.height * k));
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close?.();
+  const webp = c.toDataURL('image/webp', 0.9);
+  return webp.startsWith('data:image/webp') ? webp : c.toDataURL('image/jpeg', 0.9);
+}
 async function captureViewport() {
   try { return await captureOnce(shotScale(window.innerWidth, window.innerHeight, window.devicePixelRatio, SHOT_MAX), false); }
   catch (e) {
@@ -122,7 +136,15 @@ export function FeedbackSend({ onClose }) {
   const [leaving, leave] = useLeave();
   const close = useCallback(() => leave(onClose), [leave, onClose]);
   const [text, setText] = useState('');
-  const [shot, setShot] = useState(undefined);   // undefined = 굽는 중 · null = 없음(뺐거나 못 구움)
+  // 폰·태블릿은 자동으로 굽지 않고 폰 스크린샷을 고른다(사용자 결정 2026-10-22 — 사파리는 굽기가 몇 초였다 · 폰 스크린샷은 바로 찍힌다)
+  const [manual] = useState(() => /iPhone|iPad|안드로이드|갤럭시|태블릿/.test(deviceOf(navigator.userAgent).device));
+  const [shot, setShot] = useState(manual ? null : undefined);   // undefined = 굽는 중 · null = 없음(뺐거나 못 구움 · 폰은 아직 안 고름)
+  const pickRef = useRef(null);
+  const pickShot = async (file) => {
+    if (!file || !(file.type || '').startsWith('image/')) return;
+    setShot(undefined);
+    try { setShot(await fileShot(file)); } catch (e) { console.warn('[feedback] 고른 사진을 읽지 못했어요:', e?.message || e); setShot(null); }
+  };
   const downOnScrim = useRef(false);
   // 보낼 때 그대로 싣는 값 — 창을 연 그 순간의 화면
   const info = useRef(null);
@@ -145,13 +167,14 @@ export function FeedbackSend({ onClose }) {
   const shotJob = useRef(null);
   const sent = useRef(false);
   useEffect(() => {
+    if (manual) return undefined;
     let alive = true;
     shotJob.current = new Promise(r => setTimeout(r, 420))   // 시트 모션(380ms)이 끝난 뒤 — 굽는 동안 모션이 끊기지 않게
       .then(() => ((alive || sent.current) ? captureViewport() : null))
       .catch((e) => { console.warn('[feedback] 화면 사진을 굽지 못했어요:', e?.message || e); return null; });
     shotJob.current.then(url => { if (alive) setShot(url || null); });
     return () => { alive = false; };
-  }, []);
+  }, [manual]);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') close(); };
     document.addEventListener('keydown', onKey);
@@ -211,7 +234,14 @@ export function FeedbackSend({ onClose }) {
                   <X size={11} strokeWidth={2.5} />
                 </button>
               </span>
+            ) : manual ? (
+              <button type="button" onClick={() => pickRef.current?.click()} data-feedback-pick=""
+                className="w-16 h-20 shrink-0 rounded-xs border border-dashed border-line text-fg-muted hover:bg-surface-hover flex flex-col items-center justify-center gap-1 text-[10.5px] font-semibold transition active:scale-95">
+                <ImagePlus size={16} /><span>사진 추가</span>
+              </button>
             ) : null}
+            {manual && <input ref={pickRef} type="file" accept="image/*" className="hidden" tabIndex={-1} aria-hidden="true"
+              onChange={e => { pickShot(e.target.files?.[0]); e.target.value = ''; }} />}
             <span className="flex-1 min-w-0 pt-0.5">
               {shot !== null && <span className={`block text-[12px] font-semibold text-fg ops-ease${dropping ? ' opacity-0' : ''}`}>화면 스크린샷</span>}
               <span className="flex items-center gap-1.5 mt-0.5 text-[11.5px] text-fg-muted" data-feedback-device="">
