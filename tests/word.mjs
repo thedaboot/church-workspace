@@ -2643,6 +2643,10 @@ const marksOf = () => ev(`(() => {
     files: performance.getEntriesByType('resource').map(e => e.name).filter(n => n.includes('/bible/')).map(n => n.split('/').pop()),
   };
 })()`);
+// 받은 파일 기록(리소스 타이밍)은 기본 250개에서 멈춘다 — 이 검사는 한 페이지에서 오래 돌아 여기 올 때쯤 가득 차 있어서,
+// 그 뒤에 받은 jhn.json이 기록에 안 남아 '펼친 책의 파일만 그때 받는다'가 늘 실패했다(실측 total 250 · 2026-10-22).
+// 여기서 비우고 한도를 늘려, 아래 두 단정이 이 구간에서 받은 파일만 보게 한다.
+await ev('performance.clearResourceTimings(), performance.setResourceTimingBufferSize(5000), true');
 await clickSel('[data-pane="bookmark"]');
 await sleep(900);
 const stackedBm = await marksOf();
