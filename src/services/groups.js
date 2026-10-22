@@ -575,6 +575,34 @@ export function reportName(clubName, meetingDate, ext = 'xlsx') {
   return `${name} 활동보고서(${m ? `${+m[1]}월` : ''})${ext ? `.${ext}` : ''}`.replace('()', '');
 }
 
+// ── 영수증 낱장(사용자 요청 2026-10-21 · 사용자 승인 이름 2026-10-22) ──────────────────────────────
+// 작성 화면의 영수증을 드라이브 모임 폴더에도 한 장씩 — 보고서 칸의 올리기 길 그대로(files 행 · 칸에 줄로 선다).
+// 영수증과 파일 행은 **이름으로** 잇는다: 영수증마다 처음 저장할 때 `<동아리> 영수증(M월 D일) N.jpg`를 받아 그대로 지닌다
+// (club_reports.receipts[].drive_name). 저장할 때마다 그 이름의 행이 없으면 올리고(못 올렸거나 칸에서 지운 것도 다시),
+// 작성 화면에서 뺀 영수증의 행은 지운다. 사진(활동 사진)은 올리지 않는다 · 엑셀 안 그림은 그대로.
+export function receiptName(clubName, meetingDate, n) {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(meetingDate || ''));
+  return `${String(clubName || '').trim() || '동아리'} 영수증${m ? `(${+m[1]}월 ${+m[2]}일)` : ''} ${n}.jpg`.normalize('NFC');   // 올린 행의 이름과 같은 꼴(uploadOwnedFile)
+}
+const receiptNo = (name) => Number(/ (\d+)\.jpg$/.exec(String(name || ''))?.[1]) || 0;
+// 이름이 없는 영수증에 다음 번호를 준다 — 번호는 앞 저장·지금 목록의 가장 큰 것 다음(뺀 번호를 다시 쓰지 않는다)
+export function nameReceipts(clubName, meeting, receipts = []) {
+  const prev = meeting?.report_form?.receipts || [];
+  let n = Math.max(0, ...[...prev, ...receipts].map(r => receiptNo(r.drive_name)));
+  return receipts.map(r => (r.drive_name ? r : { ...r, drive_name: receiptName(clubName, meeting?.meeting_date, ++n) }));
+}
+// { send: 올릴 영수증[], drop: 지울 파일 행[] } — files는 저장 전 모임의 파일 줄
+export function receiptPlan(meeting, receipts = []) {
+  const files = meeting?.files || [];
+  const want = new Set(receipts.map(r => r.drive_name));
+  const had = new Set((meeting?.report_form?.receipts || []).map(r => r.drive_name).filter(Boolean));
+  return {
+    send: receipts.filter(r => !files.some(f => f.name === r.drive_name)),
+    drop: files.filter(f => had.has(f.name) && !want.has(f.name)),
+  };
+}
+const receiptNames = (m) => new Set((m?.report_form?.receipts || []).map(r => r.drive_name).filter(Boolean));
+
 // 파일 이름을 [앞, 꼬리]로 — 좁은 폭에서 **가운데**를 말줄임하려고 쓴다(2026-10-14 반응형 점검).
 // 꼬리 = 확장자 앞 `keep`글자 + 확장자. 끝을 자르면 `.xlsx`와 `(10월)`이 함께 사라졌다 — 이름에서
 // 어느 달 보고서인지·어떤 파일인지 읽히는 자리가 바로 거기다. 글자는 코드 포인트로 센다(이모지가 안 갈라지게).
@@ -599,7 +627,8 @@ export function lastReportOf(meetings = [], meeting) {
   const cands = [];
   for (const m of meetings || []) {
     if (!m || m.id === meeting?.id) continue;
-    const files = (m.files || []).filter(reportUsable);
+    const skip = receiptNames(m);   // 영수증 낱장은 보고서가 아니다
+    const files = (m.files || []).filter(f => reportUsable(f) && !skip.has(f.name));
     if (!files.length) continue;
     const file = files.reduce((a, b) => (String(b.created_at || '') >= String(a.created_at || '') ? b : a));
     cands.push({ meeting: m, file, date: String(m.meeting_date || '') });

@@ -896,7 +896,20 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.strictEqual(G.lastReportOf([ms[2], ms[3]], ms[2])?.meeting.id, 'm4', '⑥-b 앞에 없으면 뒤에서 가장 이른 것(지난 모임을 늦게 채우는 경우)');
   assert.strictEqual(G.lastReportOf([ms[2], ms[4]], ms[2]), null, '⑥-b 가져올 것이 없으면 null — 버튼이 서지 않는다');
   assert.strictEqual(G.lastReportOf(ms, ms[0])?.meeting.id, 'm2', '⑥-b 자기 모임의 파일은 고르지 않는다');
-  assert.ok(G.reportUsable({ _file: {} }) && !G.reportUsable({ source: 'drive' }) && !G.reportUsable(null), '⑥-c 게스트는 쥔 바이트, 클라우드는 드라이브 id');
+  // ⑥-e 영수증 낱장(2026-10-22) — 이름 · 번호 · 올릴 것/지울 것 · 지난 보고서로 고르지 않는다
+  // 되돌리기: nameReceipts의 Math.max를 receipts.length로 바꾸면 '뺀 번호를 다시 쓰지 않는다'가, receiptPlan의 had 거르기를 빼면
+  // '보고서 엑셀은 지우지 않는다'가, lastReportOf의 skip을 빼면 '영수증은 보고서가 아니다'가 깨진다.
+  assert.strictEqual(G.receiptName('서부버튼', '2026-09-12', 1), '서부버튼 영수증(9월 12일) 1.jpg', '⑥-e 사용자 승인 이름');
+  const rm = { meeting_date: '2026-09-12', report_form: { receipts: [{ id: 'a', drive_name: '서부버튼 영수증(9월 12일) 1.jpg' }, { id: 'b', drive_name: '서부버튼 영수증(9월 12일) 2.jpg' }] },
+    files: [{ id: 'x', name: '서부버튼 활동보고서(9월 12일).xlsx' }, { id: 'r1', name: '서부버튼 영수증(9월 12일) 1.jpg' }, { id: 'r2', name: '서부버튼 영수증(9월 12일) 2.jpg' }] };
+  const named = G.nameReceipts('서부버튼', rm, [rm.report_form.receipts[0], { id: 'c' }]);   // b를 빼고 c를 넣음
+  assert.strictEqual(named[1].drive_name, '서부버튼 영수증(9월 12일) 3.jpg', '⑥-e 뺀 번호를 다시 쓰지 않는다');
+  const plan = G.receiptPlan(rm, named);
+  assert.deepStrictEqual([plan.send.map(r => r.id), plan.drop.map(f => f.id)], [['c'], ['r2']], '⑥-e 새 것만 올리고 뺀 것만 지운다(보고서 엑셀은 지우지 않는다)');
+  assert.deepStrictEqual(G.receiptPlan({ ...rm, files: rm.files.slice(0, 2) }, rm.report_form.receipts).send.map(r => r.id), ['b'], '⑥-e 행이 없는 영수증(못 올림·칸에서 지움)은 다시 올린다');
+  const lr = G.lastReportOf([{ ...rm, id: 'old', files: rm.files.map((f, i) => ({ ...f, source: 'drive', drive_file_id: `d${i}`, created_at: `2026-09-1${i}` })) }, { id: 'now', meeting_date: '2026-10-01', files: [] }], { id: 'now', meeting_date: '2026-10-01' });
+  assert.strictEqual(lr?.file.id, 'x', '⑥-e 영수증은 보고서가 아니다(나중에 올렸어도 엑셀을 고른다)');
+  assert.ok(G.reportUsable({ _file: {} }) &&!G.reportUsable({ source: 'drive' }) && !G.reportUsable(null), '⑥-c 게스트는 쥔 바이트, 클라우드는 드라이브 id');
   assert.strictEqual(G.meetingQueueKey('m9'), 'meeting:m9', '⑥-c 업로드 큐 열쇠');
   // ⑥-e 보고서 이름의 가운데 말줄임(2026-10-14 반응형 점검) — 꼬리는 확장자 앞 다섯 글자 + 확장자다. 끝을 자르면
   // 작은 폰에서 `(10월).xlsx`가 통째로 사라졌다. 되돌리기 확인: keep을 0으로 바꾸면 첫 줄이 깨진다.
@@ -1530,10 +1543,11 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
 // 되돌리기: 넷 중 하나라도 App에서 정적 import로 되돌리면 깨진다.
 {
   const app = readSrc('src/App.jsx');
+  // 2026-10-21부터 lazyView(미리 받은 조각은 lazy를 거치지 않는다 · PITFALLS 69-a) · 폴백은 공용 뼈대 ScreenWait
   for (const [name, file] of [['MembersView', 'membersView'], ['WorshipView', 'worshipView'], ['WordView', 'wordView'], ['GroupsView', 'groupsView']]) {
-    assert.ok(app.includes(`const ${name} = lazy(() => import('./views/${file}.jsx').then(m => ({ default: m.${name} })));`), `${name}는 lazy`);
+    assert.ok(app.includes(`const ${name} = lazyView('${file.replace('View', '')}', m => m.${name});`), `${name}는 lazy`);
     assert.ok(!new RegExp(`^import .* from '\\./views/${file}\\.jsx';`, 'm').test(app), `${file}를 정적으로 들이지 않는다`);
-    assert.ok(new RegExp(`<Suspense fallback=\\{null\\}><${name} `).test(app), `${name}는 Suspense 안에 선다`);
+    assert.ok(new RegExp(`<Suspense fallback=\\{<ScreenWait />\\}><${name} `).test(app), `${name}는 Suspense 안에 선다`);
   }
   const main = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
   assert.ok(/e\.preventDefault\(\);\s*location\.reload\(\);/.test(main) && main.includes('Date.now() - last < 10e3'), '배포 뒤 옛 조각 404는 한 번만 새로 불러 넘긴다');

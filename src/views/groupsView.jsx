@@ -21,14 +21,14 @@ import {
   notifyClubApply, notifyClubAccepted, notifyMeetingNew,
   groupPerms, mySun, myGroupIds, groupPeople, latestSunday, attendanceSunday,
   toggleAttendance, yearOptions,
-  leaderPlan, dupReason, duplicateName, dupNameText,
+  leaderPlan, dupReason, duplicateName, dupNameText, nameReceipts, receiptPlan,
 } from '../services/groups.js';
 import { runUploads, stagedRow, failedRow } from '../modals/uploadQueue.js';
 import { cancelledError } from '../services/transfer.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 import { Segmented } from '../components/segmented.jsx';
-import { prepareReportForm, markGenerated, canCheckSupport, isGenerated } from '../services/clubReport.js';
+import { prepareReportForm, markGenerated, canCheckSupport, isGenerated, receiptFile } from '../services/clubReport.js';
 import { ClubReportBoard } from '../components/clubReportBoard.jsx';
 import { ClipboardList, ChevronRight, QrCode } from 'lucide-react';
 import { WelcomeBoard } from '../components/welcomeBoard.jsx';
@@ -585,12 +585,19 @@ export function GroupsView() {
     onGrantEdit: (row) => grantReportEditors(row),
     // 작성 화면 저장·제출(사용자 승인 시안 mock/b4 · 0117) — 작성 내용을 두고 엑셀을 만든 뒤 창을 닫고,
     // 엑셀은 보고서 칸의 올리기 길로 보낸다(진행 막대·멈춤·다시 시도 — 파일 올리기와 같은 줄). 다 올라가면 앞에 만든 엑셀을 걷는다.
+    // 영수증은 드라이브 모임 폴더에도 낱장으로 — 같은 올리기 길로 엑셀과 함께(groups.receiptPlan 머리말 · 사용자 요청 2026-10-21)
     onSaveForm: async (club, meeting, draft, { submit }) => {
-      const { form, file } = await prepareReportForm(club, meeting, state?.people || [], draft, { submit });
+      const named = { ...draft, receipts: nameReceipts(club?.name, meeting, draft.receipts) };
+      const { form, file } = await prepareReportForm(club, meeting, state?.people || [], named, { submit });
       const olds = (meeting.files || []).filter(f => isGenerated(meeting, f));
-      patchMeeting(meeting.id, m => ({ ...m, report_form: form }));
-      sendReports(club, meeting, [stagedRow(file)]).then(async (done) => {
-        const row = done?.[0];
+      const { send, drop } = receiptPlan(meeting, form.receipts);
+      const slips = (await Promise.all(send.map(r => receiptFile(r)
+        .catch(e => { console.error('[groups] 영수증을 꺼내지 못했다:', e); return null; })))).filter(Boolean);
+      const slipNames = new Set(slips.map(f => f.name));
+      patchMeeting(meeting.id, m => ({ ...m, report_form: form, files: (m.files || []).filter(f => !drop.some(d => d.id === f.id)) }));
+      for (const d of drop) removeMeetingReport(d).catch(e => console.error('[groups] 뺀 영수증을 지우지 못했다:', e));
+      sendReports(club, meeting, [file, ...slips].map(stagedRow)).then(async (done) => {
+        const row = done?.find(r => !slipNames.has(r.name));
         if (!row) return;
         try { await markGenerated(meeting.id, row.id); } catch (e) { console.error('[groups] 만든 보고서를 적지 못했다:', e); }
         patchMeeting(meeting.id, m => ({ ...m, report_form: m.report_form ? { ...m.report_form, file_id: row.id } : m.report_form,

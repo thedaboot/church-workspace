@@ -24,7 +24,8 @@ import templateUrl from '../assets/club-report-template.xlsx?url';
 //   게스트: church_groups_v1의 group_meetings 행에 report_form · support_paid_at · support_paid_by(사진은 dataUrl).
 // 모임 행의 모양(두 모드 같다): report_form { activity, plan, usage, account, photos[], receipts[], file_id?, saved_at, submitted_at } |
 //   null · support_paid_at · support_paid_by · files[].generated(작성 화면이 만든 엑셀).
-// 사진 한 장: { id, name, w, h, path?(클라우드에 올라간 것), dataUrl?(방금 고른 것 · 게스트), url?(화면용 서명 주소) }.
+// 사진 한 장: { id, name, w, h, path?(클라우드에 올라간 것), dataUrl?(방금 고른 것 · 게스트), url?(화면용 서명 주소),
+//   drive_name?(영수증만 · 드라이브 낱장의 이름 — groups.receiptPlan) }.
 // ============================================================================
 
 const { all: guestAll, rows, set } = guestStore('church_groups_v1');
@@ -136,7 +137,9 @@ export async function renderReportFile(club, meeting, people, form) {
 // 올리기는 부르는 쪽이 보고서 칸의 올리기 길(uploadQueue — 진행 막대·멈춤·다시 시도)로 보낸다. 다 올라간 뒤 markGenerated로
 // 적고, 앞에 만든 엑셀은 그 뒤에 걷는다(새 것이 못 올라가면 옛 것이 남는다).
 // 클라우드: 새 사진을 버킷에 올리고 → club_reports upsert(file_id는 건드리지 않는다) → 빠진 사진을 버킷에서 지운다(최선).
-const keepPhoto = ({ id, name, w, h, path }) => ({ id, name, w, h, path });
+const keepPhoto = ({ id, name, w, h, path, drive_name }) => ({ id, name, w, h, path, drive_name });
+// 영수증 낱장(groups.receiptPlan) — 드라이브에 올릴 jpg 파일
+export const receiptFile = async (p) => new File([await photoBytes(p)], p.drive_name, { type: 'image/jpeg' });
 export async function prepareReportForm(club, meeting, people, draft, { submit = false } = {}) {
   const now = new Date().toISOString();
   const prev = formOf(meeting) || {};
