@@ -1,4 +1,4 @@
-import { zipEntries, readBytes } from './ooxml.js';
+import { zipEntries, readBytes, readEntry, blocks, attrs, unesc, relTargets, relsPathOf } from './ooxml.js';
 import { zipStore } from './zipWrite.js';
 
 // ============================================================================
@@ -8,6 +8,8 @@ import { zipStore } from './zipWrite.js';
 //                                    사용자 양식 `동아리_활동보고서.xlsx`). 양식의 글꼴·테두리·칸 폭은 손대지 않고 값 칸만
 //                                    바꾼다 — 양식 칸 자리(B3 · D3 · B4~B7 · B8 · C8)는 아래 CELLS 한 곳. 사진·영수증은
 //                                    '활동결과물 및 지원비영수증 첨부'(9행) 아래에 두 장씩 놓는다(양식에 이미 이어진 빈 그림판 drawing1).
+//   readClubReport(buf)             거꾸로 — 올린 보고서 엑셀에서 칸 넷과 그림을 읽는다(작성 화면 채우기 · 사용자 요청 2026-10-22).
+//                                    칸은 자리가 아니라 **A열 이름**으로 찾는다(손으로 쓴 양식은 행이 밀린다) · 보고서가 아니면 null.
 //   buildWorkbook(sheets)           연말 보고처럼 표 여러 장을 새로 만든다(머리 줄 굵게 · 칸 폭 · 숫자는 숫자 칸).
 // 보고서의 원본은 앱의 작성 화면이다(사용자 결정 2026-10-21) — 저장할 때마다 이 파일을 새로 만들어 보고서 칸을 덮는다.
 // DOM을 쓰지 않는다(사진 크기는 부르는 쪽이 재서 넘긴다) — 노드에서 그대로 검사한다(§3-5).
@@ -146,6 +148,61 @@ export async function fillClubReport(template, form) {
   }
   out.set('xl/worksheets/sheet1.xml', sheet);
   return zipStore([...out.entries()].map(([name, data]) => ({ name, data })));
+}
+
+// ── 읽기(fillClubReport의 거꾸로) ───────────────────────────────────────────
+// 돌려주는 것: { activity, plan, usage, account, photos[{ bytes, ext }], receipts[같은 모양] } | null('활동 내용' 이름이 없으면).
+// 그림은 첫 시트의 그림판에서 위→아래 · 왼→오 차례. A열에 '지원비 영수증' 이름 줄(우리가 만든 엑셀)이 있으면 그 아래는 영수증,
+// 없으면(손으로 만든 엑셀) 모두 활동 사진이다 — 어느 것이 영수증인지 알 길이 없어 작성 화면에서 고친다.
+const LABELS = { activity: '활동 내용', plan: '차기 활동계획', usage: '지원비 사용내용', amount: '지원금액 및 계좌번호' };
+const squash = (s) => String(s || '').replace(/\s+/g, '');
+const tidy = (s) => String(s || '').replace(/\r\n?/g, '\n').split('\n').map(l => l.trimEnd()).join('\n').trim();
+export async function readClubReport(buf) {
+  const entries = zipEntries(buf, '엑셀 파일');
+  const wbRels = relTargets(await readEntry(entries, 'xl/_rels/workbook.xml.rels'), 'xl');
+  const first = [...blocks(await readEntry(entries, 'xl/workbook.xml'), 'sheet')][0];
+  const sheetPath = (first && wbRels[attrs(first.open)['r:id']]) || 'xl/worksheets/sheet1.xml';
+  const shared = [...blocks(await readEntry(entries, 'xl/sharedStrings.xml'), 'si')]
+    .map(({ inner }) => unesc([...inner.replace(/<rPh[\s\S]*?<\/rPh>/g, '').matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => m[1]).join('')));
+  const sheet = await readEntry(entries, sheetPath);
+  const cell = new Map();   // 'B5' → 글자
+  for (const { open, inner } of blocks(sheet, 'c')) {
+    const a = attrs(open);
+    const v = (inner.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+    const text = a.t === 's' ? shared[Number(v)] : a.t === 'inlineStr'
+      ? unesc([...inner.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => m[1]).join('')) : v != null ? unesc(v) : '';
+    if (a.r && text) cell.set(a.r, text);
+  }
+  const rowOf = (label) => [...cell].find(([ref, t]) => /^A\d+$/.test(ref) && squash(t) === squash(label))?.[0].slice(1) || null;
+  const r = Object.fromEntries(Object.entries(LABELS).map(([k, l]) => [k, rowOf(l)]));
+  if (!r.activity) return null;
+  const at = (col, row) => (row ? tidy(cell.get(`${col}${row}`)) : '');
+
+  // 그림 — 시트 rels → 그림판 → 그림판 rels → xl/media
+  const pics = [];
+  const sheetDir = sheetPath.replace(/\/[^/]+$/, '');
+  const drawPath = Object.values(relTargets(await readEntry(entries, relsPathOf(sheetPath)), sheetDir)).find(t => /drawings\/[^/]+\.xml$/.test(t));
+  if (drawPath) {
+    const media = relTargets(await readEntry(entries, relsPathOf(drawPath)), drawPath.replace(/\/[^/]+$/, ''));
+    const drawing = await readEntry(entries, drawPath);
+    for (const kind of ['oneCellAnchor', 'twoCellAnchor', 'absoluteAnchor']) {
+      for (const { inner } of blocks(drawing, `xdr:${kind}`)) {
+        const id = (inner.match(/r:embed="([^"]+)"/) || [])[1];
+        const path = id && media[id];
+        if (!path) continue;
+        const from = inner.match(/<xdr:from>[\s\S]*?<xdr:col>(\d+)<\/xdr:col>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/);
+        const bytes = await readBytes(entries, path);
+        if (bytes) pics.push({ bytes, ext: path.split('.').pop().toLowerCase(), row: from ? +from[2] + 1 : 0, col: from ? +from[1] : 0 });
+      }
+    }
+  }
+  pics.sort((a, b) => a.row - b.row || a.col - b.col);
+  const cut = Number(rowOf('지원비 영수증')) || Infinity;
+  const strip = ({ bytes, ext }) => ({ bytes, ext });
+  return {
+    activity: at('B', r.activity), plan: at('B', r.plan), usage: at('B', r.usage), account: at('C', r.amount),
+    photos: pics.filter(p => p.row <= cut).map(strip), receipts: pics.filter(p => p.row > cut).map(strip),
+  };
 }
 
 // ── 새 통합 문서 ────────────────────────────────────────────────────────────

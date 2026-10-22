@@ -3,7 +3,7 @@ import { unwrap } from './cloud/core.js';
 import { guestStore } from './people.js';
 import { kstNow } from './worship.js';
 import { demoOn } from './opsDemo.js';
-import { fillClubReport, SUPPORT_PER_PERSON, XLSX_TYPE } from './xlsxWrite.js';
+import { fillClubReport, readClubReport, SUPPORT_PER_PERSON, XLSX_TYPE } from './xlsxWrite.js';
 import { generateId } from '../utils.js';
 import templateUrl from '../assets/club-report-template.xlsx?url';
 
@@ -141,14 +141,19 @@ const keepPhoto = ({ id, name, w, h, path, drive_name }) => ({ id, name, w, h, p
 // 영수증 낱장(groups.receiptPlan) — 드라이브에 올릴 jpg 파일
 export const receiptFile = async (p) => new File([await photoBytes(p)], p.drive_name, { type: 'image/jpeg' });
 export async function prepareReportForm(club, meeting, people, draft, { submit = false } = {}) {
+  const form = await saveReportForm(meeting, draft, { submit });
+  const file = await renderReportFile(club, meeting, people, form);
+  return { form, file };
+}
+// 작성 내용만 둔다(엑셀은 만들지 않는다) — 저장·제출과 올린 엑셀 읽어 채우기(importReportForm)가 같이 쓴다
+async function saveReportForm(meeting, draft, { submit = false } = {}) {
   const now = new Date().toISOString();
   const prev = formOf(meeting) || {};
   const base = { activity: '', plan: '', usage: '', account: '', photos: [], receipts: [], ...draft };
   if (!supabase) {
     const form = { ...base, saved_at: now, submitted_at: submit ? now : (prev.submitted_at || null) };
-    const file = await renderReportFile(club, meeting, people, form);
     set('group_meetings', rows('group_meetings').map(m => (m.id === meeting.id ? { ...m, report_form: form } : m)));
-    return { form, file };
+    return form;
   }
   const up = async (p) => {
     if (p.path) return p;
@@ -168,9 +173,25 @@ export async function prepareReportForm(club, meeting, people, draft, { submit =
   const kept = new Set([...photos, ...receipts].map(p => p.path));
   const gone = [...(prev.photos || []), ...(prev.receipts || [])].map(p => p.path).filter(p => p && !kept.has(p));
   if (gone.length) supabase.storage.from(BUCKET).remove(gone).catch(e => console.warn('[report] 뺀 사진을 지우지 못했어요:', e));
-  const form = { ...base, photos, receipts, file_id: prev.file_id || null, saved_at: now, submitted_at: submittedAt };
-  const file = await renderReportFile(club, meeting, people, form);
-  return { form, file };
+  return { ...base, photos, receipts, file_id: prev.file_id || null, saved_at: now, submitted_at: submittedAt };
+}
+
+// 올린 엑셀로 작성 화면 채우기(사용자 요청 2026-10-22 — 총무가 지난 보고서를 올린다) — 작성 내용이 없는 모임에만.
+// 칸 넷과 그림을 읽어(xlsxWrite.readClubReport) **제출 완료**로 두고, 올린 그 엑셀을 이 보고서의 파일로 적는다(file_id —
+// 다음 저장 때 작성 화면이 만든 엑셀로 갈아 끼운다 · 서부버튼 9/12를 손으로 옮긴 것과 같은 모양). 보고서 양식이 아니면 null.
+// 영수증 이름(drive_name)은 부르는 쪽이 붙인다(groups.nameReceipts).
+export async function readReportDraft(file) {
+  const read = await readClubReport(await file.arrayBuffer());
+  if (!read) return null;
+  const pics = (list) => Promise.all(list.map((p, i) => photoOf(new File([p.bytes], `그림 ${i + 1}.${p.ext}`, { type: `image/${p.ext === 'jpg' ? 'jpeg' : p.ext}` }))
+    .catch(e => { console.warn('[report] 엑셀 안 그림을 읽지 못했어요:', e); return null; })));
+  return { activity: read.activity, plan: read.plan, usage: read.usage, account: read.account,
+    photos: (await pics(read.photos)).filter(Boolean), receipts: (await pics(read.receipts)).filter(Boolean) };
+}
+export async function importReportForm(meeting, draft, fileId) {
+  const form = await saveReportForm(meeting, draft, { submit: true });
+  await markGenerated(meeting.id, fileId);
+  return { ...form, file_id: fileId };
 }
 export async function markGenerated(meetingId, fileId) {
   if (!supabase) { set('files', rows('files').map(f => (f.id === fileId ? { ...f, generated: true } : f))); return; }

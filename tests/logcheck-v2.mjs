@@ -1781,6 +1781,15 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.ok(ents.has('xl/media/image1.jpg') || ents.has('xl/media/image1.png'), '사진은 media로 들어간다');
   assert.ok(/<xdr:oneCellAnchor>/.test(await readEntry(ents, 'xl/drawings/drawing1.xml')), '사진 자리는 그림판(drawing1)에');
   assert.strictEqual(xw.excelDate('2026-10-18'), 46313, '모임 일자는 엑셀 날짜 일련번호');
+  // 거꾸로 읽기(readClubReport · 사용자 요청 2026-10-22) — 칸 넷 · 사진/영수증 갈래(우리 엑셀은 '지원비 영수증' 이름 줄 아래가 영수증) · 양식이 아니면 null.
+  // 되돌리기: rowOf가 squash 없이 비교하거나 cut을 Infinity로 두면 깨진다.
+  const both = await xw.fillClubReport(tpl, { club: '더다북', date: '2026-10-18', attendees: ['노준석'], activity: '로마서 8장\n9장 읽기', plan: '10장',
+    usage: '간식', amount: 5000, account: '카카오뱅크 0000', photos: [{ bytes: png, ext: 'png', w: 800, h: 600 }, { bytes: png, ext: 'png', w: 600, h: 800 }],
+    receipts: [{ bytes: png, ext: 'png', w: 400, h: 600 }] });
+  const read = await xw.readClubReport(buf(both));
+  assert.deepStrictEqual([read.activity, read.plan, read.usage, read.account], ['로마서 8장\n9장 읽기', '10장', '간식', '카카오뱅크 0000'], '읽기: 칸 넷(줄바꿈 그대로)');
+  assert.deepStrictEqual([read.photos.length, read.receipts.length], [2, 1], '읽기: 사진 둘 · 영수증 하나');
+  assert.strictEqual(await xw.readClubReport(buf(wb)), null, '보고서 양식이 아니면 null');
 
   // 연말 보고 표 — 순수 짓기(buildYearSheets)
   const yr = readSrc('src/services/yearReport.js')

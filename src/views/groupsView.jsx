@@ -28,7 +28,7 @@ import { cancelledError } from '../services/transfer.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 import { Segmented } from '../components/segmented.jsx';
-import { prepareReportForm, markGenerated, canCheckSupport, isGenerated, receiptFile } from '../services/clubReport.js';
+import { prepareReportForm, markGenerated, canCheckSupport, isGenerated, receiptFile, readReportDraft, importReportForm, formOf } from '../services/clubReport.js';
 import { ClubReportBoard } from '../components/clubReportBoard.jsx';
 import { ClipboardList, ChevronRight, QrCode } from 'lucide-react';
 import { WelcomeBoard } from '../components/welcomeBoard.jsx';
@@ -550,7 +550,26 @@ export function GroupsView() {
       picked.filter(f => f.size > MAX_UPLOAD_BYTES)
         .forEach(f => showToast(`'${f.name}'은(는) ${MAX_UPLOAD_MB}MB를 넘어 첨부하지 못했어요.`));
       const ok = picked.filter(f => f.size <= MAX_UPLOAD_BYTES);
-      if (ok.length) sendReports(club, meeting, ok.map(stagedRow));
+      if (!ok.length) return;
+      // 보고서 양식 엑셀이면 작성 화면을 그 내용으로 채운다(사용자 요청 2026-10-22) — 작성 내용이 없는 모임만 · 첫 엑셀 하나.
+      // 읽기는 올리기와 같이 시작하고, 행이 서면 제출 완료로 적는다. 영수증은 작성 화면 저장과 같은 길로 드라이브에도.
+      const xlsx = !formOf(meeting)?.saved_at && ok.find(f => /.xlsx$/i.test(f.name));
+      const reading = xlsx ? readReportDraft(xlsx).catch(e => { console.warn('[groups] 보고서 엑셀을 읽지 못했다:', e); return null; }) : null;
+      sendReports(club, meeting, ok.map(stagedRow)).then(async (done) => {
+        const draft = reading && await reading;
+        const row = draft && done?.find(r => r?.name === xlsx.name);
+        if (!row) return;
+        try {
+          const named = { ...draft, receipts: nameReceipts(club?.name, meeting, draft.receipts) };
+          const form = await importReportForm(meeting, named, row.id);
+          patchMeeting(meeting.id, m => ({ ...m, report_form: form, files: (m.files || []).map(f => (f.id === row.id ? { ...f, generated: true } : f)) }));
+          const slips = (await Promise.all(form.receipts.map(r => receiptFile(r).catch(() => null)))).filter(Boolean);
+          if (slips.length) sendReports(club, meeting, slips.map(stagedRow));
+        } catch (e) {
+          console.error('[groups] 올린 엑셀로 보고서를 채우지 못했다:', e);
+          showToast(failText('보고서를 저장하지 못했어요', e));
+        }
+      });
     },
     // '다시 시도' — 못 올린 줄을 같은 자리에서 다시 '올리는 중'으로 돌려 같은 길로 보낸다
     onRetry: (club, meeting, id) => {

@@ -4,6 +4,7 @@ import { X, ImagePlus, Loader2, CheckCircle2 } from 'lucide-react';
 import { useLeave } from '../hooks/useExit.js';
 import { BTN_CONFIRM, BTN_CONFIRM_QUIET } from './buttons.js';
 import { FIELD } from './groupsParts.jsx';
+import { SmartImage } from './media.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { photoOf, supportAmountOf, formOf, withPhotoUrls } from '../services/clubReport.js';
@@ -69,7 +70,9 @@ function PhotoGroup({ label, list, onAdd, onDrop, busy }) {
       <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
         {list.map(p => (
           <span key={p.id} className="relative aspect-square">
-            <img src={p.dataUrl || p.url} alt={p.name} className="w-full h-full object-cover rounded-xs border border-line bg-canvas" />
+            {/* 올라간 사진은 서명 주소를 받고 그림을 다 받을 때까지 같은 자리에 스켈레톤(사용자 요청 2026-10-22) */}
+            <SmartImage src={p.dataUrl || p.url} alt={p.name} wrapperClassName="block w-full h-full" skeletonClassName="w-full h-full rounded-xs"
+              className="w-full h-full object-cover rounded-xs border border-line bg-canvas" />
             <button type="button" onClick={() => onDrop(p.id)} aria-label={`${label} 삭제`} title="삭제"
               className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-fg text-surface flex items-center justify-center shadow-elevated before:absolute before:-inset-1.5">
               <X size={11} strokeWidth={2.5} />
