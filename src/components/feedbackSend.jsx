@@ -187,8 +187,10 @@ export function FeedbackSend({ onClose }) {
 
   const [sending, setSending] = useState(false);
   const [dropping, setDropping] = useState(false);   // 사진을 지우는 중(줄어드는 모션 뒤에 걷는다)
+  // 폰은 줄어드는 모션 없이 바로 '사진 추가' 칸으로 — 그 칸·안내 줄이 같은 자리에서 서서히 선다(dc-fade · 사용자 지적 2026-10-22 — 사진이
+  // 옆으로 줄며 제목까지 흐려졌다가 칸이 툭 나타났다). 데스크톱은 예전처럼 줄어들며 걷힌다(다시 굽는 칸이 없다).
   const dropShot = () => {
-    if (prefersReducedMotion()) { setShot(null); return; }
+    if (manual || prefersReducedMotion()) { setShot(null); return; }
     setDropping(true);
   };
   const canSend = text.trim().length > 0 && !sending;
@@ -240,16 +242,16 @@ export function FeedbackSend({ onClose }) {
               </span>
             ) : manual ? (
               <button type="button" onClick={() => pickRef.current?.click()} data-feedback-pick=""
-                className="w-16 h-20 shrink-0 rounded-xs border border-dashed border-line text-fg-muted hover:bg-surface-hover flex flex-col items-center justify-center gap-1 text-[10.5px] font-semibold transition active:scale-95">
+                className="dc-fade w-16 h-20 shrink-0 rounded-xs border border-dashed border-line text-fg-muted hover:bg-surface-hover flex flex-col items-center justify-center gap-1 text-[10.5px] font-semibold transition active:scale-95">
                 <ImagePlus size={16} /><span>사진 추가</span>
               </button>
             ) : null}
             {manual && <input ref={pickRef} type="file" accept="image/*" className="hidden" tabIndex={-1} aria-hidden="true"
               onChange={e => { pickShot(e.target.files?.[0]); e.target.value = ''; }} />}
             <span className="flex-1 min-w-0 pt-0.5">
-              {(shot !== null || manual) && <span className={`block text-[12px] font-semibold text-fg ops-ease${dropping ? ' opacity-0' : ''}`}>화면 스크린샷</span>}
+              {(shot !== null || manual) && <span className={`block text-[12px] font-semibold text-fg ops-ease${dropping && !manual ? ' opacity-0' : ''}`}>화면 스크린샷</span>}
               {/* 폰에서 고르기 전 — 문구 사용자 확정 2026-10-22 */}
-              {manual && !shot && <span className="block mt-0.5 text-[11.5px] text-fg-muted" data-feedback-pick-hint="">문제가 발생한 화면의 스크린샷을 보내주세요</span>}
+              {manual && !shot && <span className="dc-fade block mt-0.5 text-[11.5px] text-fg-muted" data-feedback-pick-hint="">문제가 발생한 화면의 스크린샷을 보내주세요</span>}
               <span className="flex items-center gap-1.5 mt-0.5 text-[11.5px] text-fg-muted" data-feedback-device="">
                 {phone ? <Smartphone size={12} className="shrink-0" /> : <Monitor size={12} className="shrink-0" />}
                 <span className="min-w-0 break-words">{[device, browser, info.current.size, info.current.screenName].join(' · ')}</span>
