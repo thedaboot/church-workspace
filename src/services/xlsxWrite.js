@@ -151,9 +151,9 @@ export async function fillClubReport(template, form) {
 }
 
 // ── 읽기(fillClubReport의 거꾸로) ───────────────────────────────────────────
-// 돌려주는 것: { activity, plan, usage, account, photos[{ bytes, ext }], receipts[같은 모양] } | null('활동 내용' 이름이 없으면).
+// 돌려주는 것: { activity, plan, usage, account, photos[{ bytes, ext }], receipts[같은 모양], sorted } | null('활동 내용' 이름이 없으면).
 // 그림은 첫 시트의 그림판에서 위→아래 · 왼→오 차례. A열에 '지원비 영수증' 이름 줄(우리가 만든 엑셀)이 있으면 그 아래는 영수증,
-// 없으면(손으로 만든 엑셀) 모두 활동 사진이다 — 어느 것이 영수증인지 알 길이 없어 작성 화면에서 고친다.
+// 없으면(손으로 만든 엑셀) 모두 활동 사진이고 sorted=false — 화면이 '영수증 선택' 시트로 사람에게 고르게 한다(사용자 승인 시안 A-1 2026-10-22).
 const LABELS = { activity: '활동 내용', plan: '차기 활동계획', usage: '지원비 사용내용', amount: '지원금액 및 계좌번호' };
 const squash = (s) => String(s || '').replace(/\s+/g, '');
 const tidy = (s) => String(s || '').replace(/\r\n?/g, '\n').split('\n').map(l => l.trimEnd()).join('\n').trim();
@@ -202,6 +202,7 @@ export async function readClubReport(buf) {
   return {
     activity: at('B', r.activity), plan: at('B', r.plan), usage: at('B', r.usage), account: at('C', r.amount),
     photos: pics.filter(p => p.row <= cut).map(strip), receipts: pics.filter(p => p.row > cut).map(strip),
+    sorted: cut !== Infinity,   // 영수증이 이미 갈라져 있다(우리 엑셀) — 아니면 부르는 쪽이 사람에게 고르게 한다
   };
 }
 

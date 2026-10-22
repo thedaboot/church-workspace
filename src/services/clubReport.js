@@ -186,7 +186,7 @@ export async function readReportDraft(file) {
   const pics = (list) => Promise.all(list.map((p, i) => photoOf(new File([p.bytes], `그림 ${i + 1}.${p.ext}`, { type: `image/${p.ext === 'jpg' ? 'jpeg' : p.ext}` }))
     .catch(e => { console.warn('[report] 엑셀 안 그림을 읽지 못했어요:', e); return null; })));
   return { activity: read.activity, plan: read.plan, usage: read.usage, account: read.account,
-    photos: (await pics(read.photos)).filter(Boolean), receipts: (await pics(read.receipts)).filter(Boolean) };
+    photos: (await pics(read.photos)).filter(Boolean), receipts: (await pics(read.receipts)).filter(Boolean), sorted: read.sorted };
 }
 export async function importReportForm(meeting, draft, fileId) {
   const form = await saveReportForm(meeting, draft, { submit: true });

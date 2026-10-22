@@ -33,6 +33,7 @@ import { ClubReportBoard } from '../components/clubReportBoard.jsx';
 import { ClipboardList, ChevronRight, QrCode } from 'lucide-react';
 import { WelcomeBoard } from '../components/welcomeBoard.jsx';
 import { JoinQrModal } from '../components/joinQr.jsx';
+import { ReceiptPicker } from '../components/receiptPicker.jsx';
 // ============================================================================
 // v2 모임 화면 — 내 순 · 동아리 · 순 편성 (docs/V2.md §1 결정 1·2·3·7 · §2 · §3)
 // ----------------------------------------------------------------------------
@@ -129,6 +130,7 @@ export function GroupsView() {
   const { isMaster, isAdmin } = useAuth();
   const [year, setYear] = useState(THIS_YEAR);
   const [tab, setTab] = useState('mine');
+  const [picking, setPicking] = useState(null);   // 영수증 선택 시트(올린 엑셀의 그림 · components/receiptPicker.jsx)
   const [joinQr, setJoinQr] = useState(false);   // 새가족·워크스페이스 가입 QR(components/joinQr.jsx)
   const [openClubId, setOpenClubId] = useState(null);
   const [board, setBoard] = useState(false);   // 보고서 현황(시안 mock/b4 · 마스터 · 총무)
@@ -553,24 +555,33 @@ export function GroupsView() {
       if (!ok.length) return;
       // 보고서 양식 엑셀이면 작성 화면을 그 내용으로 채운다(사용자 요청 2026-10-22) — 작성 내용이 없는 모임만 · 첫 엑셀 하나.
       // 읽기는 올리기와 같이 시작하고, 행이 서면 제출 완료로 적는다. 영수증은 작성 화면 저장과 같은 길로 드라이브에도.
-      const xlsx = !formOf(meeting)?.saved_at && ok.find(f => /.xlsx$/i.test(f.name));
+      const xlsx = !formOf(meeting)?.saved_at && ok.find(f => /\.xlsx$/i.test(f.name));
       const reading = xlsx ? readReportDraft(xlsx).catch(e => { console.warn('[groups] 보고서 엑셀을 읽지 못했다:', e); return null; }) : null;
-      sendReports(club, meeting, ok.map(stagedRow)).then(async (done) => {
-        const draft = reading && await reading;
-        const row = draft && done?.find(r => r?.name === xlsx.name);
+      const uploading = sendReports(club, meeting, ok.map(stagedRow));
+      if (!reading) return;
+      (async () => {
+        let draft = await reading;
+        if (!draft) return;
+        // 손으로 만든 엑셀은 어느 그림이 영수증인지 모른다 — 올리는 동안 '영수증 선택' 시트로 고르게 한다(사용자 승인 시안 A-1)
+        if (!draft.sorted && draft.photos.length) {
+          const ids = new Set(await new Promise(resolve => setPicking({ photos: draft.photos, resolve })));
+          setPicking(null);
+          draft = { ...draft, photos: draft.photos.filter(p => !ids.has(p.id)), receipts: draft.photos.filter(p => ids.has(p.id)) };
+        }
+        const row = (await uploading)?.find(r => r?.name === xlsx.name);
         if (!row) return;
         try {
           const named = { ...draft, receipts: nameReceipts(club?.name, meeting, draft.receipts) };
           const form = await importReportForm(meeting, named, row.id);
           patchMeeting(meeting.id, m => ({ ...m, report_form: form, files: (m.files || []).map(f => (f.id === row.id ? { ...f, generated: true } : f)) }));
-          showToast('엑셀의 내용이 추가되었어요');   // 사용자 문구 2026-10-22
+          showToast('엑셀 안에 있는 내용을 불러왔어요');   // 사용자 문구 2026-10-22
           const slips = (await Promise.all(form.receipts.map(r => receiptFile(r).catch(() => null)))).filter(Boolean);
           if (slips.length) sendReports(club, meeting, slips.map(stagedRow));
         } catch (e) {
           console.error('[groups] 올린 엑셀로 보고서를 채우지 못했다:', e);
           showToast(failText('보고서를 저장하지 못했어요', e));
         }
-      });
+      })();
     },
     // '다시 시도' — 못 올린 줄을 같은 자리에서 다시 '올리는 중'으로 돌려 같은 길로 보낸다
     onRetry: (club, meeting, id) => {
@@ -929,6 +940,7 @@ export function GroupsView() {
           meName={perms?.myPerson?.name || ''} onChanged={refresh} focus={welcomeFocus} />
       )}
       {joinQr && <JoinQrModal initial="newcomer" onClose={() => setJoinQr(false)} />}
+      {picking && <ReceiptPicker photos={picking.photos} onDone={picking.resolve} />}
 
       {active === 'sun' && !baseFailed && (
         <SunAdminPanel year={year} years={years} loading={!adminData}

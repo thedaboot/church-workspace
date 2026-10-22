@@ -1789,6 +1789,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   const read = await xw.readClubReport(buf(both));
   assert.deepStrictEqual([read.activity, read.plan, read.usage, read.account], ['로마서 8장\n9장 읽기', '10장', '간식', '카카오뱅크 0000'], '읽기: 칸 넷(줄바꿈 그대로)');
   assert.deepStrictEqual([read.photos.length, read.receipts.length], [2, 1], '읽기: 사진 둘 · 영수증 하나');
+  assert.strictEqual(read.sorted, true, "읽기: 우리 엑셀은 영수증이 갈라져 있다(sorted) — 손으로 만든 엑셀만 '영수증 선택' 시트");
   assert.strictEqual(await xw.readClubReport(buf(wb)), null, '보고서 양식이 아니면 null');
 
   // 연말 보고 표 — 순수 짓기(buildYearSheets)

@@ -15,7 +15,7 @@ import { fetchReportBoard, setSupportPaid } from '../services/clubReport.js';
 // 그 해의 지난 모임 전부 — 위에 상태 셋의 수와 '지급할 지원금'(제출 완료인데 아직 지급 전) 합계, 아래에 모임마다 한 줄:
 //   동아리 · 모임 날짜·제목 · 참석 · 지원금(참석자 × 5,000원) · 보고서 상태 · 지급 체크.
 // 지급 체크는 **제출 완료한 모임만** 있다(보고서를 보고 지급한다 · 지급할 수 없는 줄에는 버튼을 두지 않는다 — 폰에서 흐린 버튼이 줄마다 자리를 차지했다).
-// 폰은 오른쪽에 상태 칩 → 지급 버튼 두 줄, 왼쪽 글 묶음은 두 줄 가운데(위에 떠 보였다 · 지급한 사람·날은 글 묶음 셋째 줄 · 사용자 요청 2026-10-22) · 데스크톱은 끝 열.
+// 폰은 오른쪽에 상태 칩 → 지급 버튼 두 줄, 왼쪽 글 묶음은 두 줄 가운데(위에 떠 보였다 · 사용자 요청 2026-10-22) · 지급하면 버튼 글자가 '지급한 사람 · 날'(줄 높이가 그대로 · 사용자 승인 시안 B-2) · 데스크톱은 끝 열.
 // 줄을 누르면 그 동아리 상세로 간다(보고서를 열어 본다). 지급 체크는 먼저 바꾸고 실패하면 되돌린다(set_support_paid · 마스터·총무만).
 // 읽기 실패는 그 자리 실패 묶음(FailLeft · 다시 시도) · 처음 읽는 동안은 줄 모양 스켈레톤.
 // ============================================================================
@@ -122,7 +122,6 @@ export function ClubReportBoard({ year, me = '', people = [], onOpenClub, onBack
                   <span className="tabular-nums">{shortDay(r.meeting.meeting_date)}</span>{r.meeting.title ? ` ${r.meeting.title}` : ''}
                   <span className="md:hidden tabular-nums">{` · ${(r.meeting.attendance || []).length}명 · ${won(r.amount)}`}</span>
                 </span>
-                {r.paidAt && <span className="md:hidden block mt-0.5 text-[11px] text-fg-muted truncate">{[whoPaid(r.paidBy), shortDay(r.paidAt.slice(0, 10))].filter(Boolean).join(' · ')}</span>}
               </button>
               <span className="hidden md:block text-right text-[12.5px] text-fg tabular-nums">{`${(r.meeting.attendance || []).length}명`}</span>
               <span className="hidden md:block text-right text-[12.5px] text-fg tabular-nums">{won(r.amount)}</span>
@@ -137,7 +136,9 @@ export function ClubReportBoard({ year, me = '', people = [], onOpenClub, onBack
                   <span className={`w-3.5 h-3.5 rounded-[4px] flex items-center justify-center ${r.paidAt ? 'bg-tag-green-fg text-surface' : 'border border-line'}`}>
                     {r.paidAt && <Check size={10} strokeWidth={3} />}
                   </span>
-                  {r.paidAt ? '지급 완료' : '지급'}
+                  {r.paidAt
+                    ? <><span className="md:hidden tabular-nums">{[whoPaid(r.paidBy), shortDay(r.paidAt.slice(0, 10))].filter(Boolean).join(' · ') || '지급 완료'}</span><span className="hidden md:inline">지급 완료</span></>
+                    : '지급'}
                 </button>}
               </span>
             </div>
