@@ -99,6 +99,9 @@ export function MeetingReportForm({ club, meeting, people = [], onSave, onClose 
     activity: prev.activity || '', plan: prev.plan || '', usage: prev.usage || '', account: prev.account || '',
     photos: prev.photos || [], receipts: prev.receipts || [],
   }));
+  // 창을 연 뒤 작성 내용이 새로 들어오면(올린 엑셀 불러오기가 늦게 끝남) 손대지 않은 창은 그 내용으로 바꾼다(사용자 지적 2026-10-22 — 다시 열어야 보였다)
+  const touched = useRef(false);
+  const savedAt = meeting.report_form?.saved_at || null;
   const [busy, setBusy] = useState(null);      // 'photos' | 'receipts' — 사진을 줄이는 중
   const [saving, setSaving] = useState(null);  // 'save' | 'submit'
   const downOnScrim = useRef(false);
@@ -121,8 +124,15 @@ export function MeetingReportForm({ club, meeting, people = [], onSave, onClose 
     return () => document.removeEventListener('keydown', onKey);
   }, [close]);
 
-  const setText = (k) => (e) => setDraft(d => ({ ...d, [k]: e.target.value }));
+  useEffect(() => {
+    if (!savedAt || touched.current || saving) return;
+    const f = formOf(meeting) || {};
+    setDraft({ activity: f.activity || '', plan: f.plan || '', usage: f.usage || '', account: f.account || '', photos: f.photos || [], receipts: f.receipts || [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedAt]);
+  const setText = (k) => (e) => { touched.current = true; setDraft(d => ({ ...d, [k]: e.target.value })); };
   const add = async (k, files) => {
+    touched.current = true;
     const list = Array.from(files || []).filter(f => (f.type || '').startsWith('image/'));
     if (!list.length) return;
     setBusy(k);
@@ -134,7 +144,7 @@ export function MeetingReportForm({ club, meeting, people = [], onSave, onClose 
       setDraft(d => ({ ...d, [k]: [...d[k], ...done] }));
     } finally { setBusy(null); }
   };
-  const drop = (k, id) => setDraft(d => ({ ...d, [k]: d[k].filter(p => p.id !== id) }));
+  const drop = (k, id) => (touched.current = true) && setDraft(d => ({ ...d, [k]: d[k].filter(p => p.id !== id) }));
 
   const save = async (submit) => {
     if (saving) return;

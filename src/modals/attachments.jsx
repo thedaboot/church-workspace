@@ -473,7 +473,7 @@ const AttachmentRow = ({ row, meta, canDelete, thumb, thumbFailed, onOpen, onRem
         <span className="text-[10px] mt-0.5 flex items-center gap-1 text-fg-muted">
           {pending && <Loader2 size={10} className="animate-spin shrink-0" />}
           <span className="truncate">{pending ? `${moving ? '드라이브로 옮기는 중' : '드라이브에 올리는 중'} · ${formatBytes(row.size_bytes)}` : (meta || formatBytes(row.size_bytes))}</span>
-          {pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">{pct}%</span>}
+          {pct !== null && <span className="ml-auto tabular-nums font-semibold shrink-0">{pct}%</span>}
         </span>
         {pct !== null && <UploadTrack pct={pct} />}
       </span>

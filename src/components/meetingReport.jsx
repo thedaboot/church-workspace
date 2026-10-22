@@ -182,7 +182,7 @@ function ReportRow({ row, meta, pending = false, onOpen, children = null }) {
         <p className="club-meet-report-meta mt-px flex items-center gap-1 text-[10.5px] text-fg-muted min-w-0">
           {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
           <span className="truncate">{meta}</span>
-          {pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">{pct}%</span>}
+          {pct !== null && <span className="ml-auto tabular-nums font-semibold shrink-0">{pct}%</span>}
         </p>
         {pct !== null && <UploadTrack pct={pct} />}
       </button>

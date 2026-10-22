@@ -177,7 +177,7 @@ async function saveReportForm(meeting, draft, { submit = false } = {}) {
 }
 
 // 올린 엑셀로 작성 화면 채우기(사용자 요청 2026-10-22 — 총무가 지난 보고서를 올린다) — 작성 내용이 없는 모임에만.
-// 칸 넷과 그림을 읽어(xlsxWrite.readClubReport) **제출 완료**로 두고, 올린 그 엑셀을 이 보고서의 파일로 적는다(file_id —
+// 칸 넷과 그림을 읽어(xlsxWrite.readClubReport) **제출 완료**로 두고, 올린 그 엑셀을 이 보고서의 파일로 적는다(file_id · 올라간 뒤 —
 // 다음 저장 때 작성 화면이 만든 엑셀로 갈아 끼운다 · 서부버튼 9/12를 손으로 옮긴 것과 같은 모양). 보고서 양식이 아니면 null.
 // 영수증 이름(drive_name)은 부르는 쪽이 붙인다(groups.nameReceipts).
 export async function readReportDraft(file) {
@@ -188,11 +188,8 @@ export async function readReportDraft(file) {
   return { activity: read.activity, plan: read.plan, usage: read.usage, account: read.account,
     photos: (await pics(read.photos)).filter(Boolean), receipts: (await pics(read.receipts)).filter(Boolean), sorted: read.sorted };
 }
-export async function importReportForm(meeting, draft, fileId) {
-  const form = await saveReportForm(meeting, draft, { submit: true });
-  await markGenerated(meeting.id, fileId);
-  return { ...form, file_id: fileId };
-}
+// 내용만 둔다(제출 완료) — 엑셀 파일은 올라간 뒤 부르는 쪽이 markGenerated로 적는다(내용을 드라이브 올리기에 묶지 않는다)
+export const importReportForm = (meeting, draft) => saveReportForm(meeting, draft, { submit: true });
 export async function markGenerated(meetingId, fileId) {
   if (!supabase) { set('files', rows('files').map(f => (f.id === fileId ? { ...f, generated: true } : f))); return; }
   unwrap(await supabase.from('club_reports').update({ file_id: fileId }).eq('meeting_id', meetingId));

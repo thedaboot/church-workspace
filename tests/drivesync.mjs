@@ -1697,7 +1697,8 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
       assert.ok(!/moving ? 100/.test(read(f)), `${f}가 다 보낸 뒤 막대를 바로 채운다`);
   });
   check('C2 올리는 중 진행 — 퍼센트(메타 줄 끝) · 2px 막대(--p-track · accent · .42s quint) · 다 보내면 드라이브로 옮기는 중', () => {
-    assert.match(row, /\{pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">\{pct\}%<\/span>\}/, '메타 줄 끝 퍼센트가 없다');
+    // 드라이브 구간에도 퍼센트(어림 · 사용자 요청 2026-10-22)
+    assert.match(row, /\{pct !== null && <span className="ml-auto tabular-nums font-semibold shrink-0">\{pct\}%<\/span>\}/, '메타 줄 끝 퍼센트가 없다');
     assert.match(row, /\{pct !== null && <UploadTrack pct=\{pct\} \/>\}/, '막대가 없다');
     const track = /export const UploadTrack = [\s\S]*?\n\);/.exec(read('src/components/fileRow.jsx'))?.[0] || '';
     assert.ok(/height: 2/.test(track) && /background: 'var\(--p-track\)'/.test(track) && /bg-accent/.test(track) && /transition: 'width \.42s var\(--ease-out-quint\)'/.test(track), '막대 모양이 시안과 다르다');

@@ -3218,6 +3218,8 @@ await send('Emulation.clearDeviceMetricsOverride');
   const poll = async (expr, to = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < to) { if (await ev(expr)) return true; await sleep(120); } return false; };
   const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const RP1 = dayShift(KST_TODAY, -20), RP2 = dayShift(KST_TODAY, -6), RP3 = dayShift(KST_TODAY, 4);
+  // 올린 파일은 우리 이름으로 바뀐다(사용자 요청 2026-10-22 — '<동아리> 활동보고서(M월 D일).<확장자>' · 겹치면 ' 2') — 되돌리기: groupsView onPick의 이름 바꾸기를 빼면 ②가 깨진다
+  const RN = (d, n = 0) => `통통 활동보고서(${+d.slice(5, 7)}월 ${+d.slice(8, 10)}일)${n ? ` ${n}` : ''}.xlsx`;
   const MEETS = `g.group_meetings.push(
     { id: 'rp1', group_id: 'gc1', meeting_date: '${RP1}', title: '보고서 칸 하나', attendance: [], note: null },
     { id: 'rp2', group_id: 'gc1', meeting_date: '${RP2}', title: '보고서 칸 둘', attendance: [], note: null },
@@ -3265,10 +3267,10 @@ await send('Emulation.clearDeviceMetricsOverride');
     soft: !!r?.querySelector('.club-meet-report-add')?.classList.contains('bg-accent-weak'),
   }; })()`);
   const st1 = await stored();
-  check('올린 보고서가 그 모임 줄로 선다(이름 · 크기 · 편집 · 지우기)',
-    up.name === '9월 보고서.xlsx' && up.meta.includes('2 KB') && up.edit === '편집' && up.drop, JSON.stringify(up));
+  check('올린 보고서가 그 모임 줄로 선다(우리 이름으로 · 크기 · 편집 · 지우기)',
+    up.name === RN(RP1) && up.meta.includes('2 KB') && up.edit === '편집' && up.drop, JSON.stringify(up));
   check("보고서가 생기면 '파일 올리기'는 연한 accent", up.soft === true, JSON.stringify(up));
-  check('저장 자리는 files 한 표 · 주인은 meeting_id', JSON.stringify(st1) === JSON.stringify([['rp1', '9월 보고서.xlsx']]), JSON.stringify(st1));
+  check('저장 자리는 files 한 표 · 주인은 meeting_id', JSON.stringify(st1) === JSON.stringify([['rp1', RN(RP1)]]), JSON.stringify(st1));
 
   // ③ '지난 보고서 가져오기'는 뺐다(사용자 결정 2026-10-22) — 다른 모임에 보고서가 있어도 버튼이 없다
   check("다른 모임에 보고서가 있어도 '지난 보고서 가져오기'가 없다",
@@ -3281,21 +3283,21 @@ await send('Emulation.clearDeviceMetricsOverride');
   const failed = await ev(`(() => { const f = ${rep('보고서 칸 둘')}?.querySelector('.club-meet-report-failed'); return { text: f?.innerText || '', retry: !!f?.querySelector('.club-meet-report-retry') }; })()`);
   await ev(`delete crypto.randomUUID`);
   check("못 올린 파일은 빨간 줄 + '다시 시도'(업무 첨부와 같은 큐)",
-    failed.text.includes('b 보고서.xlsx') && failed.text.includes('올리지 못했어요') && failed.retry, JSON.stringify(failed));
+    failed.text.replace(/\s+/g, '').includes(RN(RP2).replace(/\s+/g, '')) && failed.text.includes('올리지 못했어요') && failed.retry, JSON.stringify(failed));
   await ev(`${rep('보고서 칸 둘')}?.querySelector('.club-meet-report-retry')?.click()`);
-  await poll(`!${rep('보고서 칸 둘')}?.querySelector('.club-meet-report-failed') && (${store('files')} || []).some(f => f.name === 'b 보고서.xlsx')`);
+  await poll(`!${rep('보고서 칸 둘')}?.querySelector('.club-meet-report-failed') && (${store('files')} || []).some(f => f.name === ${JSON.stringify(RN(RP2))})`);
   const retried = await ev(`(() => ({ failed: !!${rep('보고서 칸 둘')}?.querySelector('.club-meet-report-failed'),
     names: [...(${rep('보고서 칸 둘')}?.querySelectorAll('.club-meet-report-name') || [])].map(n => n.textContent.trim()) }))()`);
-  check('다시 시도하면 같은 줄이 올라간다', !retried.failed && retried.names.includes('b 보고서.xlsx'), JSON.stringify(retried));
+  check('다시 시도하면 같은 줄이 올라간다', !retried.failed && retried.names.includes(RN(RP2)), JSON.stringify(retried));
 
   // ⑤
-  await ev(`[...(${rep('보고서 칸 둘')}?.querySelectorAll('.club-meet-report-drop') || [])].find(b => b.getAttribute('aria-label') === 'b 보고서.xlsx 삭제')?.click()`);
+  await ev(`[...(${rep('보고서 칸 둘')}?.querySelectorAll('.club-meet-report-drop') || [])].find(b => b.getAttribute('aria-label') === ${JSON.stringify(RN(RP2) + ' 삭제')})?.click()`);
   await sleep(300);
   await ev(`${byText('삭제')}?.click()`);
-  await poll(`!(${store('files')} || []).some(f => f.name === 'b 보고서.xlsx')`);
+  await poll(`!(${store('files')} || []).some(f => f.name === ${JSON.stringify(RN(RP2))})`);
   const afterDrop = await ev(`(() => ({ stored: (${store('files')} || []).map(f => f.name),
     rows: [...(${rep('보고서 칸 둘')}?.querySelectorAll('.club-meet-report-name') || [])].map(n => n.textContent.trim()) }))()`);
-  check('지우면 줄과 저장 자리에서 같이 빠진다', !afterDrop.stored.includes('b 보고서.xlsx') && !afterDrop.rows.includes('b 보고서.xlsx'), JSON.stringify(afterDrop));
+  check('지우면 줄과 저장 자리에서 같이 빠진다', !afterDrop.stored.includes(RN(RP2)) && !afterDrop.rows.includes(RN(RP2)), JSON.stringify(afterDrop));
 
   // ⑥ 구성원(천진영 p2) — 보고서 있는 모임만 줄, 버튼·X 없음
   const SEEDED = `g.files = [{ id: 'rf1', meeting_id: 'rp1', name: '통통 활동보고서(9월).xlsx', size_bytes: 24576, mime_type: '${XLSX}',
@@ -3370,8 +3372,8 @@ await send('Emulation.clearDeviceMetricsOverride');
     const fr = f.getBoundingClientRect(), tr = tail?.getBoundingClientRect(), nr = name?.getBoundingClientRect();
     return { clipped: !!head && head.scrollWidth > head.clientWidth, tail: tail?.textContent || '', tailIn: !!tr && tr.width > 0 && tr.right <= nr.right + 0.5,
       inside: [...f.querySelectorAll('button')].every(b => b.getBoundingClientRect().right <= fr.right + 0.5) }; })()`);
-  check('폰 375 — 못 올린 빨간 줄의 긴 이름도 가운데 말줄임(꼬리·확장자는 보인다)',
-    failName.clipped && failName.tail === ' 제출용).xlsx' && failName.tailIn && failName.inside, JSON.stringify(failName));
+  check('폰 375 — 못 올린 빨간 줄의 이름도 가운데 말줄임 꼴(꼬리·확장자는 보인다 · 올린 이름은 우리 이름으로 바뀐다)',
+    failName.tail === RN(RP1).slice(RN(RP1).lastIndexOf('.') - 5) && failName.tailIn && failName.inside, JSON.stringify(failName));
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(300);
 

@@ -202,7 +202,7 @@ export function ServiceFileRow({ row, cls = 'worship-songform', what = '송폼',
         <p className={`${cls}-meta mt-0.5 flex items-center gap-1 text-[10.5px] text-fg-muted`}>
           {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
           <span className="truncate">{pending ? `${moving ? '드라이브로 옮기는 중' : '드라이브에 올리는 중'} · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}</span>
-          {pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">{pct}%</span>}
+          {pct !== null && <span className="ml-auto tabular-nums font-semibold shrink-0">{pct}%</span>}
         </p>
         {pct !== null && <UploadTrack pct={pct} />}
       </div>

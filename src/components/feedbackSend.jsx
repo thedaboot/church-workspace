@@ -37,6 +37,12 @@ import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 //   · 사파리 다시 그리기는 세 번까지(SAFARI_REDRAWS) — 라이브러리는 사파리에서 화면의 그림(img·CSS 그림)마다 한 번씩 0.1초 쉬고 화면 전체를
 //     다시 그린다(그림을 늦게 푸는 사파리 대비). 얼굴·아이콘이 수십 개인 화면은 그것만 몇 초였다(사용자 지적 2026-10-22 '엄청 오래 걸린다').
 //     맥락을 직접 만들어 SVG가 다 서고 그리기 직전(onCreateForeignObjectSvg)에 횟수를 깎는다.
+//   · 보이는 창 밖에 통째로 있는 요소는 베끼지 않는다(offscreen) — 라이브러리가 요소마다 계산된 스타일을 통째로 베껴서, 스크롤 아래 긴 목록·
+//     연결 지도 같은 큰 화면은 그 베끼기가 대부분이었다(사용자 지적 2026-10-22). 크기가 0인 요소는 안의 것이 밖으로 나올 수 있어 남긴다.
+const offscreen = (n, w, h) => {
+  const r = n.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && (r.bottom < 0 || r.right < 0 || r.top > h || r.left > w);
+};
 const SHOT_MAX = 2560;
 const SAFARI_REDRAWS = 3;
 async function captureViewport() {
@@ -51,7 +57,7 @@ async function captureViewport() {
     // body 사본에 브라우저 기본 여백(8px)이 되살아나 그림이 오른쪽 아래로 밀렸다(2026-10-18 시안 점검) — 뿌리에서 0으로 박는다
     style: { margin: '0' },
     backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff',
-    filter: (n) => !(n instanceof Element && n.hasAttribute('data-feedback-scrim')),
+    filter: (n) => !(n instanceof Element && (n.hasAttribute('data-feedback-scrim') || offscreen(n, w, h))),
     features: { restoreScrollPosition: true },
     // CORS 없는 카카오 프로필 사진은 썸네일 주소로 받는다(shareImage.corsImageUrl) — 그 밖은 false로 기본 길에 맡긴다
     fetchFn: async (url) => {

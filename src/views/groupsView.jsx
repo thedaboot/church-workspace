@@ -28,7 +28,7 @@ import { cancelledError } from '../services/transfer.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 import { Segmented } from '../components/segmented.jsx';
-import { prepareReportForm, markGenerated, canCheckSupport, isGenerated, receiptFile, readReportDraft, importReportForm, formOf } from '../services/clubReport.js';
+import { prepareReportForm, markGenerated, canCheckSupport, isGenerated, receiptFile, readReportDraft, importReportForm, formOf, reportFileName } from '../services/clubReport.js';
 import { ClubReportBoard } from '../components/clubReportBoard.jsx';
 import { ClipboardList, ChevronRight, QrCode } from 'lucide-react';
 import { WelcomeBoard } from '../components/welcomeBoard.jsx';
@@ -551,10 +551,22 @@ export function GroupsView() {
       // 용량 초과는 여기서 걸러 낸다 — 상한은 config.js 한 곳이고 첨부·주보 파일과 같은 값이다
       picked.filter(f => f.size > MAX_UPLOAD_BYTES)
         .forEach(f => showToast(`'${f.name}'은(는) ${MAX_UPLOAD_MB}MB를 넘어 첨부하지 못했어요.`));
-      const ok = picked.filter(f => f.size <= MAX_UPLOAD_BYTES);
-      if (!ok.length) return;
+      const fits = picked.filter(f => f.size <= MAX_UPLOAD_BYTES);
+      if (!fits.length) return;
+      // 이름은 우리 이름으로 — '<동아리> 활동보고서(M월 D일).<확장자>'(작성 화면 엑셀과 같은 꼴 · 드라이브와 칸 모두 · 사용자 요청 2026-10-22) ·
+      // 이 모임에 같은 이름이 있으면 뒤에 ' 2'·' 3'(영수증 낱장과 같은 번호 꼴)
+      const used = new Set((meeting.files || []).map(f => String(f.name || '').normalize('NFC')));
+      const base = reportFileName(club, meeting).replace(/\.xlsx$/, '');
+      const ok = fits.map(f => {
+        const ext = (/\.([A-Za-z0-9]+)$/.exec(f.name) || [])[1]?.toLowerCase() || 'xlsx';
+        let name = `${base}.${ext}`;
+        for (let n = 2; used.has(name); n += 1) name = `${base} ${n}.${ext}`;
+        used.add(name);
+        return new File([f], name, { type: f.type, lastModified: f.lastModified });
+      });
       // 보고서 양식 엑셀이면 작성 화면을 그 내용으로 채운다(사용자 요청 2026-10-22) — 작성 내용이 없는 모임만 · 첫 엑셀 하나.
-      // 읽기는 올리기와 같이 시작하고, 행이 서면 제출 완료로 적는다. 영수증은 작성 화면 저장과 같은 길로 드라이브에도.
+      // 내용은 읽자마자(영수증 선택 뒤) 바로 둔다 — 드라이브 올리기(수 초)를 기다렸다 두면 그 사이 연 작성 화면이 빈 채였다(사용자 지적 2026-10-22).
+      // 엑셀 파일은 올라간 뒤에 이 보고서의 파일로 적는다(file_id). 영수증은 작성 화면 저장과 같은 길로 드라이브에도.
       const xlsx = !formOf(meeting)?.saved_at && ok.find(f => /\.xlsx$/i.test(f.name));
       const reading = xlsx ? readReportDraft(xlsx).catch(e => { console.warn('[groups] 보고서 엑셀을 읽지 못했다:', e); return null; }) : null;
       const uploading = sendReports(club, meeting, ok.map(stagedRow));
@@ -568,22 +580,26 @@ export function GroupsView() {
           setPicking(null);
           draft = { ...draft, photos: draft.photos.filter(p => !ids.has(p.id)), receipts: draft.photos.filter(p => ids.has(p.id)) };
         }
-        // 이름은 NFC로 맞춰 비교한다 — 올리는 길(cloud/drive.js)이 NFC로 바꿔 적는데 아이폰·맥 파일 이름은 NFD라, 그대로 비교하면
-        // 운영에서만 못 찾고 조용히 끝났다(사용자 지적 2026-10-22 — 게스트는 이름을 안 바꿔 통과했다)
-        const want = xlsx.name.normalize('NFC');
-        const row = (await uploading)?.find(r => String(r?.name || '').normalize('NFC') === want);
-        if (!row) { console.warn('[groups] 올린 보고서 엑셀 행을 찾지 못해 작성 화면을 채우지 않았다:', want); return; }
+        let form;
         try {
-          const named = { ...draft, receipts: nameReceipts(club?.name, meeting, draft.receipts) };
-          const form = await importReportForm(meeting, named, row.id);
-          patchMeeting(meeting.id, m => ({ ...m, report_form: form, files: (m.files || []).map(f => (f.id === row.id ? { ...f, generated: true } : f)) }));
+          form = await importReportForm(meeting, { ...draft, receipts: nameReceipts(club?.name, meeting, draft.receipts) });
+          patchMeeting(meeting.id, m => ({ ...m, report_form: { ...form, file_id: m.report_form?.file_id || null } }));
           showToast('엑셀 안에 있는 내용을 불러왔어요');   // 사용자 문구 2026-10-22
           const slips = (await Promise.all(form.receipts.map(r => receiptFile(r).catch(() => null)))).filter(Boolean);
           if (slips.length) sendReports(club, meeting, slips.map(stagedRow));
         } catch (e) {
           console.error('[groups] 올린 엑셀로 보고서를 채우지 못했다:', e);
           showToast(failText('보고서를 저장하지 못했어요', e));
+          return;
         }
+        // 이름은 NFC로 맞춰 비교한다 — 올리는 길(cloud/drive.js)이 NFC로 바꿔 적는데 아이폰·맥 파일 이름은 NFD라, 그대로 비교하면
+        // 운영에서만 못 찾고 조용히 끝났다(사용자 지적 2026-10-22 — 게스트는 이름을 안 바꿔 통과했다)
+        const want = xlsx.name.normalize('NFC');
+        const row = (await uploading)?.find(r => String(r?.name || '').normalize('NFC') === want);
+        if (!row) { console.warn('[groups] 올린 보고서 엑셀 행을 찾지 못해 파일로 적지 않았다:', want); return; }
+        try { await markGenerated(meeting.id, row.id); } catch (e) { console.error('[groups] 올린 엑셀을 보고서 파일로 적지 못했다:', e); return; }
+        patchMeeting(meeting.id, m => ({ ...m, report_form: m.report_form ? { ...m.report_form, file_id: row.id } : m.report_form,
+          files: (m.files || []).map(f => (f.id === row.id ? { ...f, generated: true } : f)) }));
       })();
     },
     // '다시 시도' — 못 올린 줄을 같은 자리에서 다시 '올리는 중'으로 돌려 같은 길로 보낸다
