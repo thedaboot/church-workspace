@@ -3421,6 +3421,50 @@ await send('Emulation.clearDeviceMetricsOverride');
   logs.push(...mineLogs);
 }
 
+// ── 보고서 작성 화면 — 칸이 쓰는 만큼 늘어난다(사용자 요청 2026-10-22) ──────────────────────────
+// 처음 줄 수(활동 내용 5 · 나머지 3) · 긴 글이면 칸 안 스크롤 없이 칸이 늘고 시트 본문이 스크롤된다 · 버튼 줄은 늘 보인다 · 폰·데스크톱
+// 되돌리기: GrowText를 그냥 textarea로 되돌리면 '칸 안 스크롤 없음'이, ResizeObserver를 빼면 '폭이 바뀌면 다시 잰다'가 깨진다.
+{
+  const poll = async (expr, to = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < to) { if (await ev(expr)) return true; await sleep(120); } return false; };
+  const RD = dayShift(KST_TODAY, -9);
+  await enter({ personId: 'p6', isMaster: false, isAdmin: false, roles: [] }, 'light',
+    `g.group_meetings.push({ id: 'gw1', group_id: 'gc1', meeting_date: '${RD}', title: '칸 늘이기', attendance: [], note: null });`);
+  await tab('동아리'); await sleep(600);
+  await openClub('통통');
+  const openForm = async () => {
+    await poll(`!![...document.querySelectorAll('.club-meeting')].find(m => m.innerText.includes('칸 늘이기'))?.querySelector('[data-report-write]')`);
+    await ev(`[...document.querySelectorAll('.club-meeting')].find(m => m.innerText.includes('칸 늘이기')).querySelector('[data-report-write]').click()`);
+    return poll(`!!document.querySelector('[data-report-form] [data-report-field=activity]')`);
+  };
+  const LONG = Array.from({ length: 14 }, (_, i) => `${i + 1}번째 줄 — 보드게임을 함께 하며 서로를 알아 가는 시간`).join('\n');
+  const measure = () => ev(`(() => { const f = document.querySelector('[data-report-form]'); const lh = (el) => parseFloat(getComputedStyle(el).lineHeight);
+    const one = (k) => { const el = f.querySelector('[data-report-field=' + k + ']'); return { h: el.offsetHeight, inner: el.scrollHeight - el.clientHeight, lines: Math.round((el.clientHeight - parseFloat(getComputedStyle(el).paddingTop) - parseFloat(getComputedStyle(el).paddingBottom)) / lh(el)) }; };
+    const body = f.querySelector('.overflow-y-auto'); const save = f.querySelector('[data-report-save]').getBoundingClientRect();
+    return { a: one('activity'), p: one('plan'), u: one('usage'), bodyScroll: body.scrollHeight > body.clientHeight, saveIn: save.bottom <= innerHeight && save.top >= 0,
+      dialog: Math.round(f.getBoundingClientRect().height), vh: innerHeight, hscroll: document.documentElement.scrollWidth > innerWidth }; })()`);
+  for (const [label, metrics] of [['데스크톱 1440', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }], ['폰 375', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true }]]) {
+    await send('Emulation.setDeviceMetricsOverride', metrics); await sleep(400);
+    const opened = await openForm(); await sleep(500);
+    const m0 = await measure();
+    check(`${label} — 보고서 작성 칸 처음 줄 수(활동 내용 5 · 나머지 3)`, opened && m0.a.lines === 5 && m0.p.lines === 3 && m0.u.lines === 3, JSON.stringify(m0));
+    await ev(`document.querySelector('[data-report-field=plan]').focus(); true`);
+    await ev(`(() => { const el = document.querySelector('[data-report-field=plan]'); const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      set.call(el, ${JSON.stringify(LONG)}); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    await sleep(300);
+    const m1 = await measure();
+    check(`${label} — 긴 글이면 칸이 늘고 칸 안 스크롤이 없다 · 본문이 스크롤되고 버튼 줄은 화면 안 · 가로 넘침 없음`,
+      m1.p.h > m0.p.h * 2 && m1.p.inner <= 1 && m1.bodyScroll && m1.saveIn && m1.dialog <= m1.vh && !m1.hscroll, JSON.stringify(m1));
+    // 폭이 바뀌면 다시 잰다(폰 회전 · 창 크기) — 좁아지면 줄이 더 꺾여 칸이 더 높아져야 한다
+    if (label.startsWith('폰')) {
+      await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 780, deviceScaleFactor: 2, mobile: true }); await sleep(400);
+      const m2 = await measure();
+      check('폰 320 — 폭이 바뀌면 다시 잰다(칸 안 스크롤 없음)', m2.p.inner <= 1 && !m2.hscroll, JSON.stringify(m2.p));
+    }
+    await ev(`document.querySelector('[data-report-form] [aria-label="닫기"]').click(); true`); await sleep(600);
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }); await sleep(300);
+}
+
 // ── 순모임 가이드 다시 만들기 중(시안 B6 · 사용자 승인 2026-10-15) ─────────────────────────
 // 다시 만드는 동안 종이(편집 중이면 편집 칸)를 걷지 않고 .45로 흐리게 두고, 다붓이 얼굴 + 점 셋(글자 없음)이
 // 보이는 영역(main ∩ 하단 탭바 위)에 든 종이 부분의 세로 가운데에 선다 · 스크롤하면 따라간다 · 편집 중에는 520px 뼈대가

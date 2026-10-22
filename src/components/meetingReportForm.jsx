@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ImagePlus, Loader2, CheckCircle2 } from 'lucide-react';
 import { useLeave } from '../hooks/useExit.js';
@@ -20,11 +20,35 @@ import { amountText } from '../services/xlsxWrite.js';
 // 사진은 고르는 즉시 줄인다(긴 변 1280px jpeg · services/clubReport.photoOf).
 // ============================================================================
 
+// 칸은 쓰는 만큼 늘어난다(사용자 요청 2026-10-22 — 칸 안 스크롤이 좁아 쓰기도 읽기도 힘들었다) · 숫자는 처음 줄 수
 const TEXTS = [
-  ['activity', '활동 내용', 4],
-  ['plan', '차기 활동계획', 2],
-  ['usage', '지원비 사용내용', 2],
+  ['activity', '활동 내용', 5],
+  ['plan', '차기 활동계획', 3],
+  ['usage', '지원비 사용내용', 3],
 ];
+// 글 높이에 맞춰 늘어나는 칸 — 칸 안 스크롤 없이 시트 본문이 한 번에 스크롤된다. 폭이 바뀌면(회전·창 크기) 다시 잰다.
+// shortcut: CSS field-sizing: content가 iOS 26 아래에 없어 JS로 잰다, 지원이 넓어지면 그 한 줄로 바꾼다
+function GrowText({ value, rows, ...rest }) {
+  const ref = useRef(null);
+  const fit = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, []);
+  useLayoutEffect(() => {
+    fit();
+    // 끝에 쓰는 중이면 늘어난 아랫줄을 본문 스크롤이 따라간다(폰 키보드 위로 글자가 숨지 않게)
+    const el = ref.current;
+    if (el && document.activeElement === el && el.selectionEnd === el.value.length) el.scrollIntoView({ block: 'nearest' });
+  }, [value, fit]);
+  useEffect(() => {
+    const ro = new ResizeObserver(fit);
+    if (ref.current) ro.observe(ref.current.parentElement);
+    return () => ro.disconnect();
+  }, [fit]);
+  return <textarea ref={ref} value={value} rows={rows} {...rest} />;
+}
 const shortDay = (d) => { const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(d || '')); return m ? `${+m[1]}월 ${+m[2]}일` : ''; };
 
 function PhotoGroup({ label, list, onAdd, onDrop, busy }) {
@@ -150,8 +174,8 @@ export function MeetingReportForm({ club, meeting, people = [], onSave, onClose 
           {TEXTS.map(([k, label, rows]) => (
             <label key={k} className="block mt-3">
               <span className="block mb-1 text-[12px] font-bold text-fg-muted">{label}</span>
-              <textarea value={draft[k]} onChange={setText(k)} rows={rows} data-report-field={k}
-                className={`${FIELD} w-full resize-none leading-relaxed py-2`} />
+              <GrowText value={draft[k]} onChange={setText(k)} rows={rows} data-report-field={k}
+                className={`${FIELD} w-full resize-none overflow-hidden leading-relaxed py-2`} />
             </label>
           ))}
           <label className="block mt-3">
