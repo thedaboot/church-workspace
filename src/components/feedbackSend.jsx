@@ -241,7 +241,7 @@ export function FeedbackSend({ onClose }) {
             ) : manual ? (
               <button type="button" onClick={() => pickRef.current?.click()} data-feedback-pick=""
                 className="w-16 h-20 shrink-0 rounded-xs border border-dashed border-line text-fg-muted hover:bg-surface-hover flex flex-col items-center justify-center gap-1 text-[10.5px] font-semibold transition active:scale-95">
-                <ImagePlus size={16} /><span>스크린샷 추가</span>
+                <ImagePlus size={16} /><span>사진 추가</span>
               </button>
             ) : null}
             {manual && <input ref={pickRef} type="file" accept="image/*" className="hidden" tabIndex={-1} aria-hidden="true"
