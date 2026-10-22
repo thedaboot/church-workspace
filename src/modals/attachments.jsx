@@ -461,7 +461,7 @@ const AttachmentRow = ({ row, meta, canDelete, thumb, thumbFailed, onOpen, onRem
   const openTitle = locked ? '비밀번호를 넣어야 열려요' : '미리보기';
   // 바이트 진행 — 보내는 중이면 퍼센트, 다 보냈으면 가득 찬 막대만('드라이브로 옮기는 중')
   const moving = pending && row._phase === 'move';
-  const pct = moving ? 100 : (pending && Number.isFinite(row._pct) ? row._pct : null);
+  const pct = pending && Number.isFinite(row._pct) ? row._pct : null;   // 두 구간 합친 값(uploadQueue moveTicker)
   const label = (
     <>
       {!isImage && <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>}

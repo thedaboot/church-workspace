@@ -19,7 +19,7 @@
 // ============================================================================
 
 export const BTN = 'px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
-// 같은 크기의 **연한 accent** — 들어가기·가져오기처럼 확정이 아닌 버튼(주보 편집 진입 · 모임 보고서의 '지난 보고서 가져오기').
+// 같은 크기의 **연한 accent** — 들어가기·가져오기처럼 확정이 아닌 버튼(주보 편집 진입 · 모임 보고서의 '파일 올리기').
 // 예배 화면에만 있던 것을 모임 보고서(0093)가 같이 쓰게 되어 여기로 옮겼다(worshipParts가 다시 내보낸다 —
 // 그 파일을 import하면 성경 부품까지 모임 화면에 딸려 온다).
 export const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';

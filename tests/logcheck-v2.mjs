@@ -877,28 +877,12 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     { service_id: 's2', body: '   ' },                                  // 게스트 행 — 빈 노트는 세지 않는다
   ]), { s1: 2, s2: 1 }, '주보별로 센다(전 기간 합계가 아니다)');
 
-  // ⑥ 모임 활동 보고서(0093 · 20차 묶음 ④) — 이름 · 가져올 지난 보고서 고르기 · 저장 모양
-  // 되돌리기 검사: lastReportOf의 `before || after`를 `after || before`로 바꾸면 ⑥-b가, MEETING_COLS에서
+  // ⑥ 모임 활동 보고서(0093 · 20차 묶음 ④) — 저장 모양('지난 보고서 가져오기'·보고서 이름은 2026-10-22에 뺐다 · 사용자 결정)
+  // 되돌리기 검사: MEETING_COLS에서
   // drive_folder_id를 빼면 ⑥-d가, fetchMeetings의 `files(${MEETING_FILE_COLS})`를 빼면 ⑥-d가 깨진다.
-  assert.strictEqual(G.reportName('통통', '2026-09-21'), '통통 활동보고서(9월).xlsx', '⑥-a 사용자 문구 그대로(모임 날짜의 달)');
-  assert.strictEqual(G.reportName('더다붓 러닝', '2026-10-05', 'pdf'), '더다붓 러닝 활동보고서(10월).pdf', '⑥-a 확장자는 가져온 것');
-  assert.strictEqual(G.reportName('', 'bad'), '동아리 활동보고서.xlsx', '⑥-a 이름·날짜가 없어도 깨지지 않는다');
-  const D = (id) => ({ id: `f${id}`, source: 'drive', drive_file_id: `d${id}`, created_at: `2026-10-0${id}T00:00:00Z` });
-  const ms = [
-    { id: 'm1', meeting_date: '2026-09-07', files: [D(1)] },
-    { id: 'm2', meeting_date: '2026-09-21', files: [D(2), D(3)] },             // 한 모임에 둘 — 나중 것
-    { id: 'm3', meeting_date: '2026-10-05', files: [] },                        // 이 모임
-    { id: 'm4', meeting_date: '2026-10-19', files: [D(4)] },
-    { id: 'm5', meeting_date: '2026-09-28', files: [{ id: 'fx', source: 'storage', storage_path: 'x' }] },   // 드라이브 실체가 없다 — 못 가져온다
-  ];
-  const pickOf = (mid) => { const r = G.lastReportOf(ms, ms.find(m => m.id === mid)); return r && [r.meeting.id, r.file.id]; };
-  assert.deepStrictEqual(pickOf('m3'), ['m2', 'f3'], '⑥-b 앞의 가장 가까운 모임 · 그 안에서 마지막에 올린 것(드라이브 실체 없는 m5는 건너뛴다)');
-  assert.strictEqual(G.lastReportOf([ms[2], ms[3]], ms[2])?.meeting.id, 'm4', '⑥-b 앞에 없으면 뒤에서 가장 이른 것(지난 모임을 늦게 채우는 경우)');
-  assert.strictEqual(G.lastReportOf([ms[2], ms[4]], ms[2]), null, '⑥-b 가져올 것이 없으면 null — 버튼이 서지 않는다');
-  assert.strictEqual(G.lastReportOf(ms, ms[0])?.meeting.id, 'm2', '⑥-b 자기 모임의 파일은 고르지 않는다');
-  // ⑥-e 영수증 낱장(2026-10-22) — 이름 · 번호 · 올릴 것/지울 것 · 지난 보고서로 고르지 않는다
+  // ⑥-e 영수증 낱장(2026-10-22) — 이름 · 번호 · 올릴 것/지울 것
   // 되돌리기: nameReceipts의 Math.max를 receipts.length로 바꾸면 '뺀 번호를 다시 쓰지 않는다'가, receiptPlan의 had 거르기를 빼면
-  // '보고서 엑셀은 지우지 않는다'가, lastReportOf의 skip을 빼면 '영수증은 보고서가 아니다'가 깨진다.
+  // '보고서 엑셀은 지우지 않는다'가 깨진다.
   assert.strictEqual(G.receiptName('서부버튼', '2026-09-12', 1), '서부버튼 영수증(9월 12일) 1.jpg', '⑥-e 사용자 승인 이름');
   const rm = { meeting_date: '2026-09-12', report_form: { receipts: [{ id: 'a', drive_name: '서부버튼 영수증(9월 12일) 1.jpg' }, { id: 'b', drive_name: '서부버튼 영수증(9월 12일) 2.jpg' }] },
     files: [{ id: 'x', name: '서부버튼 활동보고서(9월 12일).xlsx' }, { id: 'r1', name: '서부버튼 영수증(9월 12일) 1.jpg' }, { id: 'r2', name: '서부버튼 영수증(9월 12일) 2.jpg' }] };
@@ -907,9 +891,6 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   const plan = G.receiptPlan(rm, named);
   assert.deepStrictEqual([plan.send.map(r => r.id), plan.drop.map(f => f.id)], [['c'], ['r2']], '⑥-e 새 것만 올리고 뺀 것만 지운다(보고서 엑셀은 지우지 않는다)');
   assert.deepStrictEqual(G.receiptPlan({ ...rm, files: rm.files.slice(0, 2) }, rm.report_form.receipts).send.map(r => r.id), ['b'], '⑥-e 행이 없는 영수증(못 올림·칸에서 지움)은 다시 올린다');
-  const lr = G.lastReportOf([{ ...rm, id: 'old', files: rm.files.map((f, i) => ({ ...f, source: 'drive', drive_file_id: `d${i}`, created_at: `2026-09-1${i}` })) }, { id: 'now', meeting_date: '2026-10-01', files: [] }], { id: 'now', meeting_date: '2026-10-01' });
-  assert.strictEqual(lr?.file.id, 'x', '⑥-e 영수증은 보고서가 아니다(나중에 올렸어도 엑셀을 고른다)');
-  assert.ok(G.reportUsable({ _file: {} }) &&!G.reportUsable({ source: 'drive' }) && !G.reportUsable(null), '⑥-c 게스트는 쥔 바이트, 클라우드는 드라이브 id');
   assert.strictEqual(G.meetingQueueKey('m9'), 'meeting:m9', '⑥-c 업로드 큐 열쇠');
   // ⑥-e 보고서 이름의 가운데 말줄임(2026-10-14 반응형 점검) — 꼬리는 확장자 앞 다섯 글자 + 확장자다. 끝을 자르면
   // 작은 폰에서 `(10월).xlsx`가 통째로 사라졌다. 되돌리기 확인: keep을 0으로 바꾸면 첫 줄이 깨진다.

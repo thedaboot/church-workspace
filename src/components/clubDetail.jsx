@@ -7,7 +7,7 @@ import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON, EXIT, useClosing, NEW_H, DATE_TRIGGER, PEOPLE_GRID,
   PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark, FailTail,
 } from './groupsParts.jsx';
-import { groupPeople, canManageClub, canMeetClub, canEditClub, notInGroup, lastReportOf } from '../services/groups.js';
+import { groupPeople, canManageClub, canMeetClub, canEditClub, notInGroup } from '../services/groups.js';
 import { MeetingReport } from './meetingReport.jsx';
 import { formatServiceDate } from '../services/worship.js';
 import { imeComposing } from '../utils.js';
@@ -308,9 +308,8 @@ export function ClubDetail({
                         report={report && (
                           // 활동 보고서는 **지난 모임에만**(시안 4-C) — 가져올 지난 보고서는 이 모임에 보고서가 없을 때만 찾는다
                           <MeetingReport meeting={m} manage={meet} people={people}
-                            prev={meet && !(m.files || []).length ? lastReportOf(meetings, m) : null}
                             onPick={files => report.onPick(club, m, files)} onRetry={id => report.onRetry(club, m, id)}
-                            onRemove={row => report.onRemove(m, row)} onCopyLast={prev => report.onCopyLast(club, m, prev)}
+                            onRemove={row => report.onRemove(m, row)}
                             onGrantEdit={report.onGrantEdit} club={club}
                             onSaveForm={report.onSaveForm ? (draft, opt) => report.onSaveForm(club, m, draft, opt) : null} />
                         )} />

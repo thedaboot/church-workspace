@@ -57,6 +57,9 @@
   칸 넷(A열 이름으로 찾는다 — 손으로 쓴 양식은 행이 밀린다)과 그림을 읽어 **제출 완료**로 두고 그 엑셀을 보고서 파일로 적는다(file_id · 서부버튼 9/12를 손으로 옮긴 모양 그대로 ·
   다음 저장 때 작성 화면 엑셀로 갈아 끼운다). 그림은 우리 엑셀이면 '지원비 영수증' 줄 아래가 영수증, 손으로 만든 엑셀이면 올리는 동안 **'영수증 선택' 시트**(사용자 승인 시안 A-1 https://claude.ai/artifact/NpWPWALx6YkXthD8dkSkY5 · `components/receiptPicker.jsx` — 고른 것 영수증 · 나머지·건너뛰기는 활동 사진).
   영수증은 드라이브 낱장으로도. 문구(사용자 확정 2026-10-22): 토스트 `엑셀 안에 있는 내용을 불러왔어요` · 시트 `영수증 선택` / `엑셀에서 사진 N장을 발견했어요.`(줄바꿈)`이 중에서 영수증으로 등록할 사진을 골라주세요.` · `건너뛰기` · `영수증 N장 선택 완료`(0장이면 `선택 완료`). `xlsxWrite.readClubReport` · `clubReport.readReportDraft/importReportForm` · `groupsView report.onPick` · tests/logcheck-v2 '연말 정산'.
+  **운영에서 채우기가 안 되던 것(사용자 지적 2026-10-22)**: 올린 행을 이름으로 찾는데 올리는 길이 이름을 NFC로 바꾼다(아이폰·맥은 NFD) — NFC로 맞춰 비교 · 못 찾으면 콘솔 경고.
+  **진행 막대 두 구간(사용자 결정 2026-10-22)**: 앞 30% = 서버까지 실제 바이트 · 뒤 = 드라이브 구간 어림(≈300KB/s + 3초 · 95%에서 기다림) — `modals/uploadQueue` sendPct·moveTicker · 업무 첨부·활동 보고서·송폼·큐시트 한 벌.
+  '지난 보고서 가져오기'는 뺐다(§7).
   작성 화면 사진·영수증은 받는 동안 스켈레톤(SmartImage) · 보고서 현황 폰 줄은 오른쪽 [상태 칩 / 지급] 두 줄 · 왼쪽 글 묶음은 그 가운데· 지급하면 폰 버튼 글자가 '지급한 사람 · 날'(시안 B-2 · 줄 높이 그대로).
   ① **행사 갈래 구성안부터**(신청 폼·공개 페이지·일정 맞추기·사진첩) — 코드보다 구성안을 먼저 사용자에게 보이고, 시안은 **실제 화면에서**(게스트 빌드 미리보기 브랜치 · v5 3묶음 줄의 방식).
   ② 사용자 확인 대기: 웰컴팀·리더 계정 폰으로 새가족 QR 정보 전송 → 종 알림·푸시 → 눌러서 카드 창. 사용자가 "시험 정보 지워줘"라고 하면 운영 DB에서 그 카드·알림만 골라 **대상을 보여 준 뒤** 지운다.
@@ -445,7 +448,7 @@ src/components/worshipAttendance.jsx (v2) 출석 체크 — 순별 칩·손님 �
 src/components/groupsSun.jsx  (v2) 내 순 · 순 편성
 src/components/groupsClub.jsx (v2) 동아리 목록·dnd 순서·방향 감싸개(§6-9-bi)
 src/components/clubDetail.jsx (v2) 동아리 상세 — 구성원·추가·신청·모임·출석·QR(lazy)
-src/components/meetingReport.jsx (v2) 지난 모임의 활동 보고서 칸(0093) — 파일 줄·편집 사본·지우기·파일 올리기·지난 보고서 가져오기 · 큐는 uploadQueue(`meeting:<id>`) · 통신은 groupsView · 상태 칩·'보고서 작성'(0117)
+src/components/meetingReport.jsx (v2) 지난 모임의 활동 보고서 칸(0093) — 파일 줄·편집 사본·지우기·파일 올리기(보고서 엑셀이면 작성 화면 채우기 · 영수증 선택 receiptPicker) · 큐는 uploadQueue(`meeting:<id>`) · 통신은 groupsView · 상태 칩·'보고서 작성'(0117)
 src/components/meetingReportForm.jsx 동아리 활동 보고서 작성 화면(0117 · 원본은 이 화면 — 저장할 때마다 양식 그대로 엑셀을 새로 만들어 보고서 칸을 덮는다)
 src/components/clubReportBoard.jsx 모임 > 동아리 '보고서 현황'(0117 · 마스터·총무 · 상태 셋 · 지급할 지원금 · 모임마다 지급 체크)
 src/components/groupsParts.jsx (v2) 모임 공용 — CARD/BTN/FIELD·NEW_H·DATE_TRIGGER·CARD_STYLE(예배·동아리 만들기가 같이 쓴다) · PersonPick·MenuPick(§6-9-an·33-a) · useSettled(§6-9-ad) · 읽기 실패 자리 FailTail·FailLeft(D2 · §6-24-g)
@@ -644,6 +647,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 | 항목 | 이유 |
 |---|---|
 | 주간 브리핑(AI) | 품질 검증을 먼저 하기로 |
+| 동아리 보고서 '지난 보고서 가져오기' | 2026-10-22 뺐다 — 작성 화면·엑셀 올리기로 충분, 가져오면 그날 내용·참석자가 따라와 고쳐야 했다 |
 | 순(조직) 정보 | 2026-09-01 v2로 대체 — 살아 있는 부분은 **순별 업무 보드는 만들지 않는다** 하나 |
 | 카카오 알림톡·친구톡 | 템플릿 사전 심사·발송 대행사가 필요하고 심사 문구에 갇혀 §8의 톤을 못 쓴다. 웹 푸시로 해결 |
 | 반복 업무 | 지금은 아니라고 정했다 |

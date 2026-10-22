@@ -17,7 +17,7 @@ import {
   createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
   applyToClub, cancelApplication, acceptApplication, declineApplication,
   createMeeting, saveMeetingAttendance, deleteMeeting, setNoteShared,
-  meetingQueueKey, ensureMeetingDriveFolder, uploadMeetingReport, lastReportFile, removeMeetingReport, grantReportEditors,
+  meetingQueueKey, ensureMeetingDriveFolder, uploadMeetingReport, removeMeetingReport, grantReportEditors,
   notifyClubApply, notifyClubAccepted, notifyMeetingNew,
   groupPerms, mySun, myGroupIds, groupPeople, latestSunday, attendanceSunday,
   toggleAttendance, yearOptions,
@@ -568,8 +568,11 @@ export function GroupsView() {
           setPicking(null);
           draft = { ...draft, photos: draft.photos.filter(p => !ids.has(p.id)), receipts: draft.photos.filter(p => ids.has(p.id)) };
         }
-        const row = (await uploading)?.find(r => r?.name === xlsx.name);
-        if (!row) return;
+        // 이름은 NFC로 맞춰 비교한다 — 올리는 길(cloud/drive.js)이 NFC로 바꿔 적는데 아이폰·맥 파일 이름은 NFD라, 그대로 비교하면
+        // 운영에서만 못 찾고 조용히 끝났다(사용자 지적 2026-10-22 — 게스트는 이름을 안 바꿔 통과했다)
+        const want = xlsx.name.normalize('NFC');
+        const row = (await uploading)?.find(r => String(r?.name || '').normalize('NFC') === want);
+        if (!row) { console.warn('[groups] 올린 보고서 엑셀 행을 찾지 못해 작성 화면을 채우지 않았다:', want); return; }
         try {
           const named = { ...draft, receipts: nameReceipts(club?.name, meeting, draft.receipts) };
           const form = await importReportForm(meeting, named, row.id);
@@ -598,20 +601,6 @@ export function GroupsView() {
         patchMeeting(meeting.id, m => ({ ...m, files: [...(m.files || []).filter(f => f.id !== row.id), row] }));
         showToast(failText(`'${row.name}'을(를) 지우지 못했어요`, e));
       }
-    },
-    // 지난 보고서의 편집 사본(최신 글)을 받아 이 모임에 올린다 — 사본이 설 때까지 기다리고(awaitCopy) 그 행을
-    // 돌려주면 칸이 곧바로 편집 화면을 연다(주보 '지난 큐시트로 바로 편집'과 같은 길)
-    onCopyLast: async (club, meeting, prev) => {
-      if (!prev) return null;
-      let file;
-      try { file = await lastReportFile(prev, club, meeting); }
-      catch (e) {
-        console.error('[groups] 지난 보고서 받기 실패:', e);
-        showToast(failText('지난 보고서를 가져오지 못했어요', e));
-        return null;
-      }
-      const done = await sendReports(club, meeting, [stagedRow(file)], { awaitCopy: true });
-      return done[0] || null;
     },
     onGrantEdit: (row) => grantReportEditors(row),
     // 작성 화면 저장·제출(사용자 승인 시안 mock/b4 · 0117) — 작성 내용을 두고 엑셀을 만든 뒤 창을 닫고,

@@ -60,6 +60,21 @@ const put = (cardId, rows) => {
   uploadingByCard.set(cardId, list);
   notifyUploads();
 };
+// 두 구간을 한 막대로(사용자 결정 2026-10-22 — 와이파이에서는 서버까지 1초도 안 걸려 막대가 바로 가득 찼다):
+//   앞 30% = 브라우저 → 우리 서버의 실제 바이트(sendPct) · 뒤 = 서버 → 드라이브(Apps Script)는 끝에만 응답이 와서 진행을 모른다 —
+//   파일 크기로 어림한 시간(≈300KB/s + 3초 · 10MB ≈ 35초 실측)만큼 95%까지 천천히 채우고 거기서 기다린다(moveTicker). 다 올라가면 줄이 파일 줄로 바뀐다.
+export const SEND_SHARE = 30;
+export const sendPct = (loaded, total) => (total > 0 ? Math.min(SEND_SHARE, Math.floor((loaded / total) * SEND_SHARE)) : null);
+export const moveEstimateMs = (bytes) => 3000 + (Number(bytes) || 0) / 300;
+export const movePct = (elapsed, bytes) => Math.min(95, SEND_SHARE + Math.floor((95 - SEND_SHARE) * Math.max(0, elapsed) / moveEstimateMs(bytes)));
+// 다 보낸 순간부터 0.5초마다 onPct(퍼센트) — 돌려준 함수로 멈춘다
+export function moveTicker(bytes, onPct) {
+  const t0 = Date.now();
+  onPct(SEND_SHARE);
+  const h = setInterval(() => onPct(movePct(Date.now() - t0, bytes)), 500);
+  return () => clearInterval(h);
+}
+
 export const stageUploads = (cardId, rows) => put(cardId, rows.map(r => ({ ...r, _failed: false, _pct: null, _phase: undefined, _cancel: false })));
 export const failUpload = (cardId, id) => {
   const row = (uploadingByCard.get(cardId) || []).find(p => p.id === id);
@@ -93,11 +108,15 @@ export async function runUploads({ cardId, rows, prepare, send, onError }) {
         if (cancelled.has(row.id)) { cancelled.delete(row.id); continue; }   // 차례가 오기 전에 멈춘 줄
         const ac = new AbortController();
         inflight.set(row.id, ac);
+        let stopTick = null;
         const ctl = {
           signal: ac.signal,
           isCancelled: () => cancelled.has(row.id),
-          onProgress: (loaded, total) => setUploadProgress(cardId, row.id, { pct: total > 0 ? Math.min(100, Math.floor((loaded / total) * 100)) : null, phase: 'send' }),
-          onSent: () => setUploadProgress(cardId, row.id, { phase: 'move' }),
+          onProgress: (loaded, total) => setUploadProgress(cardId, row.id, { pct: sendPct(loaded, total), phase: 'send' }),
+          onSent: () => {
+            setUploadProgress(cardId, row.id, { phase: 'move' });
+            stopTick = moveTicker(row._file?.size, pct => setUploadProgress(cardId, row.id, { pct }));
+          },
         };
         try {
           const out = await send(row._file, ctx, ctl);
@@ -108,6 +127,7 @@ export async function runUploads({ cardId, rows, prepare, send, onError }) {
           if (e?.cancelled || cancelled.has(row.id)) unstageUpload(cardId, row.id);   // 멈춘 줄 — 알리지도 남기지도 않는다
           else { onError?.(row._file, e); failUpload(cardId, row.id); }
         } finally {
+          stopTick?.();
           inflight.delete(row.id);
           cancelled.delete(row.id);
         }

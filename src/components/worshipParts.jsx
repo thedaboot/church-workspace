@@ -192,7 +192,7 @@ export function ServiceFileRow({ row, cls = 'worship-songform', what = '송폼',
   const kind = fileKind(row.name, row.mime_type);
   // 바이트 진행 — 업무 첨부 줄과 같다(보내는 중 퍼센트 · 다 보낸 뒤 가득 찬 막대 '드라이브로 옮기는 중')
   const moving = pending && row._phase === 'move';
-  const pct = moving ? 100 : (pending && Number.isFinite(row._pct) ? row._pct : null);
+  const pct = pending && Number.isFinite(row._pct) ? row._pct : null;   // 두 구간 합친 값(uploadQueue moveTicker)
   return (
     <li className={`${cls}-row flex items-center gap-2.5 py-2.5`} style={line ? ROW_LINE : undefined}>
       <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>

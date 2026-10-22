@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { sendPct, moveTicker } from '../modals/uploadQueue.js';
 import { Plus, PencilLine, NotebookPen } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
@@ -826,7 +827,7 @@ export function WorshipView({ onOpenBible } = {}) {
         isCancelled: () => stopped,
         stop: (id) => { stopped = true; ac.abort(); setFiles(prev => prev.filter(x => x.id !== id)); },
         progress: (id) => (loaded, total) => {
-          const pct = total > 0 ? Math.min(100, Math.floor((loaded / total) * 100)) : null;
+          const pct = sendPct(loaded, total);
           if (pct !== last) { last = pct; patchRow(id, x => ({ ...x, _pct: pct })); }
         },
       };
@@ -844,8 +845,12 @@ export function WorshipView({ onOpenBible } = {}) {
       const stagedId = staged[i].id;
       const n = nets[i];
       if (n.isCancelled()) continue;   // 차례가 오기 전에 멈춘 줄
+      let stopTick = null;
       const net = { signal: n.signal, isCancelled: n.isCancelled, onProgress: n.progress(stagedId),
-        onSent: () => patchRow(stagedId, x => ({ ...x, _phase: 'move' })) };
+        onSent: () => {
+          patchRow(stagedId, x => ({ ...x, _phase: 'move' }));
+          stopTick = moveTicker(ok[i].size, pct => patchRow(stagedId, x => ({ ...x, _pct: pct })));
+        } };
       await attempt('주보 파일 올리기', `'${ok[i].name}'을(를) 올리지 못했어요`, { 42501: NEED_EDIT_FILE }, async () => {
         let row;
         try { row = await sendServiceFile(ok[i], folderId, kind, { awaitCopy, net }); }
@@ -855,6 +860,7 @@ export function WorshipView({ onOpenBible } = {}) {
         setFiles(prev => prev.map(x => (x.id === stagedId ? row : x)));
         done.push(row);
       }, { undo: () => setFiles(prev => prev.filter(x => x.id !== stagedId)) });
+      stopTick?.();
     }
     invalidate();
     return done;

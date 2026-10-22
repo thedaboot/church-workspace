@@ -44,7 +44,7 @@ export const fileMeta = (row, nameOf = () => '') =>
   [formatBytes(row?.size_bytes), fileDay(row?.created_at), nameOf(row?.uploaded_by) || ''].filter(Boolean).join(' · ');
 
 // 올리는 중 줄의 막대(업무 첨부 · 활동 보고서 · 송폼·큐시트가 같이 쓴다 · 2px · 바탕 --p-track · 채움 accent · 폭은 .42s quint로 따라간다 · 2026-10-15 시안 C2).
-// 바이트 진행을 알기 전(사진 줄이기·폴더 확보 중)에는 막대도 퍼센트도 없다 · 다 보낸 뒤('드라이브로 옮기는 중')는 가득 찬 채 퍼센트만 걷힌다.
+// 바이트 진행을 알기 전(사진 줄이기·폴더 확보 중)에는 막대도 퍼센트도 없다 · 다 보낸 뒤('드라이브로 옮기는 중')는 퍼센트 글자만 걷히고 막대는 어림으로 계속 찬다(modals/uploadQueue moveTicker).
 export const UploadTrack = ({ pct }) => (
   <span role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} data-upload-track
     className="block rounded-full overflow-hidden" style={{ height: 2, marginTop: 5, background: 'var(--p-track)' }}>

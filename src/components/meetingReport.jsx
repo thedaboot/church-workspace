@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Paperclip, UploadCloud, FilePen, X, Loader2, AlertTriangle, PencilLine } from 'lucide-react';
+import { Paperclip, UploadCloud, X, Loader2, AlertTriangle, PencilLine } from 'lucide-react';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { formatBytes, fileKind, UploadTrack } from './fileRow.jsx';
 import { BTN, BTN_SOFT } from './buttons.js';
@@ -28,8 +28,8 @@ const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => (
 // 올리는 중(`드라이브에 올리는 중` — 주보 파일 줄과 같은 말)·못 올린 줄(빨간 줄 + 다시 시도)을 세운다.
 //
 //   manage(마스터·관리자·동아리장 = canManageClub · 0093 can_edit_meeting) — 파일 줄 + `편집` + 지우기 X ·
-//     `파일 올리기`(보고서가 없으면 진한 accent, 있으면 연한) · `지난 보고서 가져오기`(이 모임에 보고서가 없고
-//     이 동아리의 다른 모임에 있을 때만 — groups.lastReportOf)
+//     `파일 올리기`(보고서가 없으면 진한 accent, 있으면 연한) · '지난 보고서 가져오기'는 뺐다(사용자 결정 2026-10-22 —
+//     작성 화면과 엑셀 올리기로 충분하고, 가져오면 그날의 활동 내용·참석자가 따라와 어차피 고쳐야 했다)
 //   구성원 — 보고서가 있는 모임만 파일 줄(버튼·X 없음), 없으면 칸 자체가 없다
 // 줄을 누르면 미리보기, `편집`은 구글 편집 사본을 연다(큐시트처럼 — 데스크톱은 앱 안 창이 곧 편집 화면,
 // 폰은 창 머리줄의 '구글 시트에서 편집' · FilePreviewModal canEditCopy/inlineEdit).
@@ -44,7 +44,7 @@ const dayOf = (iso) => {
   return `${+m}월 ${+d}일`;
 };
 
-export function MeetingReport({ club = null, meeting, manage, people = [], prev = null, onPick, onRetry, onRemove, onCopyLast, onGrantEdit = null, onSaveForm = null }) {
+export function MeetingReport({ club = null, meeting, manage, people = [], onPick, onRetry, onRemove, onGrantEdit = null, onSaveForm = null }) {
   const key = meetingQueueKey(meeting.id);
   const [pending, setPending] = useState(() => [...(uploadingByCard.get(key) || [])]);
   // 큐는 모듈 레벨이다 — 동아리를 나갔다 와도(이 칸이 다시 마운트돼도) 올리는 중인 줄이 그대로 선다(§6-29-r)
@@ -55,7 +55,6 @@ export function MeetingReport({ club = null, meeting, manage, people = [], prev 
     return () => { uploadWatchers.delete(sync); };
   }, [key]);
   const [preview, setPreview] = useState(null);   // { row, edit }
-  const [copying, setCopying] = useState(false);
   const [writing, setWriting] = useState(false);   // 작성 화면(시안 mock/b4)
   const inputRef = useRef(null);
 
@@ -63,14 +62,6 @@ export function MeetingReport({ club = null, meeting, manage, people = [], prev 
   if (!manage && !files.length) return null;
   const has = files.length > 0 || pending.some(r => !r._cancel);
   const nameOf = (uid) => (uid && people.find(p => p.profile_id === uid)?.name) || '';
-  const copyLast = async () => {
-    if (copying) return;
-    setCopying(true);
-    try {
-      const row = await onCopyLast(prev);
-      if (row) setPreview({ row, edit: true });   // 사본이 서면 곧바로 편집 화면(주보 '지난 큐시트로 바로 편집'과 같은 길)
-    } finally { setCopying(false); }
-  };
 
   return (
     <div className="club-meet-report mt-3 pt-2.5 flex flex-col gap-1.5" style={{ borderTop: '1px solid var(--app-line)' }}>
@@ -87,12 +78,6 @@ export function MeetingReport({ club = null, meeting, manage, people = [], prev 
             {/* 칸 자체는 안 보인다 — 버튼이 대신 연다(주보 파일 줄과 같은 방식) */}
             <input ref={inputRef} type="file" multiple accept={REPORT_ACCEPT} className="hidden" tabIndex={-1} aria-hidden="true"
               onChange={e => { onPick(e.target.files); e.target.value = ''; }} />
-            {!has && prev && (
-              <button type="button" onClick={copyLast} disabled={copying} title={prev.file?.name || ''}
-                className={`club-meet-report-copy shrink-0 ${WITH_ICON} ${BTN_SOFT}`}>
-                {copying ? <Loader2 size={13} className="animate-spin" /> : <FilePen size={13} />}<span>지난 보고서 가져오기</span>
-              </button>
-            )}
             <button type="button" onClick={() => inputRef.current?.click()}
               className={`club-meet-report-add shrink-0 ${WITH_ICON} ${has || onSaveForm ? BTN_SOFT : BTN}`}>
               <UploadCloud size={13} /><span>파일 올리기</span>
@@ -188,7 +173,7 @@ function MiddleName({ name, className = '' }) {
 function ReportRow({ row, meta, pending = false, onOpen, children = null }) {
   const kind = fileKind(row.name, row.mime_type);
   const moving = pending && row._phase === 'move';
-  const pct = moving ? 100 : (pending && Number.isFinite(row._pct) ? row._pct : null);
+  const pct = pending && Number.isFinite(row._pct) ? row._pct : null;   // 두 구간 합친 값(uploadQueue moveTicker)
   return (
     <div className={`club-meet-report-row${pending ? ' club-meet-report-pending' : ''} flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-canvas min-w-0`}>
       <span className={`w-[26px] h-[26px] rounded-md flex items-center justify-center shrink-0 ${pending ? 'bg-surface-hover text-fg-faint' : kind.chip}`}>{kind.icon}</span>

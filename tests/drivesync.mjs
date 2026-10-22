@@ -1685,6 +1685,17 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
 //           fetchDriveFileBlob이 `r.blob()`으로 돌아가면 C4가, `meta={fileMeta(row, nameOf)}`를 지우면 C5가 깨진다.
 {
   const row = att.slice(att.indexOf('const AttachmentRow ='), att.indexOf('const FailedRow ='));
+  // 두 구간 한 막대(사용자 결정 2026-10-22 — 서버까지는 1초도 안 걸려 막대가 바로 가득 찼다). 되돌리기: sendPct가 100을 쓰면 첫 줄이,
+  // movePct의 95 상한을 빼면 '95에서 기다린다'가, 화면 셋 중 하나라도 `moving ? 100`으로 돌아가면 마지막 줄이 깨진다.
+  const uq = await import('../src/modals/uploadQueue.js');
+  check('C2-b 진행은 두 구간 — 서버까지 실제 바이트 0~30 · 드라이브는 크기로 어림해 95까지', () => {
+    assert.deepStrictEqual([uq.sendPct(0, 100), uq.sendPct(50, 100), uq.sendPct(100, 100), uq.sendPct(5, 0)], [0, 15, 30, null], '앞 구간은 30까지');
+    const ten = 10 * 1024 * 1024;
+    assert.ok(uq.moveEstimateMs(ten) > 30000 && uq.moveEstimateMs(ten) < 40000, '10MB 어림은 35초 안팎(실측)');
+    assert.deepStrictEqual([uq.movePct(0, ten), uq.movePct(uq.moveEstimateMs(ten) / 2, ten), uq.movePct(10 ** 9, ten)], [30, 62, 95], '30에서 시작해 95에서 기다린다');
+    for (const f of ['src/modals/attachments.jsx', 'src/components/meetingReport.jsx', 'src/components/worshipParts.jsx'])
+      assert.ok(!/moving ? 100/.test(read(f)), `${f}가 다 보낸 뒤 막대를 바로 채운다`);
+  });
   check('C2 올리는 중 진행 — 퍼센트(메타 줄 끝) · 2px 막대(--p-track · accent · .42s quint) · 다 보내면 드라이브로 옮기는 중', () => {
     assert.match(row, /\{pct !== null && !moving && <span className="ml-auto tabular-nums font-semibold shrink-0">\{pct\}%<\/span>\}/, '메타 줄 끝 퍼센트가 없다');
     assert.match(row, /\{pct !== null && <UploadTrack pct=\{pct\} \/>\}/, '막대가 없다');

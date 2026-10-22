@@ -3208,13 +3208,11 @@ await send('Emulation.clearDeviceMetricsOverride');
 // ── 지난 모임의 활동 보고서 (0093 · 20차 묶음 ④ · 시안 4-C · 사용자 확정 2026-10-12) ──────────────
 // ① 칸은 **지난 모임에만**(다가오는 모임에는 없다) · 동아리장에게 '활동 보고서' + '보고서 작성'(진한 accent · 0117) + '파일 올리기'
 // ② 올리면 그 모임의 줄이 서고(이름 · 크기 · 편집 · 지우기) 버튼은 연한 accent로
-// ③ 다른 모임에 보고서가 있으면 '지난 보고서 가져오기' — 누르면 `<동아리> 활동보고서(<M>월).xlsx`로 이 모임에 올라가고
-//    곧바로 창이 열린다 · 보고서가 생긴 모임에서는 그 버튼이 빠진다
+// ③ '지난 보고서 가져오기'는 없다(사용자 결정 2026-10-22 — 작성 화면·엑셀 올리기로 충분)
 // ④ 못 올린 파일은 빨간 줄 + '다시 시도'(업무 첨부와 같은 큐) — 다시 시도하면 올라간다
 // ⑤ 지우기(확인 팝오버) ⑥ 구성원은 보고서가 있는 모임만 줄(버튼·X 없음), 없으면 칸 자체가 없다 ⑦ 폰 375 — 이름 말줄임 · 넘침 없음
 // 되돌리기(2026-10-12 확인): clubDetail의 지난 모임 `report={…}`를 빼면 ①부터가, groupsView onPick의 sendReports 호출을 빼면
-// ②부터가, meetingReport의 `!has && prev &&`와 clubDetail `prev={manage && !(m.files || []).length ? …}`의 파일 조건을 **둘 다**
-// 걷으면 ③의 '빠진다'가(한쪽만이면 다른 쪽이 막는다), `if (!manage && !files.length) return null;`을 지우면 ⑥이 깨진다.
+// ②부터가, `if (!manage && !files.length) return null;`을 지우면 ⑥이 깨진다.
 {
   const logsBefore = logs.length;
   const poll = async (expr, to = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < to) { if (await ev(expr)) return true; await sleep(120); } return false; };
@@ -3272,23 +3270,9 @@ await send('Emulation.clearDeviceMetricsOverride');
   check("보고서가 생기면 '파일 올리기'는 연한 accent", up.soft === true, JSON.stringify(up));
   check('저장 자리는 files 한 표 · 주인은 meeting_id', JSON.stringify(st1) === JSON.stringify([['rp1', '9월 보고서.xlsx']]), JSON.stringify(st1));
 
-  // ③
-  const copyBtn = await ev(`${rep('보고서 칸 둘')}?.querySelector('.club-meet-report-copy')?.textContent.trim() || ''`);
-  check("다른 모임에 보고서가 있으면 '지난 보고서 가져오기'", copyBtn === '지난 보고서 가져오기', copyBtn);
-  await ev(`${rep('보고서 칸 둘')}?.querySelector('.club-meet-report-copy')?.click()`);
-  const want = `통통 활동보고서(${+RP2.slice(5, 7)}월).xlsx`;
-  await poll(`(${store('files')} || []).some(f => f.meeting_id === 'rp2')`);
-  await poll(`[...document.querySelectorAll('div.fixed.inset-0')].some(d => d.innerText.includes(${JSON.stringify(want)}))`, 5000);
-  const copied = await ev(`(() => ({
-    stored: (${store('files')} || []).filter(f => f.meeting_id === 'rp2').map(f => f.name),
-    modal: [...document.querySelectorAll('div.fixed.inset-0')].some(d => d.innerText.includes(${JSON.stringify(want)})),
-  }))()`);
-  check("가져오면 '<동아리> 활동보고서(<M>월).xlsx'로 이 모임에 올라간다",
-    JSON.stringify(copied.stored) === JSON.stringify([want]), JSON.stringify(copied));
-  check('가져온 보고서는 곧바로 창이 열린다', copied.modal === true, JSON.stringify(copied));
-  await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(500);
-  check("보고서가 생긴 모임에서는 '지난 보고서 가져오기'가 빠진다",
-    (await ev(`!${rep('보고서 칸 둘')}?.querySelector('.club-meet-report-copy') && !!${rep('보고서 칸 둘')}?.querySelector('.club-meet-report-row')`)) === true);
+  // ③ '지난 보고서 가져오기'는 뺐다(사용자 결정 2026-10-22) — 다른 모임에 보고서가 있어도 버튼이 없다
+  check("다른 모임에 보고서가 있어도 '지난 보고서 가져오기'가 없다",
+    (await ev(`!!${rep('보고서 칸 둘')} && !document.querySelector('.club-meet-report-copy')`)) === true);
 
   // ④ — 게스트 저장에서 id를 못 만들게 해서 한 번 실패시킨다(groups.uploadMeetingReport → generateId)
   await ev(`crypto.randomUUID = () => { throw new Error('검사가 일부러 낸 실패'); }`);
