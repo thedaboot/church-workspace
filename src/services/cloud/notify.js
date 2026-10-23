@@ -114,21 +114,25 @@ export async function markCardNotificationsRead(cardId) {
 }
 
 // 본인 수신 알림 INSERT만 구독
-export function subscribeMyNotifications(userId, onInsert) {
+// onStatus — 채널 상태(재연결 뒤 놓친 알림을 다시 읽도록 · realtimeStatus.reconnectWatcher)
+export function subscribeMyNotifications(userId, onInsert, onStatus) {
   const c = client();
-  const topic = `notifications:${userId}`;
+  // 열 때마다 새 이름 — 같은 이름이면 걷는 중(leaving)인 옛 채널을 돌려받아 subscribe가 아무 일도 안 하고 끝났다
+  // (removeChannel을 기다리지 않는다 · 폰↔데스크톱 경계에서 다시 마운트될 때 · 감사 2026-10-23). postgres_changes는 이름과 무관하다.
+  const base = `notifications:${userId}`;
+  const topic = `${base}:${Math.random().toString(36).slice(2, 8)}`;
   // supabase-js는 같은 topic으로 channel()을 부르면 기존 인스턴스를 그대로 돌려준다.
   // 그 채널이 이미 subscribe()된 상태면 .on('postgres_changes')가 예외를 던지고
   // (cannot add callbacks after subscribe) 그게 ErrorBoundary까지 올라가 화면이 깨졌다.
   // 남아 있던 같은 topic 채널을 먼저 걷어내고 새로 만든다.
   c.getChannels()
-    .filter(ch => ch.topic === topic || ch.topic === `realtime:${topic}`)
+    .filter(ch => String(ch.topic || '').replace(/^realtime:/, '').startsWith(base))
     .forEach(ch => c.removeChannel(ch));
   const channel = c.channel(topic)
     .on('postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${userId}` },
       payload => onInsert(payload.new))
-    .subscribe();
+    .subscribe(onStatus);
   return () => c.removeChannel(channel);
 }
 

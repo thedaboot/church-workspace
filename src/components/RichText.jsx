@@ -348,7 +348,7 @@ function LinkCard({ url }) {
         <span className="flex items-center gap-1.5 text-[11px] text-fg-muted min-w-0"><Globe size={12} className="shrink-0 text-fg-faint" /><span className="truncate">{meta.site || host}</span></span>
         <span className="text-[13px] font-bold text-fg leading-snug line-clamp-2 break-words">{meta.title}</span>
         {meta.description && <span className="hidden md:block text-[11.5px] text-fg-muted truncate">{meta.description}</span>}
-        {meta.site && <span className="text-[10.5px] text-fg-faint truncate">{host}</span>}
+        {meta.site && <span className="text-[10.5px] text-fg-muted truncate">{host}</span>}
       </span>
       {meta.image && imgOk && (
         <span className="shrink-0 w-[72px] md:w-24 self-stretch min-h-[72px]" style={{ background: 'var(--app-surface-hover)' }}>

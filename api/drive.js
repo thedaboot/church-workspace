@@ -1,4 +1,4 @@
-import { adminClient, readJson, requireApprovedUser, isAdminEmail, myIds, isTimeout } from './_lib.js';
+import { adminClient, readJson, requireApprovedUser, isAdminEmail, myIds, isTimeout, userClient, bearer } from './_lib.js';
 
 // ============================================================================
 // /api/drive — 개인 구글 드라이브(Apps Script 웹앱) 프록시
@@ -81,6 +81,34 @@ export async function mayGrantEditors(supabase, user, fileId, col = 'preview_fil
   return !!meetingId && (await leadsClubOf(supabase, mine, meetingId) || await isTreasurer(supabase, mine));
 }
 
+// ── 드라이브 대상 확인(보안 감사 2026-10-23) ──────────────────────────────────────────
+// 예전에는 승인만 보고 list · trash · renameFolder를 그대로 넘겨, 승인 회원 누구나 루트 아래 아무 폴더의 목록(마스터만 보는
+// 피드백 스크린샷 · 리더만·직접 선택 프로젝트 첨부)을 받고, 남의 파일·폴더를 휴지통으로 보낼 수 있었다.
+//   trash        — **살아 있는 행이 가리키는 id는 관리자만.** 앱은 행을 먼저 지우고(§6-29-e) 실체를 보내므로 그때는 가리키는 행이 없다.
+//                  방금 올렸다가 되돌리는 파일도 행이 없다. 같은 제목 업무 둘이 한 폴더를 나눠 쓰면 남은 쪽이 가리켜 폴더째는 거절되고
+//                  부르는 쪽이 파일 단위로 내려간다(cloud/drive trashFolder).
+//   renameFolder — 부르는 사람이 **볼 수 있는** 행(RLS)이 가리키는 폴더만.
+//   list         — folderId면 위와 같고, 경로면 첫 도막으로: '예배'·'모임'은 승인 회원 · '피드백'은 관리자 · 그 밖은 볼 수 있는 프로젝트 이름.
+const REF_FILE = [['files', 'drive_file_id'], ['files', 'preview_file_id']];
+const REF_FOLDER = [['projects', 'drive_folder_id'], ['cards', 'drive_folder_id'], ['services', 'drive_folder_id'], ['group_meetings', 'drive_folder_id']];
+async function refersTo(db, id, cols) {
+  if (!id) return false;
+  const hits = await Promise.all(cols.map(([t, c]) => db.from(t).select('id').eq(c, id).limit(1).then(r => !!r.data?.length, () => false)));
+  return hits.some(Boolean);
+}
+export async function mayTouchDrive(supabase, user, action, body, asUser) {
+  if (!['trash', 'renameFolder', 'list'].includes(action)) return true;
+  if (await isAdminEmail(supabase, user.email)) return true;
+  if (action === 'trash') return !(await refersTo(supabase, String(body.fileId || ''), [...REF_FILE, ...REF_FOLDER]));
+  if (body.folderId) return refersTo(asUser(), String(body.folderId), REF_FOLDER);
+  if (action === 'renameFolder') return false;
+  const first = String((Array.isArray(body.path) && body.path.length ? body.path[0] : body.projectName) || '');
+  if (first === '예배' || first === '모임') return true;
+  if (!first || first === '피드백') return false;
+  const { data } = await asUser().from('projects').select('id').eq('name', first).limit(1);
+  return !!data?.length;
+}
+
 // 올해 총무인가(0122 can_edit_meeting — 총무는 모든 동아리 보고서를 고친다 · 0035 has_role('treasurer')와 같은 줄)
 async function isTreasurer(supabase, mine) {
   const { data: ps } = await supabase.from('people').select('id').in('profile_id', [...mine]).is('removed_at', null);
@@ -159,6 +187,11 @@ export default async function handler(req, res) {
   if (action === 'uploadFromUrl' && !isOurSignedUrl(body.url)) {
     console.error('[drive] uploadFromUrl 주소 거절:', user.email, String(body.url || '').slice(0, 80));
     res.status(400).json({ error: '올릴 파일 주소가 올바르지 않습니다.' });
+    return;
+  }
+  if (!(await mayTouchDrive(supabase, user, action, body, () => userClient(bearer(req))))) {
+    console.error(`[drive] ${action} 거절(대상 확인):`, user.email, body.fileId || body.folderId || (body.path || []).join('/') || body.projectName || '');
+    res.status(403).json({ error: '이 드라이브 항목은 다룰 수 없어요.' });
     return;
   }
   if (EDITOR_ACTIONS.has(action)

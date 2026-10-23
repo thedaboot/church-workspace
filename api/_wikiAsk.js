@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
 import {
   prefilter, termsOf, normQ, overlayEdits, overlayTitles, keepCited, notFoundCites, parseModelJson,
   strangeNumbers, mdLabel, kstDate, NOT_FOUND, stripBold, talkKind, hasJong, SEED_PAGES,
@@ -76,10 +75,7 @@ export { serviceLine };
 //   · 금액은 가리킨 기록에 글자 그대로 있을 때만 · 업무 글 속 지시는 자료로만 읽는다.
 // ============================================================================
 
-export const userClient = (token) => createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY, {
-  global: { headers: { Authorization: `Bearer ${token}` } },
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+export { userClient } from './_lib.js';   // 한 벌은 _lib에(드라이브 대상 확인도 쓴다)
 
 // 날짜 셈 — today는 KST 'YYYY-MM-DD'
 // 'M월 D일' → 'YYYY-MM-DD'(올해) · 없으면 null — 출석('9월 20일에 누가 왔어?')

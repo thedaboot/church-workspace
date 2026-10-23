@@ -907,9 +907,11 @@ export const notifyClubAccepted = (club, actorName, applicantProfileId) => notif
 });
 
 // 새 모임 → 그 동아리 구성원 전부. preview는 '동아리 이름 · 26. 9. 13.'이다.
-export const notifyMeetingNew = (club, actorName, profileIds, date) => notifyGroup(profileIds, {
+// 오늘(KST) 앞의 날짜로 만든 모임은 알리지 않는다 — 지난 모임을 보고서 제출용으로 나중에 만드는 일정이다(사용자 요청 2026-10-23 · 종·푸시 둘 다)
+export const meetingNoticeDue = (date, today = kstNow().slice(0, 10)) => !/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || String(date) >= today;
+export const notifyMeetingNew = (club, actorName, profileIds, date) => (!meetingNoticeDue(date) ? Promise.resolve(0) : notifyGroup(profileIds, {
   kind: 'meeting_new',
   actorName,
   preview: [club?.name || '', shortDate(date)].filter(Boolean).join(' · '),
   link: clubLink(club?.id),
-});
+}));

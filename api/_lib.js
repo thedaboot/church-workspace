@@ -17,6 +17,11 @@ import { isApprovedProfile } from '../src/services/approval.js';
 // ============================================================================
 
 export const adminClient = () => createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
+// 부르는 사람의 세션으로 RLS를 탄다(다붓이 찾기 · 드라이브 대상 확인)
+export const userClient = (token) => createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY, {
+  global: { headers: { Authorization: `Bearer ${token}` } },
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 // Vercel은 content-type이 json이면 req.body에 파싱된 객체를 넣어 준다(dev 서버도 흉내낸다).
 // 없으면 스트림을 직접 읽는다. 깨진 JSON은 빈 객체다 — 부르는 쪽이 칸이 없다고 400을 낸다.

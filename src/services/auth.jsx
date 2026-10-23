@@ -234,11 +234,17 @@ export function AuthProvider({ children }) {
   //    리프레시 토큰이 서버에서 폐기된다. 폰에서 한 번 로그아웃하면 아이패드는 그 자리에서
   //    안 튕기고(액세스 토큰이 최대 한 시간 살아 있다) **다음 갱신 때** 조용히 풀린다 —
   //    그래서 "가끔 로그인하라고 뜬다"로 보였다. 기기마다 세션이 따로인 것이 맞다.
-  const signOut = () => {
+  //  · **이 기기의 푸시 구독을 먼저 걷는다**(감사 2026-10-23 · 사용자 결정) — 남겨 두면 로그아웃한 사람의 알림이 미리보기와 함께
+  //    그 기기로 계속 갔다(같은 폰에 다른 사람이 로그인해도). 토큰이 살아 있을 때 행을 지워야 해서 signOut보다 앞 · 3초를 넘기면 그냥 나간다.
+  const signOut = async () => {
     autoKakaoTried = true;
     ss.set(AUTO_KAKAO_KEY, '1');
     ss.del(RETURN_KEY);
     try { window.history.replaceState(null, '', '/'); } catch { /* 막힌 히스토리 */ }
+    await Promise.race([
+      import('./push.js').then(m => m.disablePush()).catch(e => console.warn('[auth] 푸시 구독을 걷지 못했어요:', e?.message || e)),
+      new Promise(r => setTimeout(r, 3000)),
+    ]);
     return supabase.auth.signOut({ scope: 'local' });
   };
 

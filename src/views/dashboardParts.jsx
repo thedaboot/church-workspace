@@ -382,7 +382,7 @@ function AllClearMark() {
 // now — 방금 누른 완료: 체크를 선으로 그린다(pathLength=1 · index.css `.dc-check-now`)
 function Checkmark({ filled = false, now = false }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke={filled ? '#fff' : 'var(--app-tag-green-fg)'} strokeWidth="2.4"
+    <svg viewBox="0 0 24 24" fill="none" stroke={filled ? 'var(--app-surface)' : 'var(--app-tag-green-fg)'} strokeWidth="2.4"
       strokeLinecap="round" strokeLinejoin="round"
       className={filled ? `w-[11px] h-[11px]${now ? ' dc-check-now' : ''}` : 'w-[11px] h-[11px] opacity-40 group-hover/done:opacity-100 transition-opacity'}>
       <path pathLength="1" d="M20 6 9 17l-5-5" />

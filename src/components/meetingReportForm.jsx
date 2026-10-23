@@ -65,7 +65,7 @@ function PhotoGroup({ label, list, onAdd, onDrop, busy }) {
     <section className="mt-4">
       <div className="flex items-center gap-2 mb-1.5">
         <h4 className="text-[12px] font-bold text-fg-muted">{label}</h4>
-        {list.length > 0 && <span className="text-[11px] text-fg-faint tabular-nums">{list.length}장</span>}
+        {list.length > 0 && <span className="text-[11px] text-fg-muted tabular-nums">{list.length}장</span>}
       </div>
       <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
         {list.map(p => (

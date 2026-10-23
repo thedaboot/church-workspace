@@ -217,8 +217,12 @@ export const useWorkspaceController = () => {
     store.dispatch({ type: 'UPSERT_TASK', payload: updated });
     if (cloudOn) {
       const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);
+      // 고치며 새로 부른 사람에게만 멘션 알림(본문 저장과 같은 newMentionsOnly — 이미 부른 사람에게 다시 가지 않는다 · 감사 2026-10-23)
+      const before = (task.comments || []).find(c => c.id === commentId)?.text || '';
+      const mentionIds = cloudSync.newMentionsOnly(newText, before, currentUser.name);
       cloudSync.commentUpdateCloud(commentId, newText)
-        .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
+        .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id).catch(reportCloudError('활동 기록을 남기지 못했어요')))
+        .then(() => mentionIds.length && cloudSync.notifyMentions(newText, { actorName: currentUser.name, cardId: task.id, projectId: task.projectId, recipientIds: mentionIds }))
         .catch(reportCloudError('댓글을 고치지 못했어요'));
     }
     return updated;

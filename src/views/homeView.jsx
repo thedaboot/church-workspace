@@ -708,7 +708,9 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     const [perms, roster] = await Promise.all([fetchGroupPerms(year), fetchGroupsRoster(year)]);
     const me = perms?.myPerson || null;
     const sun = me && roster ? mySun(me, roster.suns, roster.members) : null;
-    if (!sun) return { sun: null };
+    // 전체 출석을 체크할 수 있는 사람(마스터 · 관리자 · 교역자 · 리더순장 — can_check_all_attendance와 같은 줄)에게도 '출석 체크'(감사 2026-10-23 · V2 권한 표)
+    const checksAll = !!perms?.canManageSun;
+    if (!sun) return { sun: null, amLeader: checksAll };
     const people = groupPeople({ people: roster.people, group: sun, members: roster.members });
     // 나눔은 **주보별 개수만** 쓴다 — 본문·이름·사진까지 실어 와서 .length를 읽던 자리다.
     // 카드가 세는 것은 그중 **참석 수를 센 그 주보**의 것이다(아래 church.sunNotes) — 예전에는 전
@@ -717,8 +719,8 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     const notes = await countSunSharedNotesByService().catch(() => ({}));
     return {
       sun,
-      // 오늘의 예배 카드의 '출석 체크'는 순장에게만 선다(체크할 수 있는 사람만 보게)
-      amLeader: !!me?.id && sun.leader_person_id === me.id,
+      // 오늘의 예배 카드의 '출석 체크'는 체크할 수 있는 사람만 — 그 순의 순장 · 전체 출석을 체크하는 사람
+      amLeader: checksAll || (!!me?.id && sun.leader_person_id === me.id),
       ids: people.map(p => p.id),
       count: people.length,
       leaderName: roster.people.find(p => p.id === sun.leader_person_id)?.name || '',

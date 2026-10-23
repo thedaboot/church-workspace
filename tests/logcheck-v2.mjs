@@ -880,6 +880,8 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   // ⑥ 모임 활동 보고서(0093 · 20차 묶음 ④) — 저장 모양('지난 보고서 가져오기'·보고서 이름은 2026-10-22에 뺐다 · 사용자 결정)
   // 되돌리기 검사: MEETING_COLS에서
   // drive_folder_id를 빼면 ⑥-d가, fetchMeetings의 `files(${MEETING_FILE_COLS})`를 빼면 ⑥-d가 깨진다.
+  // ⑥-f 지난 날짜로 만든 모임(보고서 제출용)은 알리지 않는다(사용자 요청 2026-10-23) — 되돌리기: meetingNoticeDue의 `>= today`를 true로 바꾸면 깨진다
+  assert.deepStrictEqual(['2026-10-22', '2026-10-23', '2026-11-01', ''].map(d => G.meetingNoticeDue(d, '2026-10-23')), [false, true, true, true], '⑥-f 오늘·앞날만 알린다(날짜가 없으면 예전처럼)');
   // ⑥-e 영수증 낱장(2026-10-22) — 이름 · 번호 · 올릴 것/지울 것
   // 되돌리기: nameReceipts의 Math.max를 receipts.length로 바꾸면 '뺀 번호를 다시 쓰지 않는다'가, receiptPlan의 had 거르기를 빼면
   // '보고서 엑셀은 지우지 않는다'가 깨진다.

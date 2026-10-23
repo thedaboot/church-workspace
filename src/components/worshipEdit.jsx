@@ -383,7 +383,7 @@ function RecentWeek({ week, inList, onAdd }) {
     <div className="flex items-center gap-3 h-11" style={{ borderTop: '1px solid var(--app-line)' }} data-recent-week={week.weeksAgo}>
       <span className="w-[58px] md:w-[84px] shrink-0 flex flex-col leading-tight">
         <span className="text-[11.5px] font-bold text-fg-secondary">{week.weeksAgo}주 전</span>
-        {m > 0 && <span className="text-[10.5px] text-fg-faint tabular-nums"><span className="md:hidden">{`${m}/${d}`}</span><span className="hidden md:inline">{`${m}월 ${d}일`}</span></span>}
+        {m > 0 && <span className="text-[10.5px] text-fg-muted tabular-nums"><span className="md:hidden">{`${m}/${d}`}</span><span className="hidden md:inline">{`${m}월 ${d}일`}</span></span>}
       </span>
       <div ref={lane} onScroll={measure}
         className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto scrollbar-hide x-scroll-lock"

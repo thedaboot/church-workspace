@@ -88,21 +88,9 @@ export async function purgeTrash(db, { now = Date.now(), days = TRASH_DAYS, tras
     if (r.error) throw r.error;
     files.push(...(r.data || []));
   }
-  // ② 행 삭제 — 프로젝트(cascade가 안의 업무까지) → 따로 지운 업무
-  if (plan.projectIds.length) {
-    const r = await db.from('projects').delete().in('id', plan.projectIds);
-    if (r.error) throw r.error;
-  }
-  if (plan.cardIds.length) {
-    const r = await db.from('cards').delete().in('id', plan.cardIds);
-    if (r.error) throw r.error;
-  }
-  // ③ 남은 첨부 행
-  if (files.length) {
-    const r = await db.from('files').delete().in('id', files.map(f => f.id));
-    if (r.error) console.error('[trash] 첨부 행 정리 실패:', r.error);
-  }
-  // ④ 드라이브 — 프로젝트 폴더째, 실패하면 업무 폴더째, 그것도 실패하면 파일 단위(cloud/drive.js trashFolder·trashFileBodies와 같은 차례)
+  // ② 드라이브를 **행보다 먼저**(감사 2026-10-23) — 행을 먼저 지우면 드라이브가 실패한 날(시간 초과 · 스크립트 오류) 폴더 id를 쥔 행이 없어
+  //    다음 아침에 다시 잡을 재료가 남지 않았다. 휴지통 보내기는 멱등이라 행 삭제가 실패하면 다음 날 다시 보내도 된다.
+  //    프로젝트 폴더째, 실패하면 업무 폴더째, 그것도 실패하면 파일 단위(cloud/drive.js trashFolder·trashFileBodies와 같은 차례)
   const inFolder = new Set();
   let folders = 0;
   for (const pf of plan.projectFolders) {
@@ -118,6 +106,20 @@ export async function purgeTrash(db, { now = Date.now(), days = TRASH_DAYS, tras
     }
     if (f.source !== 'drive' || !f.drive_file_id || inFolder.has(f.card_id)) continue;
     for (const id of [f.preview_file_id, f.drive_file_id].filter(Boolean)) if (await trash(id)) bodies++;
+  }
+  // ③ 행 삭제 — 프로젝트(cascade가 안의 업무까지) → 따로 지운 업무
+  if (plan.projectIds.length) {
+    const r = await db.from('projects').delete().in('id', plan.projectIds);
+    if (r.error) throw r.error;
+  }
+  if (plan.cardIds.length) {
+    const r = await db.from('cards').delete().in('id', plan.cardIds);
+    if (r.error) throw r.error;
+  }
+  // ④ 남은 첨부 행
+  if (files.length) {
+    const r = await db.from('files').delete().in('id', files.map(f => f.id));
+    if (r.error) console.error('[trash] 첨부 행 정리 실패:', r.error);
   }
   return { projects: plan.projectIds.length, cards: plan.cardIds.length, files: files.length, folders, bodies };
 }

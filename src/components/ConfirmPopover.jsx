@@ -147,7 +147,7 @@ export function popMotion(pos) {
 // 값이 다르다). 프로젝트 삭제 버튼은 이미 tag-red-fg를 쓰고 있어서 같은 삭제인데
 // 색이 둘이었다.
 const TONE = {
-  danger: 'bg-tag-red-fg hover:opacity-90 text-white',
+  danger: 'bg-tag-red-fg hover:opacity-90 text-surface',   // 다크의 옅은 red-fg 위 흰 글자는 2.5:1 — surface(라이트 #fffdfc)는 두 테마 모두 읽힌다
   ok: 'bg-accent hover:opacity-90 text-white',
 };
 

@@ -282,13 +282,28 @@ function WorkspaceShell() {
   // 열려 있는 업무 창의 카드 id — 댓글·첨부 변경은 이 카드일 때만 상세를 다시 읽는다
   const openCardIdRef = useRef(null);
   useEffect(() => { openCardIdRef.current = modalState.isOpen ? (modalState.task?.id || null) : null; }, [modalState]);
+  // 응답 순서 지키기(감사 2026-10-23) — 늦게 끝난 옛 재조회·카드 읽기가 새 값을 덮지 않게.
+  //  · 재조회는 세대 번호 — 더 새 재조회가 시작됐으면 옛 것은 버린다
+  //  · 재조회가 도는 동안 따로 읽은 카드는 기억했다가 갈아 끼운 뒤 한 번 더 읽는다(그 사이 바뀐 값을 LOAD_STATE가 옛 값으로 덮는다)
+  //  · 카드·상세 읽기는 id마다 순번 — 마지막 요청의 응답만 넣는다
+  const reloadGenRef = useRef(0);
+  const reloadingRef = useRef(null);
+  const syncCardRef = useRef(null);
+  const seqRef = useRef(new Map());
+  const nextSeq = (k) => { const n = (seqRef.current.get(k) || 0) + 1; seqRef.current.set(k, n); return n; };
   const reloadCloud = useCallback(async () => {
+    const gen = ++reloadGenRef.current;
+    const touched = new Set();
+    reloadingRef.current = touched;
     const { state, profile } = await cloudSync.loadCloudState();
     // 열린 창의 상세는 **갈아 끼우기 전에** 읽어 둔다(2026-09-28) — 업무 창에 수정 모드가 없어져
     // 재조회를 미뤄 둘 자리가 없어졌다. 먼저 넣고 나서 읽으면 그 왕복 동안 창의 댓글·활동이 빈다.
     const openFirst = openCardIdRef.current;
     const openDetail = openFirst ? await cloudSync.loadCardDetail(openFirst).catch(() => null) : null;
+    if (gen !== reloadGenRef.current) return profile;
     store.dispatch({ type: 'LOAD_STATE', payload: state });
+    reloadingRef.current = null;
+    touched.forEach(id => syncCardRef.current?.(id));
     if (openDetail && openCardIdRef.current === openFirst) {
       store.dispatch({ type: 'SYNC_TASK', payload: { id: openFirst, ...openDetail } });
       return profile;
@@ -364,19 +379,25 @@ function WorkspaceShell() {
   // 전체를 다시 읽었다(쿼리 11개). 서버에서 사라진 카드면 로컬에서도 지운다.
   const syncCard = useCallback(async (cardId) => {
     if (!cardId) return;
+    reloadingRef.current?.add(cardId);
+    const n = nextSeq(`c:${cardId}`);
     try {
       const patch = await cloudSync.loadCardPatch(cardId);
+      if (n !== seqRef.current.get(`c:${cardId}`)) return;
       if (patch) store.dispatch({ type: 'SYNC_TASK', payload: patch });
       else store.dispatch({ type: 'DELETE_TASK', payload: cardId });
     } catch (e) { console.error('[cloud] 카드 갱신 실패:', e); }
   }, []);
+  syncCardRef.current = syncCard;
 
   // 댓글·첨부는 업무 창 안에서만 보인다 → 지금 열려 있는 카드일 때만 상세를 다시 읽는다
   const syncCardDetail = useCallback(async (cardId) => {
     const id = cardId || openCardIdRef.current;
     if (!id || id !== openCardIdRef.current) return;
+    const n = nextSeq(`d:${id}`);
     try {
       const detail = await cloudSync.loadCardDetail(id);
+      if (n !== seqRef.current.get(`d:${id}`)) return;   // 고정·해결을 연달아 누르면 늦게 온 옛 응답이 새 값을 덮었다
       store.dispatch({ type: 'SYNC_TASK', payload: { id, ...detail } });
     } catch (e) { console.error('[cloud] 업무 상세 갱신 실패:', e); }
   }, []);
@@ -930,7 +951,8 @@ function WorkspaceShell() {
       }
       setModalState({ isOpen: false, task: null });
       const pid = q.get('p');
-      setActiveMenu(pid && s.projects.byId[pid] ? pid : 'dashboard');
+      // 주소가 '/'면 홈이다(첫 화면과 같다 · 감사 2026-10-23 — 예전에는 대시보드로 가서, 모임·일정에서 프로젝트 링크로 건넌 뒤 뒤로가기가 엉뚱한 데 섰다)
+      setActiveMenu(pid && (s.projects.byId[pid] || GLOBAL_MENUS.includes(pid)) ? pid : 'home');
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -945,7 +967,8 @@ function WorkspaceShell() {
     // 돌아갔다. 화면과 열린 업무는 URL에 있는데 필터만 빠져 있었다.
     // '전체'는 기본값이라 적지 않는다(주소가 길어질 뿐이다).
     // p도 같이 적는다 — v2부터 '/'는 홈이라, f만 있는 주소를 새로고침하면 홈으로 열려 필터가 사라진다.
-    if (activeMenu === 'dashboard' && dashFilter !== DASH_FILTER_DEFAULT) { params.set('p', 'dashboard'); params.set('f', dashFilter); }
+    // 대시보드는 늘 주소에 적는다 — '/'는 홈이라, 안 적으면 뒤로가기로 대시보드에 돌아오지 못한다
+    if (activeMenu === 'dashboard') { params.set('p', 'dashboard'); if (dashFilter !== DASH_FILTER_DEFAULT) params.set('f', dashFilter); }
     if (modalState.isOpen && modalState.task?.id) {
       if (modalState.task.projectId) params.set('p', modalState.task.projectId);
       params.set('t', modalState.task.id);

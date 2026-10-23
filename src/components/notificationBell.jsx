@@ -10,6 +10,7 @@ import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
 import { notifLine, notifText, isSystemNotif, notifArea } from '../services/notifyText.js';
 import { isAppLink } from '../services/entryQuery.js';
+import { reconnectWatcher } from '../services/realtimeStatus.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { usePopover } from '../hooks/usePopover.js';
@@ -212,14 +213,18 @@ function CloudBell({ onOpenTask, onOpenLink }) {
     p?.catch(() => {});
   }, [unread]);
 
-  // 초기 로드
+  // 초기 로드 · 다시 붙었을 때(폰이 잠든 사이 온 알림은 이벤트로 오지 않는다 — 감사 2026-10-23)
+  const reloadRef = useRef(() => {});
   useEffect(() => {
     if (!userId) return;
     let alive = true;
-    cloudSync.listMyNotifications(30)
+    const load = () => cloudSync.listMyNotifications(30)
       .then(rows => { if (alive) setItems(rows || []); })
       .catch(e => console.error('[cloud] 알림 로드 실패:', e));
-    return () => { alive = false; };
+    reloadRef.current = load;
+    load();
+    window.addEventListener('online', load);
+    return () => { alive = false; reloadRef.current = () => {}; window.removeEventListener('online', load); };
   }, [userId]);
 
   // 한 업무의 안 읽은 알림을 모두 읽음으로(UX 다듬기 α · 2026-10-15 · D4) — 업무 창이 어느 길로 열리든(보드·검색·알림·링크)
@@ -271,7 +276,7 @@ function CloudBell({ onOpenTask, onOpenLink }) {
       }
       const canOpen = isAppLink(row.link) || !!row.card_id;
       showToast(notifLine(row.kind, row.actor_name), canOpen ? { label: '열기', onAction: () => openRef.current(got) } : null);
-    });
+    }, reconnectWatcher(() => reloadRef.current()));
     return unsub;
   }, [userId]);
 
@@ -382,7 +387,7 @@ function BellTrigger({ pop, unread }) {
       >
         <Bell size={18} strokeWidth={1.75} />
         {unread > 0 && (
-          <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-white text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
+          <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-surface text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
@@ -502,7 +507,7 @@ function NotifPrefs({ off }) {
       <div className="divide-y divide-line/60" data-notif-prefs="" aria-busy="true">
         {visibleGroups({}).map(g => (
           <div key={g.key} className="px-3 py-3">
-            <div className="min-h-6 flex items-center gap-3"><Skeleton className="w-16 h-3.5" /><span className="flex-1" /><Skeleton className="w-9 h-5 rounded-full" /></div>
+            <div className="min-h-6 flex items-center gap-3"><Skeleton className="w-16 h-3.5" /><span className="flex-1" /><Skeleton className="w-9 h-5 rounded-full!" /></div>
             {g.items.length > 0 && <div className="grid grid-cols-2 gap-1.5 mt-2.5">{g.items.map(it => <Skeleton key={it.key} className="h-8" />)}</div>}
           </div>
         ))}

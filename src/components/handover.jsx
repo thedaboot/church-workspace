@@ -439,9 +439,9 @@ function HandoverSkeleton() {
             style={i ? { borderTop: '1px solid var(--app-line)' } : undefined}>
             <span className="col-span-2 md:col-span-1 flex items-center min-h-7"><Skeleton className="w-12 h-4 rounded-xs" /></span>
             <Skeleton className="row-start-1 col-start-3 md:col-start-5 justify-self-end w-14 h-7 rounded-xs" />
-            <span className="flex items-center gap-1.5"><Skeleton className="w-6 h-6 rounded-full shrink-0" /><Skeleton className="w-14 h-3.5" /></span>
+            <span className="flex items-center gap-1.5"><Skeleton className="w-6 h-6 rounded-full! shrink-0" /><Skeleton className="w-14 h-3.5" /></span>
             <span />
-            <span className="flex items-center gap-1.5"><Skeleton className="w-6 h-6 rounded-full shrink-0" /><Skeleton className="w-14 h-3.5" /></span>
+            <span className="flex items-center gap-1.5"><Skeleton className="w-6 h-6 rounded-full! shrink-0" /><Skeleton className="w-14 h-3.5" /></span>
           </div>
         ))}
       </div>

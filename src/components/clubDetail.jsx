@@ -365,7 +365,7 @@ function MeetSkeleton() {
   const card = (report) => (
     <div className={`p-3.5 ${CARD}`} style={CARD_STYLE}>
       <div className="flex items-center gap-2"><Skeleton className="w-28 h-4" /><span className="flex-1" /><Skeleton className="w-8 h-3.5" /></div>
-      <div className="mt-3 flex gap-1.5">{[0, 1, 2, 3].map(i => <Skeleton key={i} className="w-14 h-6 rounded-full" />)}</div>
+      <div className="mt-3 flex gap-1.5">{[0, 1, 2, 3].map(i => <Skeleton key={i} className="w-14 h-6 rounded-full!" />)}</div>
       {report && <div className="mt-3 pt-2.5 flex items-center gap-2" style={{ borderTop: '1px solid var(--app-line)' }}><Skeleton className="w-20 h-3.5" /><span className="flex-1" /><Skeleton className="w-24 h-7" /></div>}
     </div>
   );

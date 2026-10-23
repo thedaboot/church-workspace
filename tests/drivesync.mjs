@@ -1389,6 +1389,28 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
     assert.strictEqual(grant.empty, false, '빈 id');
   });
 
+  // 드라이브 대상 확인(보안 감사 2026-10-23) — trash는 살아 있는 행이 가리키면 관리자만 · list·renameFolder는 볼 수 있는 행/프로젝트만
+  // 되돌리기: mayTouchDrive 첫 줄을 `return true`로 바꾸면 깨진다.
+  {
+    const live = mockDb({ files: [{ id: 'f1', drive_file_id: 'LIVE' }], admins: ['boss@x.com'], tables: { cards: [{ id: 'c1', drive_folder_id: 'CARD_F' }] } });
+    const seen = mockDb({ tables: { cards: [{ id: 'c1', drive_folder_id: 'CARD_F' }], projects: [{ id: 'p1', name: '가을 행사' }] } });
+    const blind = mockDb({});
+    const t = (body, who = { email: 'a@x.com' }, as = seen) => drive.mayTouchDrive(live, who, body.action, body, () => as);
+    const r = {
+      trashLive: await t({ action: 'trash', fileId: 'LIVE' }), trashGone: await t({ action: 'trash', fileId: 'GONE' }),
+      trashAdmin: await t({ action: 'trash', fileId: 'LIVE' }, { email: 'boss@x.com' }), trashFolder: await t({ action: 'trash', fileId: 'CARD_F' }),
+      listSeen: await t({ action: 'list', folderId: 'CARD_F' }), listBlind: await t({ action: 'list', folderId: 'CARD_F' }, undefined, blind),
+      feedback: await t({ action: 'list', path: ['피드백'] }), worship: await t({ action: 'list', path: ['예배', '2026-10-18'] }),
+      projSeen: await t({ action: 'list', projectName: '가을 행사', cardTitle: 'x' }), projBlind: await t({ action: 'list', path: ['가을 행사'] }, undefined, blind),
+      rename: await t({ action: 'renameFolder', folderId: 'CARD_F' }, undefined, blind), upload: await t({ action: 'upload', path: ['피드백'] }),
+    };
+    check('드라이브 대상 확인 — 살아 있는 행의 실체는 관리자만 휴지통 · 목록·이름 바꾸기는 볼 수 있는 것만 · 피드백 목록은 관리자 (api/drive.js mayTouchDrive)', () => {
+      assert.deepStrictEqual(r, { trashLive: false, trashGone: true, trashAdmin: true, trashFolder: false, listSeen: true, listBlind: false,
+        feedback: false, worship: true, projSeen: true, projBlind: false, rename: false, upload: true });
+      assert.ok(api.indexOf('await mayTouchDrive(') > 0 && api.indexOf('await mayTouchDrive(') < api.indexOf('await fetch(url'), '스크립트를 부르기 전에 본다');
+    });
+  }
+
   // 모임 활동 보고서(0093)는 **그 동아리장도** — DB의 can_edit_meeting과 같은 경계(관리자가 올린 보고서를 동아리장이 고친다).
   // 되돌리기 검사: mayGrantEditors의 `leadsClubOf(…)` 갈래를 `false`로 바꾸면 첫 줄이 깨진다.
   const THIS_YEAR = Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4));

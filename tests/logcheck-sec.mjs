@@ -407,7 +407,10 @@ import { loadSource, readSplit } from './_load.mjs';
     "로그아웃은 scope: 'local' — 기본값 global은 다른 기기의 세션까지 끊는다");
   assert.ok(!/auth\.signOut\(\s*\)/.test(src),
     'scope 없는 signOut()이 남아 있지 않다');
-  console.log('PASS  로그아웃이 이 기기만 끊는다 2가지');
+  // 로그아웃은 이 기기의 푸시 구독을 먼저 걷는다(감사 2026-10-23) — 되돌리기: disablePush 줄을 빼거나 signOut 뒤로 옮기면 깨진다
+  const off = src.indexOf("m.disablePush()");
+  assert.ok(off > 0 && off < src.indexOf("supabase.auth.signOut({ scope: 'local' })"), '로그아웃 전에 이 기기의 푸시 구독을 걷는다');
+  console.log('PASS  로그아웃이 이 기기만 끊는다 · 푸시 구독을 먼저 걷는다 3가지');
 }
 
 // ── '승인을 기다려주세요'가 헛뜨지 않는지 (소스 단정) ────────────────────────
@@ -1062,7 +1065,9 @@ import { loadSource, readSplit } from './_load.mjs';
     ok(pf === '0110_past_year_leaders.sql' && /deleted_at IS NULL/.test(pb) && /my_leader_years/.test(pb), `${p} 마지막(${pf}) — 휴지통 · 연도`);
   }
   const [df, db] = policyLast('projects_delete');
-  ok(df === '0110_past_year_leaders.sql' && /my_leader_years/.test(db), `projects_delete 마지막(${df}) — 연도(옛 앱의 행 삭제 길은 그대로)`);
+  // 0125(감사 2026-10-23): 행 지우기는 마스터 또는 만든 사람의 빈 프로젝트만(앱은 휴지통 · 복제 실패 정리만 행을 지운다)
+  ok(df === '0125_audit_policies.sql' && /my_leader_years/.test(db) && /is_master\(\)/.test(db) && /not exists \(select 1 from public\.cards c where c\.project_id = projects\.id\)/.test(db),
+    `projects_delete 마지막(${df}) — 연도 · 마스터 또는 만든 사람의 빈 프로젝트`);
   const [gf, gb] = policyLast('projects_custom_guard');
   ok(gf === '0105_project_viewers.sql' && /as restrictive/i.test(gb), 'projects_custom_guard(0105 restrictive)는 뒤 파일이 건드리지 않는다');
   // 앱 — 업무 링크 칩·카드는 visibility.canSeeProject 한 곳 · 복원 실패는 두 도막(사용자 결정 2026-10-17)
@@ -1478,4 +1483,16 @@ export const readJson = async (req) => req.body;
   assert.ok(/shot_pending = false/.test(s24) && /coalesce\(p_drive, shot_drive_id\)/.test(s24) && /sender_id in \(auth\.uid\(\), public\.effective_uid\(\)\)/.test(s24), '③ 0124 set_feedback_shot — null이면 표시만 내림 · 본인 줄');
   assert.ok(/shot_pending: !!shot/.test(send) && (send.match(/rpc\('set_feedback_shot', \{ p_id: id, p_drive: null \}\)/g) || []).length === 2, '③ 넣을 때 표시를 켜고 · 못 구움/못 올림 둘 다 내린다');
   console.log('PASS  0123 피드백 사진 드라이브(본인 줄 · 비었을 때만 · 글 먼저 · 올라가는 중 표시)');
+}
+
+// 0126 — 계정 합치기가 0060 뒤에 생긴 칸도 옮긴다(감사 2026-10-23) · 유일 제약이 있는 표는 겹치는 줄을 먼저 지운다
+// 되돌리기: 0126에서 card_unlocks 갈래를 빼면 깨진다.
+{
+  const m = readFileSync(new URL('../supabase/migrations/0126_merge_profiles_more.sql', import.meta.url), 'utf8');
+  for (const t of ['card_unlocks', 'card_lock_requests', 'project_viewers', 'calendar_feeds']) {
+    assert.ok(new RegExp(`delete from public\.${t} d where d\.(profile_id|owner) = p_drop`).test(m) && new RegExp(`update public\.${t} set (profile_id|owner) = p_keep`).test(m), `0126: ${t} 겹침 먼저 지우고 옮긴다`);
+  }
+  for (const c of ['feedback set sender_id', 'comments set pinned_by', 'cards set locked_by', 'handovers set written_by', 'event_feeds set owner']) assert.ok(m.includes(`update public.${c} = p_keep`), `0126: ${c}`);
+  assert.ok(m.indexOf('0126: 0060 뒤에 생긴 칸') < m.indexOf('set approved = false, removed_at = now()'), '0126: 옮기기는 환송 처리 앞');
+  console.log('PASS  0126 계정 합치기 — 0060 뒤 칸까지(잠금 해제 · 보는 사람 · 달력 구독 · 피드백 · 인계 …)');
 }

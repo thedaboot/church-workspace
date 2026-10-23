@@ -1,7 +1,7 @@
 import webpush from 'web-push';
 import { notifLine } from '../src/services/notifyText.js';
 import { notifAllowed, notifSlot } from '../src/services/notifyPrefs.js';
-import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOriginPath, serviceKindLabel } from './_lib.js';
+import { adminClient, readJson, bearer, requireApprovedUser, isAdminEmail, safeEqual, sameOriginPath, serviceKindLabel } from './_lib.js';
 import { syncDocVectors } from './_docsync.js';
 import { buildWiki } from './_wikiBuild.js';
 import { reaskUnknown, warmCache } from './_wikiAsk.js';
@@ -200,6 +200,10 @@ async function handleSend(req, res) {
   if (!user) return;
 
   const { recipientIds, kind, actorName, cardId, projectId, preview, link } = body;
+  // 보낼 수 있는 종류는 DB 알림 넣기 정책(notifications_insert)과 같은 목록 + 앱이 DB 함수 뒤에 부르는 lock_reset ·
+  // 관리자만 approved · feedback_fixed(보안 감사 2026-10-23 — 아무 kind나 실어 '가입이 승인되었어요' 같은 시스템 문구를 보낼 수 있었다 ·
+  // 목록 밖이면 알림 끄기 칸도 못 찾아 끈 사람에게도 갔다). 목록 밖은 보내지 않는다.
+  if (!PUSH_KINDS.has(kind) && !(ADMIN_PUSH_KINDS.has(kind) && await isAdminEmail(db, user.email))) { res.status(200).json({ sent: 0 }); return; }
   // 자기 자신에게는 보내지 않는다(앱 안 알림도 같은 규칙 — cloudSync가 먼저 걸러내지만
   // 여기서도 막아 둔다. 알림은 종류가 늘 때마다 호출부가 늘어나는 자리다).
   // 같은 id가 여럿이면 하나로 — 상한은 **거른 뒤의** 수로 센다.
@@ -237,6 +241,9 @@ async function handleSend(req, res) {
 // 로그인 없는 입구라 **몸통은 카드 id 하나만 믿는다**: 그 카드가 10분 안에 들어왔고 아직 안 보냈을 때만(pushed_at을 먼저 찍어
 // 한 번만 · 두 번 불러도 0) · 받는 사람은 submit_welcome_card가 넣은 알림 줄의 주인(끈 사람은 이미 빠졌다 · loadTargets가 한 번 더) ·
 // 문구는 notifyText 한 벌(이름 = 카드 이름 · 아래 줄 = 유입 경로).
+export const PUSH_KINDS = new Set(['mention', 'reply', 'assign', 'reaction', 'service_published', 'note_shared', 'club_apply', 'club_accepted',
+  'meeting_new', 'guide_pinned', 'assignee_comment', 'lock_reset']);
+export const ADMIN_PUSH_KINDS = new Set(['approved', 'feedback_fixed']);
 export const WELCOME_PUSH_WINDOW_MS = 10 * 60e3;
 export const welcomeLink = (id) => `/?p=groups&tab=welcome&wc=${id}`;
 async function handleWelcomePush(db, res, id) {

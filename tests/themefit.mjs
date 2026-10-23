@@ -172,7 +172,7 @@ for (const [theme, themeLabel] of [['light', '라이트'], ['dark', '다크']]) 
       // 보고서 칸이 실제로 선 뒤에 잰다(안 서면 아래 대비 검사가 빈 화면을 통과시킨다)
       if (path.includes('g=tfc1')) {
         let shown = false;
-        for (let i = 0; i < 20 && !shown; i++) { shown = await ev(`!!document.querySelector('.club-meet-report-row .club-meet-report-edit') && !!document.querySelector('.club-meet-report-add.bg-accent')`); if (!shown) await sleep(150); }
+        for (let i = 0; i < 20 && !shown; i++) { shown = await ev(`!!document.querySelector('.club-meet-report-row .club-meet-report-edit') && !!document.querySelector('.club-meet-report-add') && !!document.querySelector('[data-report-write].bg-accent')`); if (!shown) await sleep(150); }   // 0117부터 진한 accent는 '보고서 작성' · '파일 올리기'는 연한 쪽(tests/groups와 같은 단정)
         check(`${tag} — 파일 줄(편집·지우기)과 '파일 올리기'가 선다`, shown);
       }
       const r = await ev(PROBE);

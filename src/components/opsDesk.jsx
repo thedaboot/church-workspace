@@ -441,7 +441,7 @@ function YearTab() {
             <div key={l} className="flex items-center gap-3 px-3 py-2.5">
               <span className="flex-1 min-w-0">
                 <span className="block text-[12px] text-fg-muted">{l}</span>
-                <span className="block text-[11px] text-fg-faint mt-0.5 truncate">{sub}</span>
+                <span className="block text-[11px] text-fg-muted mt-0.5 truncate">{sub}</span>
               </span>
               <span className="shrink-0 text-[17px] font-bold text-fg tabular-nums">{v}</span>
             </div>

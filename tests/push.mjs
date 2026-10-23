@@ -1299,4 +1299,30 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   console.log('PASS push — 새가족 알림(0121): 딥링크 · 10분 한 번 · 로그인 앞 갈래 · 받는 사람 = 알림 줄');
 }
 
+// 보낼 수 있는 종류(보안 감사 2026-10-23) — DB 알림 넣기 정책(0103 · 지금 라이브)의 목록 + lock_reset · 관리자만 approved·feedback_fixed
+// 되돌리기: handleSend의 PUSH_KINDS 확인 줄을 지우면 깨진다.
+{
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  const pol = readFileSync(join(ROOT, 'supabase', 'migrations', '0103_assignee_comment_notice.sql'), 'utf8');
+  const inPolicy = [...pol.slice(pol.indexOf('alter policy notifications_insert_authenticated')).split(';\n')[0].matchAll(/'([a-z_]+)'::text/g)].map(m => m[1]).filter(k => k !== 'approved');
+  assert.deepStrictEqual([...api.PUSH_KINDS].filter(k => k !== 'lock_reset').sort(), [...new Set(inPolicy)].sort(), '푸시 종류 = DB 알림 넣기 정책의 종류(+ lock_reset)');
+  assert.deepStrictEqual([...api.ADMIN_PUSH_KINDS].sort(), ['approved', 'feedback_fixed']);
+  const send = src.slice(src.indexOf('const { recipientIds, kind, actorName'), src.indexOf('const safeLink = sameOriginPath(link);'));
+  assert.ok(/if \(!PUSH_KINDS\.has\(kind\) && !\(ADMIN_PUSH_KINDS\.has\(kind\) && await isAdminEmail\(db, user\.email\)\)\)/.test(send), '목록 밖 종류는 보내지 않는다');
+  console.log('PASS push — 보낼 수 있는 종류는 DB 정책 목록 + lock_reset · 관리자만 approved·feedback_fixed');
+}
+// 휴지통 30일 정리는 드라이브를 행보다 먼저(감사 2026-10-23) — 되돌리기: ② 드라이브 블록을 행 삭제 뒤로 옮기면 깨진다
+{
+  const t = readFileSync(join(ROOT, 'api', '_trash.js'), 'utf8');
+  const purge = t.slice(t.indexOf('export async function purgeTrash'));
+  assert.ok(purge.indexOf('await trash(pf.folderId)') > 0 && purge.indexOf('await trash(pf.folderId)') < purge.indexOf(".from('projects').delete()"), '휴지통 정리: 드라이브 → 행 차례');
+  console.log('PASS push — 휴지통 정리는 드라이브를 행보다 먼저');
+}
+// 크론 한 단계가 던져도 뒤 단계는 돈다(감사 2026-10-23) — 되돌리기: try를 걷으면 깨진다
+{
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  assert.ok(/try \{ await handleDueSoon\(req, held\); \} catch/.test(src) && /try \{ await handleWorshipToday\(req, w\); \} catch/.test(src) && /try \{ await handleMeetingEve\(req, m\); \} catch/.test(src), '크론 단계마다 try');
+  console.log('PASS push — 크론 한 단계가 던져도 뒤 단계는 돈다');
+}
+
 console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음 · 8시 뒤 문서 임베딩·job=embed)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)·동아리 모임 전날(0078 · 내일 KST·대상·중복 방지·문구)');

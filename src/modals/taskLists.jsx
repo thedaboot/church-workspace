@@ -264,7 +264,7 @@ export function SubtaskList({ value = [], onChange, members = [], live = false, 
                   {/* lucide Check와 같은 선이지만 pathLength=1이 있어야 선으로 그릴 수 있다 */}
                   {s.done && (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                      aria-hidden className={`w-[11px] h-[11px] text-white${justDone === s.id ? ' dc-check-now' : ''}`}>
+                      aria-hidden className={`w-[11px] h-[11px] text-surface${justDone === s.id ? ' dc-check-now' : ''}`}>
                       <path pathLength="1" d="M20 6 9 17l-5-5" />
                     </svg>
                   )}
