@@ -205,6 +205,13 @@ export default async function handler(req, res) {
       return;
     }
     console.log(`${tag} → 성공 (${Date.now() - started}ms)`);
+    // 사본 id는 서버가 그 자리에서 적는다 — 브라우저가 답을 받은 뒤에 적으면, 그 사이 폰이 앱을 내리면(다음 엑셀을 고르러 카톡으로)
+    // 사본은 드라이브에 있는데 행에 id가 없어 '이 파일은 표로 볼 수 없어요'로 남았다(사용자 지적 2026-10-23 · 서부버튼 3월·7월)
+    if (action === 'convert' && out.previewId && body.fileId) {
+      const { error } = await supabase.from('files').update({ preview_file_id: out.previewId })
+        .eq('drive_file_id', String(body.fileId)).is('preview_file_id', null);
+      if (error) console.error(`${tag} → 사본 id를 적지 못함:`, error.message);
+    }
     res.status(200).json(out);
   } catch (e) {
     const ms = Date.now() - started;

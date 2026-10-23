@@ -1755,5 +1755,12 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
   });
 }
 
+// 사본 id는 서버가 convert 성공 자리에서 적는다(2026-10-23 · 서부버튼 3월·7월 — 폰이 앱을 내리면 브라우저 쪽 적기가 빠졌다)
+// 되돌리기: api/drive.js의 그 블록을 지우면 깨진다.
+check('C15 convert 성공 → 서버가 files.preview_file_id를 적는다(drive_file_id로 · 비어 있을 때만)', () => {
+  assert.match(api, /if \(action === 'convert' && out\.previewId && body\.fileId\) \{[\s\S]{0,200}?from\('files'\)\.update\(\{ preview_file_id: out\.previewId \}\)[\s\S]{0,80}?\.eq\('drive_file_id', String\(body\.fileId\)\)\.is\('preview_file_id', null\)/, '서버가 사본 id를 적지 않는다');
+  assert.ok(api.indexOf("action === 'convert' && out.previewId") < api.indexOf('res.status(200).json(out)'), '응답보다 먼저 적어야 한다');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);
