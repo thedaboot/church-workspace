@@ -151,7 +151,7 @@ export function ensureHandoverDemo() {
     return;
   }
   if (snap.seeded || navigator.webdriver) return;
-  if (localStorage.getItem('church_roster_v1')) return;
+  try { if (localStorage.getItem('church_roster_v1')) return; } catch { return; }   // 저장소가 막힌 브라우저 — 모듈 머리에서 불려 던지면 화면 조각째 못 실린다
   seed();
 }
 
@@ -239,6 +239,9 @@ const putRows = (rows) => write({ ...snap, rows, ...handoverRowsView(rows, TO_YE
 // 지금 계획·명단으로 인계 목록을 만든다(화면의 useHandoverModel과 같은 식)
 function liveItems(st = snap) {
   const roles = st.roster?.roles || [];
+  // 다음 해 직분이 아직 하나도 없으면 인계할 것이 없다 — 1월에 연 앱이 FROM·TO를 한 해 앞(2027→2028)으로 잡아
+  // 그해 직분자 전원에게 '받는 사람 미정' 인계 카드가 1년 내내 섰다(감사 2026-10-23)
+  if (!roles.some(r => r.year === TO_YEAR)) return [];
   const people = (st.roster?.people || []).filter(p => !p.removed_at);
   const pairs = pairRoles(roles.filter(r => r.year === FROM_YEAR), roles.filter(r => r.year === TO_YEAR), st.overrides || {}, LEAD_TEAMS, { toYear: TO_YEAR });
   const grads = st.grads ?? graduatesOf(people, TO_YEAR).map(p => p.id);

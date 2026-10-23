@@ -51,7 +51,8 @@ export async function gatherYear(year) {
   if (!supabase) {
     const att = worship.rows('attendance');
     const gst = worship.rows('attendance_guests');
-    const services = worship.rows('services').filter(s => inYear(s.service_date, year)).map(s => ({
+    // 지난 예배만(모임과 같은 '< today') — 미리 발행한 앞날 주보는 출석 0명이라 평균을 끌어내렸다(감사 2026-10-23 · 실측 31 → 27명)
+    const services = worship.rows('services').filter(s => inYear(s.service_date, year) && s.service_date < today).map(s => ({
       service_date: s.service_date, kind: s.kind,
       n: att.filter(a => a.service_id === s.id).length, g: gst.filter(a => a.service_id === s.id).length,
     }));
@@ -70,7 +71,7 @@ export async function gatherYear(year) {
   }
   const end = `${year + 1}-01-01`;
   const [svc, clubs, meetings, people] = await Promise.all([
-    supabase.from('services').select('id, service_date, kind').gte('service_date', `${year}-01-01`).lt('service_date', end),
+    supabase.from('services').select('id, service_date, kind').gte('service_date', `${year}-01-01`).lt('service_date', today < end ? today : end),
     supabase.from('groups').select('id, name, leader_person_id').eq('type', 'club').is('removed_at', null),
     supabase.from('group_meetings').select('id, group_id, meeting_date, title, attendance, files(id)')
       .gte('meeting_date', `${year}-01-01`).lt('meeting_date', today < end ? today : end),

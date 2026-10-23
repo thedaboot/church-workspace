@@ -36,7 +36,7 @@ export const bearer = (req) => {
 // 관리자는 `admins` 표(이메일)가 원본이다(0022). DB의 is_approved()도 `or is_admin()`이다.
 export async function isAdminEmail(supabase, email) {
   if (!email) return false;
-  const { data } = await supabase.from('admins').select('email').ilike('email', email);
+  const { data } = await supabase.from('admins').select('email').ilike('email', String(email).replace(/[\\%_]/g, '\\$&'));   // 이메일의 _·%가 패턴으로 먹지 않게(DB is_admin()은 정확히 같은지 본다)
   return !!(data && data.length);
 }
 

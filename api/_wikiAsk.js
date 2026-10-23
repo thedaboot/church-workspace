@@ -86,7 +86,8 @@ export const userClient = (token) => createClient(process.env.VITE_SUPABASE_URL,
 function dateIn(q, today) {
   const m = String(q).match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
   if (!m) return null;
-  return `${today.slice(0, 4)}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  const iso = `${today.slice(0, 4)}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  return iso > today ? `${Number(today.slice(0, 4)) - 1}${iso.slice(4)}` : iso;   // 1월에 묻는 '12월 28일'은 지난해다(앞날의 출석은 없다)
 }
 const dayAfter = (iso, d) => new Date(new Date(`${iso}T00:00:00Z`).getTime() + d * 864e5).toISOString().slice(0, 10);
 export function sundaysOf(today) {
@@ -443,9 +444,10 @@ async function dataStamp(admin) {
     return q.order(col, { ascending: false }).limit(1);
   }).then(r => (r.error ? null : r.data?.[0]?.[col] || null), () => null);
   // 배운 것이 반영·고쳐진 때(decided_at · 0098)도 — 그 뒤의 같은 물음은 새로 답한다(빈 칸이 내림차순 맨 앞에 서서 승인된 것만 본다 · PITFALLS 33-w)
-  const fact = admin.from('dabooti_facts').select('decided_at').eq('status', 'approved').order('decided_at', { ascending: false }).limit(5)
+  // 승인뿐 아니라 버림(✗)·'학습하지 마'(rejected)도 decided_at을 새로 적는다 — 승인만 보면 버린 사실에 기댄 캐시 답이 7일 남았다(감사 2026-10-23)
+  const fact = admin.from('dabooti_facts').select('decided_at').not('decided_at', 'is', null).order('decided_at', { ascending: false }).limit(5)
     .then(r => (r.error ? null : (r.data || []).map(x => x.decided_at).filter(Boolean).sort().at(-1) || null));
-  const all = await Promise.all([last('wiki_pages', 'updated_at', 'id'), last('wiki_edits', 'edited_at', 'page_id'), last('cards', 'updated_at'), last('projects', 'updated_at'), last('comments', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at'), last('events', 'updated_at'), fact]);
+  const all = await Promise.all([last('wiki_pages', 'updated_at', 'id'), last('wiki_edits', 'edited_at', 'page_id'), last('cards', 'updated_at'), last('projects', 'updated_at'), last('comments', 'updated_at'), last('services', 'updated_at'), last('files', 'updated_at'), last('doc_vec', 'updated_at'), last('events', 'updated_at'), fact]);
   return all.filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0] || null;
 }
 // 같은 질문 행과 데이터 도장은 함께 읽는다(1-d · 2026-10-12 — 차례로 두 번 오가던 것을 한 번에 · 둘 다 짧은 조회).
@@ -782,7 +784,7 @@ export const recordsText = (evidence) => {
 // 코드 검사 — 문장이 가리킨 기록(+ 오늘·사람 줄)에 없는 이름·숫자가 있으면, 그것들이 다 든 다른 기록 하나로 번호를 바꿔 준다(모델이 옆 번호를 단 경우).
 // 그런 기록이 없으면 버린다. 금액은 keepCited가 본다.
 export function checkFull(kept, evidence, hasName) {
-  const base = evidence.slice(0, 2).map(e => e.text).join(' ');
+  const base = evidence.filter(e => e.tag === 'today' || e.tag === 'people').map(e => e.text).join(' ');   // 사람 줄을 못 읽은 날 앞 두 기록이면 위키 장 하나가 공통 근거가 됐다
   const byId = new Map(evidence.map(e => [e.id, e]));
   const miss = (text, hay) => [...strangeNumbers(text, hay).map(n => `숫자 ${n}`), ...hasName.strangers(text, hay).map(n => `이름 ${n}`)];
   const ok = []; const dropped = [];
@@ -991,7 +993,7 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
     if (model === WIKI_MODEL) throw e;
     used = WIKI_MODEL;   // 느리거나 실패하면 flash-lite로(사용자 결정 2026-10-05)
     stage('fallback');
-    out = parseModelJson(await gen(FULL_SYS, prompt, { key, log, call: 'answer-lite', schema: SCHEMA.answer, model: WIKI_MODEL, budgetMs: 20 * 1000 }));
+    out = parseModelJson(await gen(FULL_SYS, prompt, { key, log, call: 'answer-lite', schema: SCHEMA.answer, model: WIKI_MODEL, budgetMs: 20 * 1000, tries: 1 }));   // 기본 3번이면 25 + 20×3초로 함수 60초를 넘었다
   }
   out = out || {};
   const allText = evidence.map(e => e.text).join(' ');
@@ -1405,7 +1407,7 @@ export async function tellOp(admin, { text, questionId = null, question = '', wh
   if (questionId && /^[0-9a-f-]{36}$/.test(String(questionId))) {
     const [{ data }, hidden] = await Promise.all([
       admin.from('dabooti_questions').select('id, question, answer').eq('id', questionId).limit(1),
-      Promise.all([leaderCardIds(admin), customCardIds(admin)]).then(([a, b]) => new Set([...a, ...b])).catch(() => null),
+      unseenCardIds(admin).catch(() => null),   // 리더 ∪ 직접 선택 ∪ 잠긴 — 잠긴 업무에 기댄 답의 사실이 모두에게 실리던 틈(감사 2026-10-23)
     ]);
     const row = data?.[0];
     if (row) { from = row.id; q = row.question; leader = !hidden || leaderCited(row.answer, hidden); }

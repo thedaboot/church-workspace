@@ -22,14 +22,23 @@ import { coverImage, coverPosition, coverFrame, dragFocus, clampFocus, COVER_RAT
 // 주보 종이(PDF)에는 싣지 않는다 — 종이 부품은 이 파일을 모른다.
 // ============================================================================
 
-export function CoverImg({ cover, focus = 0.5, onFail, className = '' }) {
+// sizes — 사진이 그려지는 폭(srcSet이 폭 단위라 브라우저가 맞는 크기를 고른다) · 목록 카드는 좁게 넘긴다
+// 사진이 오기 전에는 같은 자리에 뼈대(dc-skeleton)가 선다 — 한 번에 안 뜨는 표지가 빈 덮개로 보였다(사용자 지적 2026-10-23)
+export function CoverImg({ cover, focus = 0.5, onFail, className = '', sizes = '100vw' }) {
   const img = coverImage(cover);
   const [bad, setBad] = useState(null);
+  const [loaded, setLoaded] = useState(null);
+  // 캐시에서 바로 그려진 사진은 onLoad가 붙기 전에 끝났을 수 있다 — 붙는 순간 complete를 본다
+  const ref = useCallback((el) => { if (el?.complete && el.naturalWidth) setLoaded(el.currentSrc || el.src); }, []);
   if (!img || bad === img.src) return null;
   return (
-    <img referrerPolicy="no-referrer" className={`cover-img ${className}`} alt="" aria-hidden="true" decoding="async" draggable={false}
-      src={img.src} srcSet={img.srcSet} style={{ objectPosition: coverPosition(focus) }}
-      onError={() => { setBad(img.src); onFail?.(); }} />
+    <>
+      {!loaded && <span className={`cover-img dc-skeleton ${className}`} aria-hidden="true" />}
+      <img ref={ref} referrerPolicy="no-referrer" className={`cover-img ${className}`} alt="" aria-hidden="true" decoding="async" draggable={false}
+        src={img.src} srcSet={img.srcSet} sizes={img.srcSet ? sizes : undefined} style={{ objectPosition: coverPosition(focus) }}
+        onLoad={(e) => setLoaded(e.currentTarget.currentSrc || e.currentTarget.src)}
+        onError={() => { setBad(img.src); onFail?.(); }} />
+    </>
   );
 }
 

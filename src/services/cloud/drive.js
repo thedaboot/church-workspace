@@ -196,7 +196,7 @@ async function uploadOnceOrFind(payload, folderHint, net = null) {
     }
     if (found) {
       console.warn('[drive] 타임아웃이었지만 파일은 올라가 있었다 — 그 파일을 쓴다:', found.name);
-      return { id: found.id, url: found.url, folderId: folderHint.folderId || foundIn || undefined, existing: true };
+      return { id: found.id, url: found.url, folderId: foundIn || folderHint.folderId || undefined, existing: true };   // list가 준 자리가 파일이 실제로 있는 폴더다(업무 폴더 — folderHint.folderId는 프로젝트 폴더일 수 있다)
     }
     // 그 사이 멈췄으면 다시 보내지 않는다(올라간 파일이 있었다면 위 found가 받아 부르는 쪽이 휴지통으로 보낸다)
     if (net?.isCancelled?.()) throw cancelledError();
@@ -337,7 +337,8 @@ function attachPreviewCopy(row, { fileId, name, folderId, kind, version, cueEdit
         ...(cueEditors ? { cueEditors: true } : { editors: mine ? [mine] : [] }),
       });
       if (!out?.previewId) return;
-      await client().from('files').update({ preview_file_id: out.previewId }).eq('id', row.id);
+      const { error: upErr } = await client().from('files').update({ preview_file_id: out.previewId }).eq('id', row.id);
+      if (upErr) console.warn('[drive] 사본 id를 행에 적지 못했어요(서버가 적는다 · api/drive convert):', upErr.message);
       // 이 화면이 들고 있는 행에도 적어 둔다 — 다시 그릴 때 바로 구글 화면으로 간다.
       // (다른 화면·다른 사람은 다음 조회에서 받는다. 실시간을 걸 만한 값이 아니다.)
       row.preview_file_id = out.previewId;

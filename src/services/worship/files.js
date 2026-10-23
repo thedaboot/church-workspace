@@ -9,7 +9,7 @@ import { guestStore } from '../people.js';
 import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment,
   setFileExcerpt, fetchDriveFileBlob, SERVICE_FILE_KINDS, OFFICE_TYPE } from '../cloud.js';
 import { unwrap } from '../cloud/core.js';
-import { downscaleImage, FILE_MAX_DIM, BODY_MAX_DIM } from '../image.js';
+import { downscaleImage, FILE_MAX_DIM } from '../image.js';
 import { coverMap } from '../serviceView.js';
 import { copyExportAs } from '../cueDigest.js';
 import { generateId } from '../../utils.js';
@@ -65,8 +65,8 @@ export async function uploadServiceFile(service, file, folderId = null, { kind =
   }
   // 사진으로 찍어 온 송폼도 있다 — 첨부와 같이 보내기 직전에 줄인다(§6-29-m).
   // 사진이 아니거나 이미 작으면 원본 그대로 간다.
-  // 표지는 lh3에서 폭 720으로만 받는다 — 본문 이미지 상한(1600)이면 충분하고 올리는 바이트가 준다.
-  const sending = await downscaleImage(file, k === COVER ? BODY_MAX_DIM : FILE_MAX_DIM, 0.9);
+  // 표지도 첨부와 같은 상한(2560 · 그보다 작은 사진은 원본 그대로 간다) — 1600으로 줄이던 것이 넓은 화면에서 흐렸다(사용자 지적 2026-10-23)
+  const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
   const row = await uploadServiceFileToDrive(sending, {
     serviceId: service.id,
     serviceDate: service.service_date,

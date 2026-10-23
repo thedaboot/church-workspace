@@ -1363,7 +1363,7 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
   // grantEditors 자격 — 사본의 주인(두 id)·관리자만
   const gdb = mockDb({
     profiles: { A: { approved: true }, B: { approved: false, merged_into: 'A' }, C: { approved: true } },
-    files: [{ uploaded_by: 'A', preview_file_id: 'COPY_A' }, { uploaded_by: 'B', preview_file_id: 'COPY_B' }],
+    files: [{ uploaded_by: 'A', preview_file_id: 'COPY_A', drive_file_id: 'ORIG_A' }, { uploaded_by: 'B', preview_file_id: 'COPY_B' }],
     admins: ['boss@x.com'],
   });
   const may = async (id, email, fileId) => drive.mayGrantEditors(gdb, { id, email }, fileId);
@@ -1375,6 +1375,9 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
     admin: await may('C', 'boss@x.com', 'COPY_A'),
     unknown: await may('A', 'a@x.com', 'SOMEONE_ELSES_DOC'),
     empty: await may('A', 'a@x.com', ''),
+    // convert는 원본 id로 같은 자격(2026-10-23) — 되돌리기: api/drive.js 가드의 EDITOR_ACTIONS를 grantEditors 하나로 되돌리면 소스 단정이 깨진다
+    convOwn: await drive.mayGrantEditors(gdb, { id: 'A', email: 'a@x.com' }, 'ORIG_A', 'drive_file_id'),
+    convOther: await drive.mayGrantEditors(gdb, { id: 'C', email: 'c@x.com' }, 'ORIG_A', 'drive_file_id'),
   };
   check('grantEditors는 그 사본을 올린 사람(두 id)·관리자만 (api/drive.js mayGrantEditors)', () => {
     assert.strictEqual(grant.own, true, '올린 사람');
@@ -1443,8 +1446,9 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
     const call = api.indexOf('await fetch(url');
     assert.ok(api.indexOf("action === 'uploadFromUrl' && !isOurSignedUrl(") > 0 && api.indexOf("action === 'uploadFromUrl' && !isOurSignedUrl(") < call,
       'uploadFromUrl 주소 확인이 스크립트 호출보다 뒤다');
-    assert.ok(api.indexOf("action === 'grantEditors' && !(await mayGrantEditors(") > 0 && api.indexOf("action === 'grantEditors' && !(await mayGrantEditors(") < call,
-      'grantEditors 자격 확인이 스크립트 호출보다 뒤다');
+    const guard = api.search(/if \(EDITOR_ACTIONS\.has\(action\)\s*&& !\(await mayGrantEditors\(/);
+    assert.ok(guard > 0 && guard < call, 'grantEditors·convert 자격 확인이 없거나 스크립트 호출보다 뒤다');
+    assert.ok(grant.convOwn === true && grant.convOther === false, 'convert는 원본을 올린 사람·관리자만');
     // 502는 원문을 싣는다(사용자 결정 · PITFALLS §6-29-e) — 감사에서 기각된 항목이라 되돌리지 않는다
     assert.match(api, /\(\$\{e\.message \|\| e\}\)/, '닿지 못한 502에서 원문을 뺐다(§6-29-e)');
   });
@@ -1760,6 +1764,13 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
 check('C15 convert 성공 → 서버가 files.preview_file_id를 적는다(drive_file_id로 · 비어 있을 때만)', () => {
   assert.match(api, /if \(action === 'convert' && out\.previewId && body\.fileId\) \{[\s\S]{0,200}?from\('files'\)\.update\(\{ preview_file_id: out\.previewId \}\)[\s\S]{0,80}?\.eq\('drive_file_id', String\(body\.fileId\)\)\.is\('preview_file_id', null\)/, '서버가 사본 id를 적지 않는다');
   assert.ok(api.indexOf("action === 'convert' && out.previewId") < api.indexOf('res.status(200).json(out)'), '응답보다 먼저 적어야 한다');
+});
+
+// 끊긴 업로드를 list로 찾았을 때 그 파일이 있는 폴더(foundIn)를 먼저 — folderHint.folderId는 업무 폴더 확보가 실패한 경우
+// 프로젝트 폴더라, 그것이 업무 폴더 id로 적히면 그 업무를 지울 때 프로젝트 폴더째 휴지통으로 갔다(감사 2026-10-23)
+// 되돌리기: cloud/drive.js의 `foundIn || folderHint.folderId`를 거꾸로 하면 깨진다.
+check('C16 끊긴 업로드 확인은 파일이 실제로 있는 폴더 id를 돌려준다', () => {
+  assert.ok(cloud.includes('folderId: foundIn || folderHint.folderId || undefined, existing: true }'), '프로젝트 폴더 id가 업무 폴더 자리로 갈 수 있다');
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');

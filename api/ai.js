@@ -166,7 +166,7 @@ async function handleAsk(req, body, res) {
     return;
   }
   if (body.tell != null || body.learn != null) { await handleLearn(req, body, res, mod, admin); return; }
-  const prev = typeof body.prev === 'string' ? body.prev : '';
+  const prev = typeof body.prev === 'string' ? body.prev.slice(-2000) : '';   // 화면은 앞 물음 6개 · 첫 문장만 보낸다 — 상한이 없으면 한 사람이 모델 입력을 키울 수 있었다
   const q = typeof body.ask === 'string' ? body.ask.trim() : '';
   if (!q) { res.status(400).json({ error: 'ask는 비어 있지 않은 글자여야 합니다.' }); return; }
   if (q.length > 300) { res.status(413).json({ error: '질문이 너무 길어요\n300자 안으로 줄여 주세요' }); return; }

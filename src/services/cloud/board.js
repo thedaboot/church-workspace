@@ -137,7 +137,9 @@ export async function updateCard(id, patch, teamIds, assigneeIds) {
   try {
     card = unwrap(await client().from('cards').update(patch).eq('id', id).select().single());
   } catch (e) {
-    if (!isNoRowsError(e)) throw e;
+    // 칸 일부만 고친 patch로는 행을 새로 만들 수 없다(title not-null 23502 → '제목을 먼저 적어주세요'로 읽혔다 · 남이 휴지통에 넣은 업무 ·
+    // cards_update는 deleted_at is null만) — 그때는 PGRST116 그대로('이미 지워진 것 같아요')
+    if (!isNoRowsError(e) || !patch.title || !patch.project_id) throw e;
     console.warn('[cloud] 업무 행이 없어 upsert로 생성합니다:', id);
     card = unwrap(await client().from('cards').upsert({ id, ...patch }, { onConflict: 'id' }).select().single());
   }

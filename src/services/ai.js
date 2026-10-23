@@ -310,7 +310,9 @@ export function buildTaskContext(task, now = new Date()) {
   // 다른 프로젝트 — 재료는 listAllCards가 이미 스토어에 다 올려 두었다(네트워크 0).
   //  ⓐ 지금 돌아가는 일: 다른 프로젝트의 미완료 업무. 팀이 겹치는 것을 앞에 둔다.
   //  ⓑ 아카이브: 같은 팀이 **예전에 끝낸** 업무. "작년엔 이 시점에 뭘 했나"가 여기서 온다.
-  const others = all.filter(t => t.projectId !== task.projectId);
+  // 누가 보나가 좁혀진 프로젝트(리더만 · 고른 사람만 — visibility.isRestricted와 같은 값)는 다른 프로젝트 재료에서 뺀다 — 마스터가 고정한
+  //  요약은 그 업무를 보는 모두에게 보이는데, 그 안에 좁힌 프로젝트의 업무 제목·담당자가 섞여 들어갔다(감사 2026-10-23)
+  const others = all.filter(t => t.projectId !== task.projectId && !['leaders', 'custom'].includes(s.projects.byId[t.projectId]?.visibility));
   const projName = (t) => s.projects.byId[t.projectId]?.title || s.projects.byId[t.projectId]?.name || '다른 프로젝트';
   //  **팀이 겹치는 것만** 싣는다 — 예전에는 겹치는 것이 모자라면 남의 팀 일로 여덟 칸을 채웠고, 모델이 그걸
   //  이 업무의 다음 단계로 끌어왔다. 겹치는 것이 없으면 도막 자체가 없다.

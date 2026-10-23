@@ -82,7 +82,7 @@ export async function setMyTeams(teamIds) {
   if (!teamIds.length) return;
   const rows = teamIds.map(team_id => ({ profile_id: uid, team_id }));
   const ins = await client().from('profile_teams').insert(rows);
-  if (ins.error) console.warn('[cloud] profile_teams 저장 실패:', ins.error.message);
+  if (ins.error) throw ins.error;   // 지운 뒤 넣기가 실패하면 소속이 빈 채 '저장했어요'로 보였다 — 실패로 알린다(감사 2026-10-23)
 }
 
 // 설정에서 고친 소속을 내 명단 사람에게도(0111 set_my_person_teams — 명단 이름만 · 겹침은 0107 트리거가 23514로 막는다).

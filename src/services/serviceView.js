@@ -168,7 +168,8 @@ export function coverImage(cover) {
   if (cover._src) return { src: cover._src, srcSet: undefined };
   const id = cover.drive_file_id;
   if (!id) return null;
-  return { src: coverUrl(id, 720), srcSet: `${coverUrl(id, 360)} 1x, ${coverUrl(id, 720)} 2x` };
+  // 폭 단위로 고른다(부르는 쪽 sizes) — 예전의 720(2x)은 넓은 상세 머리·고해상도 폰에서 흐렸다(사용자 지적 2026-10-23)
+  return { src: coverUrl(id, 1440), srcSet: [720, 1440, 2560].map(w => `${coverUrl(id, w)} ${w}w`).join(', ') };
 }
 
 // 목록 한 번에 모은 표지 행들 → { service_id: 행 } — 한 주보에 두 장이 겹쳐 있으면(새 것을 넣고

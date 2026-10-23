@@ -80,10 +80,12 @@ export const useEvents = () => useSyncExternalStore((fn) => { subs.add(fn); retu
 
 // 다시 읽기(클라우드) — 겹쳐 부르면 한 번으로 · 첫 읽기가 실패하면 onFail(캐시가 있으면 지난 값 그대로)
 let inflight = null;
+let again = false;   // 읽는 도중 온 변경 신호 — 그 읽기는 변경 전에 떠났으니 끝나면 한 번 더 읽는다
 let loadedOnce = false;
 function refresh(onFail) {
   if (!cloudOn()) return Promise.resolve();
-  if (!inflight) {
+  if (inflight) again = true;
+  else {
     inflight = listEvents().then((rows) => {
       loadedOnce = true;
       try { writeCache(CACHE_KEY, rows); } catch { /* 자리가 없으면 이번 화면에서만 */ }
@@ -91,7 +93,7 @@ function refresh(onFail) {
     }).catch((e) => {
       console.error('[events] 목록 읽기 실패:', e);
       onFail?.(e, { hadCache: loadedOnce || base.length > 0 });
-    }).finally(() => { inflight = null; });
+    }).finally(() => { inflight = null; if (again) { again = false; refresh(onFail); } });
   }
   return inflight;
 }

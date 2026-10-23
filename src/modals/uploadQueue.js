@@ -115,6 +115,7 @@ export async function runUploads({ cardId, rows, prepare, send, onError }) {
           onProgress: (loaded, total) => setUploadProgress(cardId, row.id, { pct: sendPct(loaded, total), phase: 'send' }),
           onSent: () => {
             setUploadProgress(cardId, row.id, { phase: 'move' });
+            stopTick?.();   // 시간 초과 뒤 다시 보내면 onSent가 또 온다 — 앞 타이머를 덮어 버리면 영영 안 멈췄다
             stopTick = moveTicker(row._file?.size, pct => setUploadProgress(cardId, row.id, { pct }));
           },
         };

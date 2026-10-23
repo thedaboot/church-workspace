@@ -49,19 +49,24 @@ export const useWorkspaceController = () => {
   useEffect(() => {
     if (cloudOn) return;
     let timer = null;
+    // 저장 공간이 가득하거나 막힌 브라우저에서 setItem이 던진다 — 타이머 안이라 잡지 않으면
+    // 잡히지 않은 오류로 콘솔에만 남는다. 화면 상태는 그대로 두고 경고만 남긴다.
+    const save = () => {
+      timer = null;
+      try {
+        localStorage.setItem('church_app_v4', JSON.stringify(store.getState()));
+      } catch (e) {
+        console.warn('[guest] 로컬 저장 실패:', e?.message);
+      }
+    };
     const unsub = store.subscribe(() => {
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        // 저장 공간이 가득하거나 막힌 브라우저에서 setItem이 던진다 — 타이머 안이라 잡지 않으면
-        // 잡히지 않은 오류로 콘솔에만 남는다. 화면 상태는 그대로 두고 경고만 남긴다.
-        try {
-          localStorage.setItem('church_app_v4', JSON.stringify(store.getState()));
-        } catch (e) {
-          console.warn('[guest] 로컬 저장 실패:', e?.message);
-        }
-      }, 300);
+      timer = setTimeout(save, 300);
     });
-    return () => { clearTimeout(timer); unsub(); };
+    // 고친 뒤 300ms 안에 탭을 닫으면 그 수정을 잃었다 — 기다리던 저장을 그 자리에서 한다
+    const flush = () => { if (timer) { clearTimeout(timer); save(); } };
+    window.addEventListener('pagehide', flush);
+    return () => { clearTimeout(timer); unsub(); window.removeEventListener('pagehide', flush); };
   }, [cloudOn]);
 
   // opts.silentContent — 본문을 **조용히** 저장한다(업무 창의 자동 저장 · 같이 쓰기의 거울). 본문 활동
@@ -119,7 +124,8 @@ export const useWorkspaceController = () => {
       // 되돌리는 칸은 상태·순서뿐이다(services/optimistic.js 머리말 — 제목·본문은 창의 초안이 원본).
       let cardOk = false;
       cloudSync.cardUpsertCloud(task, isNew, { changed: taskChangedKeys(task, oldData), base: oldData })
-        .then(() => { cardOk = true; return addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id); })
+        // 활동 줄이 실패해도 멘션·담당자 알림은 보낸다(감사 2026-10-23 — 한 줄로 이어져 있어 알림까지 건너뛰었다)
+        .then(() => { cardOk = true; return addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id).catch(reportCloudError('활동 기록을 남기지 못했어요')); })
         .then(() => mentionIds.length && cloudSync.notifyMentions(task.content, {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId, recipientIds: mentionIds,
         }))
@@ -180,7 +186,8 @@ export const useWorkspaceController = () => {
     const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);
     // 답글이면 원 댓글 작성자에게도 알림 (본인 댓글에 본인이 답글 단 경우는 제외 — notifyComment가 처리)
     const parent = parentId ? (task.comments || []).find(c => c.id === parentId) : null;
-    const after = () => (addedLogs.length ? cloudSync.activityAddCloud(addedLogs, task.projectId, task.id) : Promise.resolve())
+    // 활동 줄이 실패해도 댓글 알림(멘션·답글·담당자)은 보낸다(감사 2026-10-23)
+    const after = () => (addedLogs.length ? cloudSync.activityAddCloud(addedLogs, task.projectId, task.id).catch(reportCloudError('활동 기록을 남기지 못했어요')) : Promise.resolve())
       .then(() => cloudSync.notifyComment(text, {
         actorName: currentUser.name, cardId: task.id, projectId: task.projectId,
         replyToName: parent?.author, assignees: task.assignees,

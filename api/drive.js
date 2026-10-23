@@ -69,9 +69,10 @@ async function editorsFor(supabase, user) {
 // 올린 사람은 **두 id를 다 내 것으로 본다**(합친 계정 · §6-34-i · DB의 files_delete와 같은 규칙).
 // **모임 활동 보고서(0093)는 그 동아리장도 붙는다** — 보고서를 고치는 자격이 DB의 can_edit_meeting(관리자 ·
 // 그 동아리장 · 0122부터 총무)이라, 관리자가 올린 보고서를 동아리장이 못 고치면 화면의 '편집'이 거짓말이 된다.
-export async function mayGrantEditors(supabase, user, fileId) {
+// col — convert는 원본(drive_file_id)으로 본다(사본을 새로 만들어 부르는 사람을 편집자로 붙이는 길이라 같은 자격 · 보안 감사 2026-10-23)
+export async function mayGrantEditors(supabase, user, fileId, col = 'preview_file_id') {
   if (!fileId) return false;
-  const { data: rows } = await supabase.from('files').select('uploaded_by, meeting_id').eq('preview_file_id', fileId);
+  const { data: rows } = await supabase.from('files').select('uploaded_by, meeting_id').eq(col, fileId);
   if (!rows?.length) return false;
   const mine = await myIds(supabase, user.id);
   if (rows.some(r => mine.has(r.uploaded_by))) return true;
@@ -160,8 +161,9 @@ export default async function handler(req, res) {
     res.status(400).json({ error: '올릴 파일 주소가 올바르지 않습니다.' });
     return;
   }
-  if (action === 'grantEditors' && !(await mayGrantEditors(supabase, user, String(body.fileId || '')))) {
-    console.error('[drive] grantEditors 거절:', user.email, body.fileId);
+  if (EDITOR_ACTIONS.has(action)
+    && !(await mayGrantEditors(supabase, user, String(body.fileId || ''), action === 'convert' ? 'drive_file_id' : 'preview_file_id'))) {
+    console.error(`[drive] ${action} 거절:`, user.email, body.fileId);
     res.status(403).json({ error: '이 파일의 편집 권한은 올린 사람과 관리자만 줄 수 있습니다.' });
     return;
   }

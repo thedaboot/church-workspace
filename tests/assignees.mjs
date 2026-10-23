@@ -221,4 +221,23 @@ assert.ok(emptyDel && !emptyDel.filters.some(f => f.kind === 'not'), '빈 집합
 assert.ok(!stmtsFor('card_assignees').some(s => s.op === 'upsert' || s.op === 'insert'), '빈 집합이면 넣지 않는다');
 assert.ok(!stmtsFor('card_teams').length, 'undefined인 조인은 건드리지 않는다');
 
+// ── 하위 업무를 연달아 체크(감사 2026-10-23) — 두 번째 쓰기가 첫 쓰기를 기다린 뒤 서버 목록을 읽어야 앞 체크가 안 풀린다
+// 되돌리기: cardUpsertCloud의 `await before;`를 지우면 깨진다(서버가 [a 미체크, b 체크]로 끝난다).
+{
+  const C = globalThis.__CLOUD;
+  let server = [{ id: 'a', title: 'a', done: false }, { id: 'b', title: 'b', done: false }];
+  const keep = { getCard: C.getCard, updateCard: C.updateCard };
+  C.getCard = async () => ({ subtasks: server.map(s => ({ ...s })) });
+  C.updateCard = async (id, patch) => { await new Promise(r => setTimeout(r, 30)); if (patch.subtasks) server = patch.subtasks; return patch; };
+  const t0 = [{ id: 'a', title: 'a', done: false }, { id: 'b', title: 'b', done: false }];
+  const t1 = [{ id: 'a', title: 'a', done: true }, { id: 'b', title: 'b', done: false }];
+  const t2 = [{ id: 'a', title: 'a', done: true }, { id: 'b', title: 'b', done: true }];
+  const card = (subtasks) => ({ id: 'cs', projectId: 'p1', title: '체크', status: '진행 중', teams: [], assignees: [], subtasks });
+  const w1 = sync.cardUpsertCloud(card(t1), false, { changed: ['subtasks'], base: card(t0) });
+  const w2 = sync.cardUpsertCloud(card(t2), false, { changed: ['subtasks'], base: card(t1) });
+  await Promise.all([w1, w2]);
+  assert.deepStrictEqual(server.map(s => s.done), [true, true], '연달아 체크한 두 줄이 모두 남는다');
+  Object.assign(C, keep);
+}
+
 console.log('PASS  담당자 읽기 3가지(조인·폴백·빈 값) · 쓰기 3가지(신규·수정·미등록) · 조인 쓰기가 순서에 상관없는 모양 · 합친 계정의 이름·사진(남긴 행이 이긴다) · 한 이름 → id 하나(알림 두 벌 방지)');

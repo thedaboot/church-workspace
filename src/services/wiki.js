@@ -88,7 +88,8 @@ export async function askDabooti(q, prev = '', { onStage, onEvidence } = {}) {
       askLines(`${await r.text().catch(() => '')}\n`).items.forEach(take);
     }
     // 스트림이 열린 뒤의 실패는 마지막 줄의 error(HTTP 코드는 200)
-    if (!r.ok || j.error) { const err = new Error(j.error || `HTTP ${r.status}`); err.human = j.error || '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요'; throw err; }
+    // 끝 줄 없이 닫힌 스트림(j = {})은 실패다 — 성공으로 받으면 빈 말풍선을 10분 동안 같은 물음의 답으로 쥐었다
+    if (!r.ok || j.error || !Object.keys(j).length) { const err = new Error(j.error || `HTTP ${r.status}`); err.human = j.error || '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요'; throw err; }
     return j;
   } catch (e) {
     if (e?.name === 'AbortError') { const err = new Error('timeout'); err.human = '답이 제때 오지 않았어요\n잠시 후 다시 물어봐 주세요'; throw err; }

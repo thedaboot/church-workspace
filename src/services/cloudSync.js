@@ -776,16 +776,22 @@ export function cardWritePromise(id) { return cardWrites.get(id) || Promise.reso
 export async function cardUpsertCloud(task, isNew, { changed = null, base = null } = {}) {
   if (!isNew && changed) {
     if (!changed.length) return null;               // 바뀐 게 없으면 쓰지 않는다
-    const patch = pickCols(cardPatch(task), changed);
-    if (changed.includes('subtasks') && base) {
-      let now = await write(() => cloud.getCard(task.id)).catch(() => null);
-      // 잠긴 업무(0100)는 하위 업무가 card_secrets에 있다 — cards 쪽 '[]'과 합치면 남의 줄을 지운 것으로 읽힌다
-      if (now?.locked) now = await cloud.getCardSecret(task.id).catch(() => null);
-      if (now) patch.subtasks = subtasksForDb(mergeSubtasks(base.subtasks, task.subtasks, now.subtasks));
-    }
-    const teamIds = changed.includes('teams') ? (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean) : undefined;
-    const assigneeIds = changed.includes('assignees') && profileIdToName.size ? assigneeIdsOf(task.assignees) : undefined;
-    const p = write(() => cloud.updateCard(task.id, patch, teamIds, assigneeIds));
+    const before = cardWrites.get(task.id);
+    const p = (async () => {
+      const patch = pickCols(cardPatch(task), changed);
+      if (changed.includes('subtasks') && base) {
+        // 같은 카드의 앞 쓰기가 들어간 뒤에 서버 목록을 읽는다 — 안 기다리면 연달아 체크한 두 줄 중 앞 줄을
+        // '내가 안 고친 줄'로 보고 서버의 옛 값(미체크)으로 되돌렸다(감사 2026-10-23 · mergeSubtasks 실측)
+        await before;
+        let now = await write(() => cloud.getCard(task.id)).catch(() => null);
+        // 잠긴 업무(0100)는 하위 업무가 card_secrets에 있다 — cards 쪽 '[]'과 합치면 남의 줄을 지운 것으로 읽힌다
+        if (now?.locked) now = await cloud.getCardSecret(task.id).catch(() => null);
+        if (now) patch.subtasks = subtasksForDb(mergeSubtasks(base.subtasks, task.subtasks, now.subtasks));
+      }
+      const teamIds = changed.includes('teams') ? (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean) : undefined;
+      const assigneeIds = changed.includes('assignees') && profileIdToName.size ? assigneeIdsOf(task.assignees) : undefined;
+      return write(() => cloud.updateCard(task.id, patch, teamIds, assigneeIds));
+    })();
     cardWrites.set(task.id, p.then(() => true, () => false));
     return p;
   }

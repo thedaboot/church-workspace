@@ -23,7 +23,7 @@ import {
   toggleAttendance, yearOptions,
   leaderPlan, dupReason, duplicateName, dupNameText, nameReceipts, receiptPlan,
 } from '../services/groups.js';
-import { runUploads, stagedRow, failedRow } from '../modals/uploadQueue.js';
+import { runUploads, stagedRow, failedRow, uploadingByCard } from '../modals/uploadQueue.js';
 import { cancelledError } from '../services/transfer.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
@@ -560,7 +560,9 @@ export function GroupsView() {
       if (!fits.length) return;
       // 이름은 우리 이름으로 — '<동아리> 활동보고서(M월 D일).<확장자>'(작성 화면 엑셀과 같은 꼴 · 드라이브와 칸 모두 · 사용자 요청 2026-10-22) ·
       // 이 모임에 같은 이름이 있으면 뒤에 ' 2'·' 3'(영수증 낱장과 같은 번호 꼴)
-      const used = new Set((meeting.files || []).map(f => String(f.name || '').normalize('NFC')));
+      // 아직 올라가는 중인 줄의 이름도 센다 — 올라가기 전에 하나 더 고르면 두 파일이 같은 이름이 됐다
+      const used = new Set([...(meeting.files || []), ...(uploadingByCard.get(meetingQueueKey(meeting.id)) || [])]
+        .map(f => String(f.name || '').normalize('NFC')));
       const base = reportFileName(club, meeting).replace(/\.xlsx$/, '');
       const ok = fits.map(f => {
         const ext = (/\.([A-Za-z0-9]+)$/.exec(f.name) || [])[1]?.toLowerCase() || 'xlsx';
@@ -574,7 +576,8 @@ export function GroupsView() {
       // 엑셀 파일은 올라간 뒤에 이 보고서의 파일로 적는다(file_id). 영수증은 작성 화면 저장과 같은 길로 드라이브에도.
       const xlsx = !formOf(meeting)?.saved_at && ok.find(f => /\.xlsx$/i.test(f.name));
       const reading = xlsx ? readReportDraft(xlsx).catch(e => { console.warn('[groups] 보고서 엑셀을 읽지 못했다:', e); return null; }) : null;
-      const uploading = sendReports(club, meeting, ok.map(stagedRow));
+      // 양식 엑셀이면 사본이 선 뒤에 줄을 세운다 — 아래에서 행을 새 객체로 펴 넣으면 늦게 붙는 사본 id가 화면에 닿지 않는다(onSaveForm과 같은 이유)
+      const uploading = sendReports(club, meeting, ok.map(stagedRow), { awaitCopy: !!xlsx });
       if (!reading) return;
       (async () => {
         let draft = await reading;

@@ -106,6 +106,15 @@ check('다른 프로젝트에서 지금 돌아가는 일이 실린다',
 // 팀이 겹치는 것만 싣는다(2026-09-30) — 예전에는 겹치는 것이 모자라면 남의 팀 일로 여덟 칸을 채웠다.
 // 되돌리기: otherActive에 !sharesTeam 갈래를 되살리면 깨진다.
 check('팀이 안 겹치는 다른 프로젝트 일은 안 실린다', !ctx.includes('체육대회 물품 준비'));
+// 좁힌 프로젝트(리더만 · 고른 사람만)의 업무는 다른 프로젝트 재료에 안 실린다(감사 2026-10-23 — 고정 요약이 모두에게 보인다)
+// 되돌리기: ai.js others의 visibility 거르기를 빼면 깨진다.
+for (const vis of ['leaders', 'custom']) {
+  const p2 = globalThis.__STATE.projects.byId.p2;
+  p2.visibility = vis;
+  const hid = buildTaskContext(globalThis.__STATE.tasks.byId.t0, NOW);
+  delete p2.visibility;
+  check(`보는 사람이 좁혀진(${vis}) 다른 프로젝트 업무는 안 실린다`, !hid.includes('체육대회 응원가 연습') && ctx.includes('체육대회 응원가 연습'));
+}
 {
   const lone = buildTaskContext({ ...globalThis.__STATE.tasks.byId.t0, id:'lone', teams:['엔지니어팀'] }, NOW);
   check('팀이 겹치는 다른 프로젝트 일이 없으면 그 도막이 없다', !lone.includes('[다른 프로젝트에서 지금 돌아가는 일]'));

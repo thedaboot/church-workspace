@@ -172,7 +172,10 @@ async function saveReportForm(meeting, draft, { submit = false } = {}) {
   }, { onConflict: 'meeting_id' }));
   const kept = new Set([...photos, ...receipts].map(p => p.path));
   const gone = [...(prev.photos || []), ...(prev.receipts || [])].map(p => p.path).filter(p => p && !kept.has(p));
-  if (gone.length) supabase.storage.from(BUCKET).remove(gone).catch(e => console.warn('[report] 뺀 사진을 지우지 못했어요:', e));
+  // supabase-js는 실패를 던지지 않고 { error }로 돌려준다 — catch만 두면 실패가 한 번도 안 보였다
+  if (gone.length) supabase.storage.from(BUCKET).remove(gone)
+    .then(r => r?.error && console.warn('[report] 뺀 사진을 지우지 못했어요:', r.error.message))
+    .catch(e => console.warn('[report] 뺀 사진을 지우지 못했어요:', e));
   return { ...base, photos, receipts, file_id: prev.file_id || null, saved_at: now, submitted_at: submittedAt };
 }
 

@@ -636,7 +636,7 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
     && /isApprovedProfile\(supabase, owner\)/.test(icsSrc) && /isAdminEmail\(supabase, data\?\.email\)/.test(icsSrc), 'GET은 매번 주인의 승인을 본다');
   assert.ok(/safeEqual\(sig, calSig\(f\)\)/.test(icsSrc) && /`cal:\$\{process\.env\.SUPABASE_SECRET_KEY/.test(icsSrc) && /`ics:\$\{process\.env\.SUPABASE_SECRET_KEY/.test(icsSrc),
     '구독 서명은 cal: 접두(광고 ics:와 다른 열쇠)');
-  assert.ok(/'Cache-Control', 'public, max-age=300'/.test(icsSrc) && /picked\.has\(r\.id\) && !goneCard\(trashed, r\) && feedKeepRow\(r\)/.test(icsSrc), '캐시 5분 · 지금 남은 업무만(휴지통 것은 빠진다 · 0104)');
+  assert.ok(/'Cache-Control', 'private, max-age=300'/.test(icsSrc) && /picked\.has\(r\.id\) && !goneCard\(trashed, r\) && feedKeepRow\(r\)/.test(icsSrc), '캐시 5분 · 지금 남은 업무만(휴지통 것은 빠진다 · 0104)');
   assert.ok(/\.eq\('project_id', feed\.project_id\)/.test(icsSrc), '다른 프로젝트로 간 업무는 빠진다');
   assert.ok(/const a = argsOf\(body\);/.test(icsSrc) && /sign\(a\.s, a\.n, e\)/.test(icsSrc) && /\?s=\$\{a\.s\}&n=\$\{a\.n\}&e=\$\{e\}&sig=/.test(icsSrc), '광고 → 내 달력 길은 그대로');
   const { calSig } = await import(new URL('../api/ics.js', import.meta.url).href);

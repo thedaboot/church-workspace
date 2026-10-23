@@ -1149,9 +1149,19 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.deepStrictEqual(SV.storyNotices([{ title: '다음 주 예배 위원', body: 'x: y' }, { title: '제목만', body: '  ' }, { title: '', body: ' ' }, {}, { title: '교우동정', body: '생일' }, { title: '', body: '본문만' }]).map(n => n.title || n.body),
     ['제목만', '교우동정', '본문만'], '스토리 광고는 전부(제목만 있는 것도) · 둘 다 빈 줄만 뺀다 · 다음 주 위원은 마지막 장으로');
   // 표지 사진(0081) — lh3 자르지 않은 주소(=w720 · 1x =w360 · -c 없음) · 위치 한 칸 · 목록 한 번에 가장 최근 한 장 · 틀 끌기
-  assert.deepStrictEqual(SV.coverImage({ drive_file_id: 'abc' }), { src: 'https://lh3.googleusercontent.com/d/abc=w720',
-    srcSet: 'https://lh3.googleusercontent.com/d/abc=w360 1x, https://lh3.googleusercontent.com/d/abc=w720 2x' });
+  // 2026-10-23: 폭 단위 srcSet(720·1440·2560 — 720(2x)은 넓은 상세 머리에서 흐렸다 · 사용자 지적)
+  assert.deepStrictEqual(SV.coverImage({ drive_file_id: 'abc' }), { src: 'https://lh3.googleusercontent.com/d/abc=w1440',
+    srcSet: 'https://lh3.googleusercontent.com/d/abc=w720 720w, https://lh3.googleusercontent.com/d/abc=w1440 1440w, https://lh3.googleusercontent.com/d/abc=w2560 2560w' });
   assert.ok(!/-c\b|=w\d+-h/.test(SV.coverImage({ drive_file_id: 'x' }).srcSet), '자르는 주소(-c)를 쓰지 않는다 — 위치를 서버가 버린다');
+  // 표지가 오기 전에는 같은 자리에 뼈대 · 폭 단위 srcSet이라 sizes를 같이 준다 · 목록 카드는 좁게(사용자 지적 2026-10-23)
+  // 되돌리기: CoverImg의 `{!loaded && <span className={\`cover-img dc-skeleton` 줄이나 sizes를 빼면 깨진다.
+  {
+    const cv = readSrc('src/components/worshipCover.jsx');
+    assert.ok(cv.includes("{!loaded && <span className={`cover-img dc-skeleton ${className}`} aria-hidden=\"true\" />}")
+      && cv.includes('sizes={img.srcSet ? sizes : undefined}') && cv.includes('onLoad={(e) => setLoaded('), '표지 뼈대 · sizes');
+    assert.ok(readSrc('src/views/worshipView.jsx').includes('sizes="(min-width: 640px) 520px, 100vw"'), '목록 카드 표지는 카드 폭만큼만 받는다');
+    assert.ok(/const sending = await downscaleImage\(file, FILE_MAX_DIM, 0\.9\);/.test(readSrc('src/services/worship/files.js')), '표지도 첨부와 같은 상한(2560)');
+  }
   assert.deepStrictEqual(SV.coverImage({ _src: 'blob:1', drive_file_id: 'abc' }), { src: 'blob:1', srcSet: undefined }, '방금 올린 것은 브라우저 안 주소가 이긴다');
   assert.strictEqual(SV.coverImage({ source: 'storage', storage_path: 'a/b' }), null, '드라이브 id가 없으면 사진 없이');
   assert.strictEqual(SV.coverImage(null), null);
@@ -1641,6 +1651,10 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   // 얼굴 원은 이어진 계정의 사진(사용자 지적 2026-10-17 — 인수인계 탭에 사진이 하나도 안 떴다 · url={null}이었다).
   // 되돌리기: Face의 url을 null로 돌리면 깨진다.
   assert.ok(/url=\{profileAvatar\(person\?\.profile_id\) \|\| null\}/.test(hvUi), '인수인계 얼굴 원은 people.profile_id로 사진을 찾는다');
+  // 다음 해 직분이 하나도 없으면 인계 목록이 비어야 한다(2027년 1월에 2028 인계 카드가 서던 것 · 감사 2026-10-23)
+  // 되돌리기: handoverStore.liveItems나 handover.jsx live의 `roles.some(r => r.year === TO_YEAR)` 조건을 빼면 깨진다.
+  assert.ok(/if \(!roles\.some\(r => r\.year === TO_YEAR\)\) return \[\];/.test(readSrc('src/services/handoverStore.js'))
+    && /const live = roles\.some\(r => r\.year === TO_YEAR\) \? buildHandovers\(/.test(hvUi), '다음 해 직분이 없으면 인계 목록은 비어 있다(스토어 · 화면 두 곳)');
   // 폰에서 '사라질 직분' 칩과 '인계할 사람 선택'이 한 칸에 안 들어가 줄마다 다르게 꺾였다(사용자 지적 2026-10-21) —
   // 고르기는 직분 칩 줄의 오른쪽(폰) · 끝 열 고정 폭(데스크톱 · 고르기가 없는 '새로 맡음' 줄도 열이 같게)
   assert.ok(/data-pair-pick="" className="row-start-1 col-start-3 md:col-start-5 justify-self-end"/.test(hvUi)
@@ -1772,6 +1786,14 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.deepStrictEqual([read.photos.length, read.receipts.length], [2, 1], '읽기: 사진 둘 · 영수증 하나');
   assert.strictEqual(read.sorted, true, "읽기: 우리 엑셀은 영수증이 갈라져 있다(sorted) — 손으로 만든 엑셀만 '영수증 선택' 시트");
   assert.strictEqual(await xw.readClubReport(buf(wb)), null, '보고서 양식이 아니면 null');
+
+  // 연말 보고의 예배는 지난 예배만(앞날 주보는 출석 0명이라 평균을 끌어내렸다 · 감사 2026-10-23) — 되돌리기: 두 조건 중 하나를 빼면 깨진다
+  {
+    const src = readSrc('src/services/yearReport.js');
+    assert.ok(src.includes("filter(s => inYear(s.service_date, year) && s.service_date < today)")
+      && src.includes(".from('services').select('id, service_date, kind').gte('service_date', `${year}-01-01`).lt('service_date', today < end ? today : end)"),
+      '연말 보고 예배 출석은 오늘 앞의 예배만 센다(게스트 · 클라우드)');
+  }
 
   // 연말 보고 표 — 순수 짓기(buildYearSheets)
   const yr = readSrc('src/services/yearReport.js')

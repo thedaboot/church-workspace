@@ -90,7 +90,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   const pushSrc = readFileSync(new URL('../api/push.js', import.meta.url), 'utf8');
   assert.ok(pushSrc.includes('const wiki = await runWiki(started);') && pushSrc.indexOf('runEmbedSync(embedBudget(started))') < pushSrc.indexOf('runWiki(started)'), '위키는 임베딩 뒤');
   const appSrc = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.ok(appSrc.includes("const WikiView = lazy(() => import('./views/wikiView.jsx'));") && appSrc.includes("'groups', 'wiki']"), '위키는 GLOBAL_MENUS · 늦게 싣는다');
+  assert.ok(appSrc.includes("const WikiView = lazyView('wiki', m => m.default);") && appSrc.includes("'groups', 'wiki']"), '위키는 GLOBAL_MENUS · 늦게 싣는다');
   const mig = readFileSync(new URL('../supabase/migrations/0088_wiki.sql', import.meta.url), 'utf8').split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
   const qTable = mig.slice(mig.indexOf('create table if not exists public.dabooti_questions'), mig.indexOf('create index if not exists idx_dabooti_questions_norm'));
   assert.ok(qTable && !/\b(user_id|asked_by|profile_id|uid|author)\b/.test(qTable) && !/on public\.dabooti_questions for/.test(mig), '물어본 글: 누가 물었는지 칸 없음 · 정책 없음(서버만)');
@@ -539,7 +539,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   const order = ['if (forgetKind(raw))', 'const makeTask = taskMake(raw);', 'const pf = prefilter(raw);', 'const talk = talkRoute(raw, prevLines);', 'const question = (prevLines.length && looksFollowUp(raw) && followUpRule(', 'const ref = bibleRefIn(question, BOOKS);', 'if (!makeTask && (isAttendanceQuestion(question) || isBirthdayQuestion(question)))', 'const hit = await cachedAnswer(admin, question, today, db)', 'collectAll(db, today, { admin }),', 'const found = parseModelJson(await gen(LOCATE_SYS'];
   order.reduce((at, s) => { const i = ask.indexOf(s); assert.ok(i > at, `순서: ${s}`); return i; }, -1);
   assert.ok(ask.includes('answerQuestion(r.question, { db: admin, admin, prev, cache: false, key, today, hint: cites, wrong })') && ask.includes('...(out.cacheable ? { cacheable: true } : {})'));
-  assert.ok(ask.includes("last('wiki_pages', 'updated_at', 'id'), last('wiki_edits', 'edited_at', 'page_id'), last('cards', 'updated_at'), last('projects', 'updated_at'), last('comments', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at')"), '데이터 도장');
+  assert.ok(ask.includes("last('wiki_pages', 'updated_at', 'id'), last('wiki_edits', 'edited_at', 'page_id'), last('cards', 'updated_at'), last('projects', 'updated_at'), last('comments', 'updated_at'), last('services', 'updated_at'), last('files', 'updated_at'), last('doc_vec', 'updated_at')"), '데이터 도장(파일은 이름·사본 바꾸기도 — updated_at)');
   // 날짜 셈 — 다음 월례회(규칙) · 주일
   assert.strictEqual(A.secondSunday('2026-10-04'), '2026-10-11');
   assert.strictEqual(A.secondSunday('2026-10-12'), '2026-11-08');
@@ -1816,6 +1816,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
         select: () => q, order: () => q, limit: (n) => { rows = rows.slice(0, n); return q; },
         eq: (k, v) => { rows = rows.filter(r => r[k] === v); return q; },
         is: (k, v) => { rows = rows.filter(r => (r[k] ?? null) === v); return q; },
+        not: (k, op, v) => { rows = rows.filter(r => !(op === 'is' && (r[k] ?? null) === v)); return q; },
         in: (k, vs) => { rows = rows.filter(r => vs.includes(r[k])); return q; },
         gte: (k, v) => { rows = rows.filter(r => r[k] == null || String(r[k]) >= String(v)); return q; },
         lte: () => q,

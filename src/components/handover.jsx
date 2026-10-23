@@ -69,7 +69,7 @@ export function useHandoverModel() {
     const pairs = pairRoles(roles.filter(r => r.year === FROM_YEAR), roles.filter(r => r.year === TO_YEAR), hv.overrides || {}, LEAD_TEAMS, { toYear: TO_YEAR });
     const autoGrads = graduatesOf(people, TO_YEAR);
     const grads = hv.grads ?? autoGrads.map(p => p.id);
-    const live = buildHandovers(pairs, grads, hv.gradTo || {});
+    const live = roles.some(r => r.year === TO_YEAR) ? buildHandovers(pairs, grads, hv.gradTo || {}) : [];   // 다음 해 직분이 없으면 인계도 없다(handoverStore.liveItems와 같은 조건)
     // 클라우드에서 마스터가 아니면 명단·계획을 못 읽는다 — RLS가 준 줄(내 것)이 곧 목록이다
     const fixed = !handoverOn() && !hv.master ? (hv.fixedItems || []) : null;
     const items = hv.applied?.items || fixed || live;
@@ -363,10 +363,10 @@ export function HandoverSheet({ m, item, onClose }) {
   const toggle = (id) => setPicked(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const out = leaving ? ' dc-out' : '';
   return createPortal(
-    <div className={`hv-sheet-back fixed inset-0 z-[95] flex items-end md:items-center justify-center md:p-4 bg-black/50 dc-scrim${out}`}
+    <div className={`hv-sheet-back fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--app-vh,100dvh)] z-[95] flex items-end md:items-center justify-center md:p-4 bg-black/50 dc-scrim${out}`}
       role="dialog" aria-modal="true" aria-label="인계 내용"
       onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div ref={boxRef} className={`hv-sheet w-full md:max-w-[34rem] max-h-[92dvh] overflow-y-auto p-4 rounded-t-2xl md:rounded-xl shadow-elevated dc-sheet-dialog${out}`}
+      <div ref={boxRef} className={`hv-sheet w-full md:max-w-[34rem] max-h-[92%] overflow-y-auto p-4 rounded-t-2xl md:rounded-xl shadow-elevated dc-sheet-dialog${out}`}
         style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         <div className="flex items-center gap-2">
           <b className="flex-1 text-[14px] font-extrabold tracking-[-0.2px] text-fg">인계 내용</b>

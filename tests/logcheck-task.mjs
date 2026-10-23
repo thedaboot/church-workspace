@@ -1202,7 +1202,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   await new Promise(r => setTimeout(r, 0));
   const byName = (n) => (Q.uploadingByCard.get(key) || []).find(x => x.name === n);
   assert.deepStrictEqual(sentNames, ['a.pdf', 'b.pdf', 'c.pdf'], '동시 셋');
-  assert.ok(byName('a.pdf')._pct === 30 && byName('a.pdf')._phase === 'send', `진행이 줄에 붙는다 ${JSON.stringify(byName('a.pdf'))}`);
+  assert.ok(byName('a.pdf')._pct === Q.sendPct(30, 100) && byName('a.pdf')._phase === 'send', `진행이 줄에 붙는다 ${JSON.stringify(byName('a.pdf'))}`);
   // 차례 전 X — 목록에서 빠지고 보내지 않는다
   Q.cancelUpload(key, rows[3].id);
   assert.ok(!byName('d.pdf'), '차례가 안 온 줄은 X로 곧바로 빠진다');
@@ -1245,3 +1245,6 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/if \(taskId && share\) return false;/.test(app), '스토어에 없는 공유 업무는 주소로 보낸다(삭제 토스트를 띄우지 않는다)');
   console.log('PASS  공유 주소 링크를 앱 안에서(appLink) 9가지');
 }
+
+// 진행 검사의 일부 줄은 일부러 끝내지 않는다(차례·멈춤을 보려고) — 그 줄의 진행 타이머가 프로세스를 붙들지 않게 여기서 끝낸다
+process.exit(0);

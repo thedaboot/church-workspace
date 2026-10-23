@@ -625,7 +625,8 @@ function heldResponse() {
 // GET(job 없음) — 마감 임박 알림 → 문서 임베딩 → 한 번에 응답
 async function handleDueSoonThenEmbed(req, res, started) {
   const held = heldResponse();
-  await handleDueSoon(req, held);
+  // 던져도 뒤 단계(휴지통 · 인수인계 · 임베딩 · 위키)는 돈다 — 비밀 확인이 맨 앞이라 여기서 던지면 이미 통과한 뒤다
+  try { await handleDueSoon(req, held); } catch (e) { console.error('[push] 마감 알림이 던졌다:', e?.message || e); held.status(500).json({ error: '마감 알림 실패' }); }
   // 크론 비밀이 틀리거나 없으면 거기서 끝이다(임베딩도 같은 비밀 뒤에 있다)
   if (held.code === 401 || held.code === 501) { res.status(held.code).json(held.body); return; }
   const trash = await runTrashPurge();
@@ -742,10 +743,10 @@ async function notifyMasterUnknown(db, now = Date.now()) {
 // GET ?job=worship(11:30 크론) — 예배 당일 → 동아리 모임 전날. 한쪽이 DB 오류로 죽어도 다른 쪽은 돈다.
 async function handleWorshipThenMeetings(req, res) {
   const w = heldResponse();
-  await handleWorshipToday(req, w);
+  try { await handleWorshipToday(req, w); } catch (e) { console.error('[push] 예배 당일 알림이 던졌다:', e?.message || e); w.status(500).json({ error: '예배 당일 알림 실패' }); }
   if (w.code === 401 || w.code === 501) { res.status(w.code).json(w.body); return; }
   const m = heldResponse();
-  await handleMeetingEve(req, m);
+  try { await handleMeetingEve(req, m); } catch (e) { console.error('[push] 모임 전날 알림이 던졌다:', e?.message || e); m.status(500).json({ error: '모임 전날 알림 실패' }); }
   res.status(w.code !== 200 ? w.code : m.code).json({ ...(w.body || {}), meeting: m.body });
 }
 

@@ -230,7 +230,7 @@ async function eventFeedGet(req, res, f) {
   const events = rows.map(r => eventFeedEvent({ id: r.id, title: r.title, start: r.start_date, end: r.end_date, startTime: r.start_time, endTime: r.end_time, place: r.place, memo: r.memo }));
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
   res.setHeader('Content-Disposition', 'inline; filename="thedaboot-events.ics"');
-  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('Cache-Control', 'private, max-age=300');
   res.status(200).end(buildFeedIcs({ calName: EVENT_FEED_NAME, events }));
 }
 
@@ -265,7 +265,7 @@ async function feedGet(req, res) {
   }, taskLink(origin, feed.project_id, r.id)));
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
   res.setHeader('Content-Disposition', 'inline; filename="thedaboot.ics"');
-  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('Cache-Control', 'private, max-age=300');
   res.status(200).end(buildFeedIcs({ calName: feedCalName(proj.name), events }));
 }
 

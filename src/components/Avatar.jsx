@@ -19,11 +19,15 @@ import { getAvatar } from '../services/cloudSync.js';
 // 사진이 깨지면(주소가 죽었거나 카카오 CDN이 막았거나) **글자 원으로 돌아간다.** 깨진 이미지
 // 아이콘을 그대로 두면 그 사람만 화면이 고장 난 것처럼 보인다.
 // `style` — 부르는 쪽 색(같이 쓰기 얼굴은 사람마다 정해진 색 바탕 · fallbackClass로 글자색만 준다).
+// 카카오 원본(11~143KB)은 썸네일 주소로 받는다(2~8KB · 가장 큰 얼굴 56px의 3배보다 크다 · CORS도 붙는다 — shareImage.corsImageUrl과 같은 주소 꼴)
+const thumb = (src) => (/^https?:\/\/(k|t1)\.kakaocdn\.net\//i.test(src || '')
+  ? `https://img1.kakaocdn.net/thumb/R220x220.q70/?fname=${encodeURIComponent(src)}` : src);
+
 export function Avatar({ name = '', url, className = '', title, fallbackClass, style }) {
-  const [broken, setBroken] = useState(false);
-  const src = url !== undefined ? url : getAvatar(name);
+  const [broken, setBroken] = useState(null);   // 깨진 주소 — 새 주소가 오면 다시 사진을 그린다
+  const src = thumb(url !== undefined ? url : getAvatar(name));
   const letter = name[0] || '?';
-  const showImg = !!src && !broken;
+  const showImg = !!src && broken !== src;
   return (
     <span
       title={title ?? name}
@@ -31,7 +35,8 @@ export function Avatar({ name = '', url, className = '', title, fallbackClass, s
       className={`rounded-full items-center justify-center font-bold overflow-hidden shrink-0 ${showImg ? 'bg-surface-hover' : (fallbackClass || avatarColor(name))} ${className}`}
     >
       {showImg
-        ? <img src={src} alt="" loading="lazy" onError={() => setBroken(true)}
+        // loading="lazy"를 걸지 않는다 — 접힌 칸(Fold)을 펼칠 때 처음 생기는 얼굴이 늦게 떴다(사용자 지적 2026-10-23 · 해결된 댓글)
+        ? <img src={src} alt="" onError={() => setBroken(src)}
             className="w-full h-full object-cover" />
         : letter}
     </span>
