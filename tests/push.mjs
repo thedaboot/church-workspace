@@ -1318,6 +1318,34 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   assert.ok(purge.indexOf('await trash(pf.folderId)') > 0 && purge.indexOf('await trash(pf.folderId)') < purge.indexOf(".from('projects').delete()"), '휴지통 정리: 드라이브 → 행 차례');
   console.log('PASS push — 휴지통 정리는 드라이브를 행보다 먼저');
 }
+// 남은 첨부 사본 정리(2026-10-26 · 라이브에 3.1MB PDF 한 장이 행 없이 남았다) — 하루 지난 · 행이 안 가리키는 것만 지운다.
+// 되돌리기: sweepStrayUploads의 minAgeMs 거르기를 빼면 '갓 올린 것은 남긴다'가, kept 거르기를 빼면 '행이 가리키는 것은 남긴다'가 깨진다.
+{
+  const { sweepStrayUploads } = await import('file://' + join(ROOT, 'api', '_trash.js').replace(/\\/g, '/'));
+  const now = Date.parse('2026-10-26T00:00:00Z');
+  const day = (n) => new Date(now - n * 864e5).toISOString();
+  const tree = {
+    '': [{ name: 'services', id: null }, { name: 'p1', id: null }],
+    services: [{ name: 's1', id: null }],
+    'services/s1': [{ name: 'old.pdf', id: 'a', created_at: day(5) }, { name: 'fresh.pdf', id: 'b', created_at: day(0.01) }],
+    p1: [{ name: 'c1', id: null }],
+    'p1/c1': [{ name: 'legacy.pdf', id: 'c', created_at: day(90) }],
+  };
+  const removed = [];
+  const db = {
+    storage: { from: () => ({
+      list: async (p) => ({ data: tree[p] || [], error: null }),
+      remove: async (paths) => { removed.push(...paths); return { error: null }; },
+    }) },
+    from: () => ({ select: () => ({ in: async (_c, paths) => ({ data: paths.filter(p => p === 'p1/c1/legacy.pdf').map(storage_path => ({ storage_path })), error: null }) }) }),
+  };
+  const r = await sweepStrayUploads(db, { now });
+  assert.deepEqual(removed, ['services/s1/old.pdf'], '하루 지난 · 행 없는 사본만 지운다(갓 올린 것 · 행이 가리키는 레거시는 남긴다)');
+  assert.equal(r.removed, 1);
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  assert.ok(/out\.stray = await sweepStrayUploads\(db\)/.test(src), '아침 크론이 남은 사본 정리를 부른다');
+  console.log('PASS push — 남은 첨부 사본은 하루 지난 · 행 없는 것만 지운다');
+}
 // 크론 한 단계가 던져도 뒤 단계는 돈다(감사 2026-10-23) — 되돌리기: try를 걷으면 깨진다
 {
   const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');

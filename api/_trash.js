@@ -11,6 +11,7 @@ import { purgePlan, isMissingColumn, TRASH_DAYS } from '../src/services/trashIte
 //                      드라이브 폴더째 휴지통(실패하면 업무 폴더 → 파일 단위) · Storage(레거시) 실체 삭제.
 //                      드라이브 휴지통은 앱과 같은 Apps Script `trash` 액션을 서버가 직접 부른다(api/drive.js와 같은 주소·토큰).
 //                      **던지지 않는다** — 실패는 로그와 돌려주는 값에 남고 다음 아침에 다시 잡힌다(행이 남아 있으면).
+//   sweepStrayUploads(db)  attachments 버킷에서 하루 지난, 어느 files 행도 안 가리키는 사본을 지운다(같은 아침 크론).
 // ============================================================================
 
 export async function trashedIds(db) {
@@ -122,4 +123,35 @@ export async function purgeTrash(db, { now = Date.now(), days = TRASH_DAYS, tras
     if (r.error) console.error('[trash] 첨부 행 정리 실패:', r.error);
   }
   return { projects: plan.projectIds.length, cards: plan.cardIds.length, files: files.length, folders, bodies };
+}
+
+// 3MB 넘는 첨부는 attachments 버킷을 거쳐 드라이브로 간다(cloud/drive.js uploadViaStorage). 옮긴 뒤 사본 지우기가
+// 실패하거나 그 사이 탭을 닫으면 **아무 행도 안 가리키는 사본**이 남는다(라이브 2026-10-21 · 3.1MB PDF 한 장).
+// 하루 지난 것 중 files.storage_path가 안 가리키는 것을 지운다 — 올리는 중인 것(몇 분)은 하루 거르기로 피한다.
+// ponytail: 폴더를 한 겹씩 list로 내려간다 — 버킷이 거의 비어 있어서(드라이브 이전 뒤) 충분하다. 커지면 storage.objects를 읽는 rpc로.
+export async function sweepStrayUploads(db, { now = Date.now(), minAgeMs = 864e5 } = {}) {
+  const bucket = db.storage.from(ATTACH_BUCKET);
+  const old = [];
+  const walk = async (prefix) => {
+    const { data, error } = await bucket.list(prefix, { limit: 1000 });
+    if (error) throw error;
+    for (const o of data || []) {
+      const path = prefix ? `${prefix}/${o.name}` : o.name;
+      if (o.id == null) await walk(path); // 폴더(이름 앞머리)는 id가 없다
+      else if (now - Date.parse(o.created_at) > minAgeMs) old.push(path);
+    }
+  };
+  await walk('');
+  if (!old.length) return { removed: 0 };
+  const kept = new Set();
+  for (let i = 0; i < old.length; i += 100) {
+    const r = await db.from('files').select('storage_path').in('storage_path', old.slice(i, i + 100));
+    if (r.error) throw r.error;
+    (r.data || []).forEach(f => kept.add(f.storage_path));
+  }
+  const stray = old.filter(p => !kept.has(p));
+  if (!stray.length) return { removed: 0 };
+  const r = await bucket.remove(stray);
+  if (r.error) throw r.error;
+  return { removed: stray.length };
 }

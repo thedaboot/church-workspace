@@ -283,7 +283,7 @@ async function uploadViaStorage(file, { prefix, key, folderHint, name = file.nam
       name, mimeType: file.type || undefined,
     }, folderHint, net && { isCancelled: net.isCancelled });
     // 드라이브로 갔으니 옮겨 담는 자리는 치운다. 실패해도 던지지 않는다 —
-    // 남은 사본은 용량만 차지하고, 그것 때문에 첨부가 막히면 안 된다.
+    // 남은 사본은 용량만 차지하고, 그것 때문에 첨부가 막히면 안 된다(남으면 아침 크론이 하루 뒤 지운다 · api/_trash.js sweepStrayUploads).
     c.storage.from(ATTACH_BUCKET).remove([path])
       .then(r => { if (r.error) console.warn('[drive] 임시 사본 정리 실패:', r.error.message); })
       .catch(e => console.warn('[drive] 임시 사본 정리 실패:', e));

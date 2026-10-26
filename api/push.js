@@ -7,7 +7,7 @@ import { buildWiki } from './_wikiBuild.js';
 import { reaskUnknown, warmCache } from './_wikiAsk.js';
 import { isLeaderOnly, isCustomOnly, visibleRecipients, leaderAudience } from '../src/services/visibility.js';
 import { leaderIdSet, audienceFor, audienceMap, lockedOf } from './_leaders.js';
-import { trashedIds, goneCard, purgeTrash } from './_trash.js';
+import { trashedIds, goneCard, purgeTrash, sweepStrayUploads } from './_trash.js';
 
 // ============================================================================
 // /api/push — 웹 푸시 발송. 두 입구가 한 파일에 있다.
@@ -18,7 +18,7 @@ import { trashedIds, goneCard, purgeTrash } from './_trash.js';
 //         `?job` 하나로 갈린다 — 크론 자리가 **두 개까지**라(Vercel Hobby) 배치가 늘 때마다
 //         라우트를 새로 파지 않고 이 입구를 나눠 쓴다.
 //           (없음)          오늘·내일 마감인데 완료가 아닌 카드의 담당자에게 due_soon
-//                           → 휴지통 30일 정리(0104 · api/_trash.js purgeTrash — 던지지 않는다)
+//                           → 휴지통 30일 정리(0104 · api/_trash.js purgeTrash — 던지지 않는다) · 남은 첨부 사본(sweepStrayUploads)
 //                           → 인수인계 적용(0109 · apply_handovers — 1월 1일 아침에 처음 돈다 · 적용 안 된 올해까지의 줄만 · 멱등)
 //                           → 그 **뒤에** 업무·댓글·첨부 임베딩 증분(doc_vec · 0074 · 시간 예산 안에서만)
 //                           → 위키(0088) → 다붓이 미리 답하기(v5 2묶음 · 0115 warm) → 다붓이가 모르는 질문이 있으면 마스터에게 푸시 한 통(notifyMasterUnknown)
@@ -645,11 +645,18 @@ async function handleDueSoonThenEmbed(req, res, started) {
 
 // 휴지통 30일 정리(0104) — 임베딩·위키보다 **앞에** 둔다(정리된 업무를 다시 임베딩·위키에 싣지 않게 · 몇 초 안에 끝난다).
 // 던지지 않는다 — 실패는 응답과 로그에 남고 다음 아침에 다시 잡힌다.
-export async function runTrashPurge() {
-  try { return await purgeTrash(admin()); } catch (e) {
+export async function runTrashPurge(db = admin()) {
+  let out;
+  try { out = await purgeTrash(db); } catch (e) {
     console.error('[push] 휴지통 정리 실패:', e);
-    return { error: String(e?.message || e).slice(0, 200) };
+    out = { error: String(e?.message || e).slice(0, 200) };
   }
+  // 첨부가 드라이브로 가며 남긴 사본(api/_trash.js sweepStrayUploads) — 휴지통 정리가 실패해도 따로 돈다
+  try { out.stray = await sweepStrayUploads(db); } catch (e) {
+    console.error('[push] 남은 첨부 사본 정리 실패:', e);
+    out.stray = { error: String(e?.message || e).slice(0, 200) };
+  }
+  return out;
 }
 
 // 인수인계 적용(0109 · v5 1묶음 C) — 08:00 KST 크론 갈래의 한 단계(크론 자리가 두 개뿐이라 새 자리를 만들지 않았다).
