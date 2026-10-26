@@ -413,7 +413,7 @@ const MARK_TAG = { bold: 'strong', italic: 'em', underline: 'u', strike: 's', hi
 const MARK_CLS = {
   bold: 'font-bold',
   strike: 'opacity-80',
-  highlight: 'bg-tag-yellow text-tag-yellow-fg rounded-[3px] px-0.5',
+  highlight: 'app-hl',
 };
 
 // 서식이 없는 구간에서만 @멘션·생 URL을 살린다(마크 안의 URL은 그대로 글자로)

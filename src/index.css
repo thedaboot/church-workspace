@@ -656,7 +656,7 @@ svg.lucide { stroke-width: 1.4px; }
 .tiptap ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--app-ink-faint); text-decoration: line-through; }
 .tiptap strong { font-weight: 700; }
 .tiptap s { opacity: .8; }
-.tiptap mark { background: linear-gradient(transparent 54%, var(--app-hl-yellow) 54%, var(--app-hl-yellow) 94%, transparent 94%); color: inherit; border-radius: 2px; padding: 0 .125rem; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.tiptap mark, mark.app-hl { background: linear-gradient(transparent 54%, var(--app-hl-yellow) 54%, var(--app-hl-yellow) 94%, transparent 94%); color: inherit; border-radius: 2px; padding: 0 .125rem; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 /* 링크 줄바꿈은 넘칠 때만(anywhere) — break-all은 한글 라벨까지 글자마다 끊었다(RichText의 LINK_CLS와 같다).
    종이(paper.jsx)는 그림으로 굽는 길이라 break-all을 그대로 둔다. */
 .tiptap a { color: var(--app-accent-text); text-decoration: underline; overflow-wrap: anywhere; }

@@ -143,7 +143,7 @@ const MARK_STYLE = {
   italic: { fontStyle: 'italic' },
   underline: { textDecoration: 'underline' },
   strike: { textDecoration: 'line-through', opacity: 0.8 },
-  highlight: { background: PAPER.mark, color: PAPER.ink, borderRadius: 3, padding: '0 0.125rem' },
+  highlight: { background: `linear-gradient(transparent 54%, ${PAPER.mark} 54%, ${PAPER.mark} 94%, transparent 94%)`, color: PAPER.ink, borderRadius: 2, padding: '0 0.125rem', boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone' },
 };
 // 종이 위의 링크는 눌리지 않는다(그림·PDF로 나간다) — 그래도 **글자 모양은 링크**여야
 // 어디가 주소였는지 읽는 사람이 안다.

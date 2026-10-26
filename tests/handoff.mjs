@@ -75,6 +75,10 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
     check('다듬기: 폰 업무 창은 투명도를 먼저 채우고 떠오른다(dc-rise-in 12%)', /@keyframes dc-rise-in\s*\{[^}]*\}\s*12%\s*\{\s*opacity:\s*1;?\s*\}/.test(css));
     const bp = readFileSync(new URL('../src/components/bibleParts.jsx', import.meta.url), 'utf8');
     check('다듬기: 형광펜은 글자색을 바꾸지 않는다(펜 자국)', /color:\s*'inherit'/.test(bp) && !/tag-(red|blue|yellow|green)-fg/.test(bp.slice(bp.indexOf('const HL_TOKEN'), bp.indexOf('export const hlColor'))), '');
+    // ⑧ 읽기 화면도 같은 펜 자국이다 — 편집(.tiptap)만 바꾸고 업무 본문 읽기(RichText)·종이 읽기(paper)는 옛 네모로 남았었다(2026-10-27 사용자 확인)
+    const rt = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
+    const pp = readFileSync(new URL('../src/components/paper.jsx', import.meta.url), 'utf8');
+    check('다듬기: 읽기 화면 형광펜도 펜 자국이다(RichText · 종이)', /highlight:\s*'app-hl'/.test(rt) && /mark\.app-hl\s*\{\s*background:\s*linear-gradient/.test(css.replace('.tiptap mark, ', '')) && /highlight:\s*\{\s*background:\s*`linear-gradient/.test(pp), '');
   }
   // ③-b 같은 문자열만 보면 구멍이 둘이다(2026-10-07 · 19차 묶음 E) — **조건부 문자열**(`text-[10px] ${열림 ? '…' : 'text-fg-faint'}`)과
   // **물려받은 색**(글자 색이 없는 10px 버튼이 faint 칩 안에 선다). 그래서 JSX를 읽어(vite parseAst) className 식 안의 문자열 조각을
