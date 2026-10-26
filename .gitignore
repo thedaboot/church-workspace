@@ -23,3 +23,4 @@ supabase/.temp/
 # 로그·OS 부산물
 *.log
 Thumbs.db
+/shots/
