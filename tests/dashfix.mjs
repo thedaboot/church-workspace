@@ -422,8 +422,8 @@ const doneLine = await ev(`(() => {
 check('지난 7일 줄이 끝낸 날로 센다(수정한 날이 아니다)', doneLine === '지난 7일 간 1건 끝냈어요', String(doneLine));
 
 // ── 19차 리팩토링(2026-10-07)에서 한 벌로 모은 부품 — 회색 토글 · 혼자 선 KPI 칸 · 프로젝트 화면 훅 순서 ──
-// 회색 토글(components/segmented.jsx): 고른 칸만 흰 바탕·진한 글자이고 칸 클래스는 자리마다 그대로다.
-// 되돌리기 검사: segStyle의 on/off 바탕을 맞바꾸면 첫 단정과 폰 탭 단정이, 폰 탭의 `tabs`를 빼면 폰 탭 단정이 깨진다.
+// 회색 토글(components/segmented.jsx): 고른 칸만 흰 칸(미끄러지는 .ops-seg-thumb — UI 다듬기 2026-10-26)·진한 글자이고 칸 클래스는 자리마다 그대로다(앞에 relative만).
+// 되돌리기 검사: segStyle의 on/off 글자색을 맞바꾸거나 흰 칸을 고른 칸이 아닌 곳에 두면 첫 단정과 폰 탭 단정이, 폰 탭의 `tabs`를 빼면 폰 탭 단정이 깨진다.
 await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
 const seg = await ev(`(() => {
   const btns = ['보드', '캘린더', '그래프'].map(t => [...document.querySelectorAll('main button')].find(b => b.textContent.trim() === t));
@@ -433,12 +433,13 @@ const seg = await ev(`(() => {
     same: btns.every(b => b.parentElement === box), boxCls: box.className, boxBg: box.style.background,
     cls: btns.map(b => b.className),
     bg: btns.map(b => b.style.background), fg: btns.map(b => b.style.color),
+    thumbOnPick: (() => { const th = box.querySelector('.ops-seg-thumb'); return !!th && Math.abs(th.getBoundingClientRect().left - btns[0].getBoundingClientRect().left) < 1.5; })(),
   };
 })()`);
 check('프로젝트 보기 토글: 고른 칸(보드)만 흰 바탕 · 진한 글자 · 칸 클래스 그대로',
-  !!seg && seg.same && seg.boxCls === 'flex p-[3px] rounded-md shrink-0' && seg.boxBg === 'var(--app-surface-hover)'
-    && seg.cls.every(c => c === 'px-2.5 md:px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors')
-    && seg.bg.join() === 'var(--app-surface),transparent,transparent'
+  !!seg && seg.same && seg.boxCls === 'relative flex p-[3px] rounded-md shrink-0' && seg.boxBg === 'var(--app-surface-hover)'
+    && seg.cls.every(c => c === 'relative px-2.5 md:px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors')
+    && seg.bg.join() === 'transparent,transparent,transparent' && seg.thumbOnPick
     && seg.fg.join() === 'var(--app-ink),var(--app-ink-muted),var(--app-ink-muted)',
   JSON.stringify(seg));
 
@@ -463,11 +464,14 @@ await load({ width: 390, height: 844, deviceScaleFactor: 2, mobile: true }, 'lig
 const tabs = await ev(`(() => {
   const list = document.querySelector('main [role="tablist"][aria-label="대시보드"]');
   const t = list ? [...list.querySelectorAll('[role="tab"]')] : [];
-  return { names: t.map(b => b.textContent.trim()), sel: t.map(b => b.getAttribute('aria-selected')), bg: t.map(b => b.style.background) };
+  const th = list?.querySelector('.ops-seg-thumb'), on = t.find(b => b.getAttribute('aria-selected') === 'true');
+  return { names: t.map(b => b.textContent.trim()), sel: t.map(b => b.getAttribute('aria-selected')), bg: t.map(b => b.style.background),
+    // 흰 칸은 고른 칸 뒤로 미끄러지는 .ops-seg-thumb이 칠한다(UI 다듬기 2026-10-26 · segmented.jsx) — 버튼은 투명
+    thumbOnSel: !!th && !!on && Math.abs(th.getBoundingClientRect().left - on.getBoundingClientRect().left) < 1.5 && getComputedStyle(th).backgroundColor !== 'rgba(0, 0, 0, 0)' };
 })()`);
-check('폰 대시보드 탭: 세 칸이 role=tab이고 고른 칸만 aria-selected · 흰 바탕',
+check('폰 대시보드 탭: 세 칸이 role=tab이고 고른 칸만 aria-selected · 흰 칸이 고른 칸 뒤에',
   tabs.names.join() === '업무,청년,연결' && tabs.sel.join() === 'true,false,false'
-    && tabs.bg.join() === 'var(--app-surface),transparent,transparent', JSON.stringify(tabs));
+    && tabs.bg.join() === 'transparent,transparent,transparent' && tabs.thumbOnSel, JSON.stringify(tabs));
 const vis = `e => !!e && e.getBoundingClientRect().width > 0`;
 const phoneNotes = await ev(`(() => {
   const vis = ${vis};

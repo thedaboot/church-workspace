@@ -2283,7 +2283,8 @@ await ev(`${byText('목록으로')}.click()`); await sleep(500);
 // 동아리 목록 → 상세 → 목록에서 목록 자리를 지킨다 · 상세는 맨 위에서(2026-10-15 · hooks/useScrollMemory · 56-h).
 // 목록이 짧아 화면을 낮춘다. **되돌리기**: groupsClub의 useScrollMemory 줄을 빼면 깨진다.
 {
-  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 380, deviceScaleFactor: 1, mobile: false });
+  // 폭 900 — 1024부터 목록이 격자(두 열 · UI 다듬기 2026-10-26)라 1440에서는 목록이 짧아 내릴 자리가 없다
+  await send('Emulation.setDeviceMetricsOverride', { width: 900, height: 380, deviceScaleFactor: 1, mobile: false });
   await sleep(500);
   const listTop = await ev(`(() => { const m = document.querySelector('main'); m.scrollTop = m.scrollHeight; return m.scrollTop; })()`);
   await sleep(300);

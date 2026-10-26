@@ -412,7 +412,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           **고른 해만 본다**(사용자 결정 2026-08-31 — 위 projectsList·yearProjectIds 주석). 예전 주석은
           "해로 거르지 않는다"였는데 코드와 반대였다. */}
       {members.length > 0 && (
-        <div className={`${tab === '연결' ? 'block' : 'hidden'} lg:block pt-6`}>
+        <div className={`${tab === '연결' ? 'block' : 'hidden'} lg:block pt-1 lg:pt-6`}>
           <NetworkMap
             members={members} teamsInUse={teamsInUse} projects={projectsList}
             teamProjects={teamProjects} teamLeft={teamLeft} memberLoad={memberLoad}

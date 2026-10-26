@@ -1032,7 +1032,7 @@ function WorkspaceShell() {
     <div className="relative top-[var(--vv-top,0px)] flex flex-col h-[var(--app-vh,100dvh)] text-fg font-sans overflow-hidden">
       {/* 배경 파스텔 글로우 (장식 전용 · 상호작용 차단 · 스크롤 고정)
           blur 필터 대신 radial-gradient — index.css의 .app-glow 참고 */}
-      <div className="pointer-events-none fixed inset-0 -z-10 app-glow" aria-hidden="true" />
+      <div className={`pointer-events-none fixed inset-0 -z-10 app-glow${activeMenu === 'home' ? ' app-glow-tall' : ''}`} aria-hidden="true" />
 
       {/* CSS(hidden/md:hidden)로만 감추면 양쪽 내비가 동시에 '마운트'된다 →
           알림 종이 둘 다 살아서 같은 Supabase 실시간 채널

@@ -34,6 +34,13 @@
      `--app-accent`(#4f7ed0)로 두면 흰 글자와의 대비가 3.4:1로 떨어져 10.5px 탭 이름이
      읽히지 않는다(이 값은 5.3:1). --app-night이 두 테마에서 같은 값인 것과 같은 이유다. */
   --app-work-bar: #3f6fc4;
+  /* 회색 토글의 고른 칸(segmented.jsx · UI 다듬기 2026-10-26). 라이트는 카드와 같은 흰 바탕이고
+     다크는 통(--app-surface-hover #2a2a2a)보다 한 단 **밝게** 둔다 — surface(#202020)를 그대로 쓰면
+     고른 칸이 통보다 어두워 '꺼진 칸'으로 읽혔다. */
+  --app-seg-on: #fffdfc;
+  /* 형광펜(성경 읽기 네 색 · 노트 노랑 — UI 다듬기 2026-10-26): 글자 아래 40%만 칠하는 펜 자국이라
+     태그 바탕(--app-tag-*)보다 한 단 진하다. 글자색은 바꾸지 않는다(예전엔 빨강이면 말씀이 빨간 글씨가 됐다). */
+  --app-hl-red: #f2b2aa; --app-hl-blue: #b2cbf1; --app-hl-yellow: #f3d474; --app-hl-green: #acd6b8;
   /* 태그 팔레트 라이트 — 로그인 글로우 3색(하늘·라벤더·핑크) 계열로 통일해
      로그인에서 본 색이 앱 안에서 팀 색으로 이어지게 한다 */
   --app-tag-gray: #e8e6ea;    --app-tag-gray-fg: #5b5764;
@@ -66,6 +73,8 @@
     /* accent #4573c6(2026-10-09 · 시안 승인): 흰 글씨 4.65:1(예전 #4f7ed0은 4.02) · 테두리·초점은 #202020 위 3.51 · #2a2a2a 위 3.09 —
        더 진하면(#4370c4) 테두리가 hover 바탕 위에서 3:1 아래로 내려간다. */
     --app-accent: #4573c6; --app-accent-strong: #3f6fc4; --app-accent-text: #8fb4ea; --app-accent-weak: #202a3a;
+    --app-seg-on: #393836;
+    --app-hl-red: #7a3c36; --app-hl-blue: #2f4c78; --app-hl-yellow: #6e5b22; --app-hl-green: #2f5c3e;
     --app-night: #213183;
     --app-tag-gray: #303030;   --app-tag-gray-fg: #b9b7b3;
     --app-tag-brown: #362e26;  --app-tag-brown-fg: #c2a891;
@@ -142,9 +151,18 @@
    같은 모양을 radial-gradient로 직접 그리면 합성 비용이 사실상 0이다.
 
    앱 안에서는 화면 위쪽에만 남긴다 — 업무 목록은 오래 읽는 화면이라 배경 전체에
-   그라디언트를 깔면 글자가 뜬다. 로그인 화면은 자체 블러 원을 쓰므로 그대로다. */
+   그라디언트를 깔면 글자가 뜬다. 로그인 화면은 자체 블러 원을 쓰므로 그대로다.
+   높이는 페이지 머리(제목·부제) 둘레까지다(UI 다듬기 2026-10-26 — 26rem일 때는 폰 보드의 도구 줄·상태 알약까지
+   빛이 깔려 숫자·버튼이 흐려 보였다). 홈 인사 자리는 자기 그라데이션을 따로 갖는다. */
 .app-glow {
   background-repeat: no-repeat;
+  background-image:
+    radial-gradient(48rem 18rem at 2% -6%, color-mix(in srgb, #62aef0 32%, transparent), transparent 72%),
+    radial-gradient(42rem 16rem at 50% -12%, color-mix(in srgb, #d6b6f6 30%, transparent), transparent 72%),
+    radial-gradient(36rem 15rem at 99% -8%, color-mix(in srgb, #ffb6dd 28%, transparent), transparent 72%);
+}
+/* 홈은 히어로가 이 빛 위에 상자 없이 선다(homeView 머리말) — 예전 높이 그대로 */
+.app-glow-tall {
   background-image:
     radial-gradient(48rem 26rem at 2% -6%, color-mix(in srgb, #62aef0 32%, transparent), transparent 72%),
     radial-gradient(42rem 24rem at 50% -12%, color-mix(in srgb, #d6b6f6 30%, transparent), transparent 72%),
@@ -638,7 +656,7 @@ svg.lucide { stroke-width: 1.4px; }
 .tiptap ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--app-ink-faint); text-decoration: line-through; }
 .tiptap strong { font-weight: 700; }
 .tiptap s { opacity: .8; }
-.tiptap mark { background: var(--app-tag-yellow); color: var(--app-tag-yellow-fg); border-radius: 3px; padding: 0 .125rem; }
+.tiptap mark { background: linear-gradient(transparent 54%, var(--app-hl-yellow) 54%, var(--app-hl-yellow) 94%, transparent 94%); color: inherit; border-radius: 2px; padding: 0 .125rem; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 /* 링크 줄바꿈은 넘칠 때만(anywhere) — break-all은 한글 라벨까지 글자마다 끊었다(RichText의 LINK_CLS와 같다).
    종이(paper.jsx)는 그림으로 굽는 길이라 break-all을 그대로 둔다. */
 .tiptap a { color: var(--app-accent-text); text-decoration: underline; overflow-wrap: anywhere; }
@@ -746,7 +764,7 @@ svg.lucide { stroke-width: 1.4px; }
    따라가고 있었다**. 값은 paper.jsx PAPER 한 벌이 내려 준 것이고, 읽기 종이
    (paper.jsx `PaperText`)가 같은 값으로 그린다 — 두 모드가 같은 색이라야 "이 모양으로
    나간다"가 참이 된다. */
-.note-paper .tiptap mark { background: var(--paper-mark); color: var(--paper-ink); }
+.note-paper .tiptap mark { background: linear-gradient(transparent 54%, var(--paper-mark) 54%, var(--paper-mark) 94%, transparent 94%); color: var(--paper-ink); }
 .note-paper .tiptap ul[data-type="taskList"] input[type="checkbox"] { border-color: var(--paper-line); }
 .note-paper .tiptap ul[data-type="taskList"] input[type="checkbox"]:hover { border-color: var(--paper-faint); }
 .note-paper .tiptap ul[data-type="taskList"] input[type="checkbox"]:checked {
@@ -892,7 +910,9 @@ svg.lucide { stroke-width: 1.4px; }
 @keyframes dc-dialog-out { to   { opacity: 0; transform: translate3d(0, 4px, 0) scale(.98); } }
 @keyframes dc-sheet-in   { from { transform: translate3d(0, 100%, 0); } }
 @keyframes dc-sheet-out  { to   { transform: translate3d(0, 100%, 0); } }
-@keyframes dc-rise-in    { from { opacity: 0; transform: translate3d(0, 28px, 0); } }
+/* dc-rise-in: 투명도는 앞 12%(약 45ms)에 다 차고 28px 올라오는 움직임만 끝까지 간다(UI 다듬기 2026-10-26) —
+   전에는 둘이 같이 가서 첫 0.1초 동안 뒤 보드 글자와 창 글자가 두 겹으로 겹쳐 보였다(1/10 속도 프레임으로 확인 · PITFALLS 57-f). */
+@keyframes dc-rise-in    { 0% { opacity: 0; transform: translate3d(0, 28px, 0); } 12% { opacity: 1; } }
 @keyframes dc-rise-out   { to   { opacity: 0; transform: translate3d(0, 20px, 0); } }
 @keyframes dc-scrim-in   { from { opacity: 0; } }
 @keyframes dc-scrim-out  { to   { opacity: 0; } }
@@ -1039,7 +1059,7 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
 .ops-fold { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s var(--ease-out-quint), opacity .3s var(--ease-out-quint); }
 .ops-fold[data-open='true'] { grid-template-rows: 1fr; opacity: 1; }
 .ops-fold > * { min-height: 0; overflow: hidden; }
-.ops-seg-thumb { left: 0; top: 0; background: var(--app-surface); pointer-events: none; }
+.ops-seg-thumb { left: 0; top: 0; background: var(--app-seg-on); pointer-events: none; }
 .ops-seg-thumb.ops-seg-live { transition: transform .3s var(--ease-out-quint), width .3s var(--ease-out-quint), height .3s var(--ease-out-quint); }
 .bell-smooth-h { transition: height .26s var(--ease-out-quint); }
 .ops-chev { transition: transform .3s var(--ease-out-quint); }

@@ -263,10 +263,12 @@ function LinkCard({ className, slot, enter = 'dc-card', label, icon: Icon, onOpe
           쌓아서 카드마다 읽을 순서가 달랐다. 지금은 눈이 굵은 줄에 먼저 닿고, 나머지는
           가운뎃점으로 이어 붙인 한 줄이다. 높이를 못 박아 네 카드가 같은 구조다. */}
       <span className="home-card-body block">
-        <span className={`home-card-focus block text-[15px] font-extrabold text-fg tracking-[-0.3px] ${ONE_LINE}`}>
+        {/* 데스크톱은 규격 단계로 한 칸씩 크게(16.5 · 12.5 — UI 다듬기 2026-10-26): 1440 폭의 넓은 카드에 15·12px가 앉아
+            '큰 판에 작은 글'로 보였다. 폰은 그대로다. 줄 높이는 22.5px로 묶는다 — 못 읽은 카드의 제목 줄과 같아야 같은 행 높이가 안 흔들린다(PITFALLS 58-a). */}
+        <span className={`home-card-focus block text-[15px] md:text-[16.5px] md:leading-[22.5px] font-extrabold text-fg tracking-[-0.3px] ${ONE_LINE}`}>
           {focus}
         </span>
-        <span className="home-card-meta block mt-1 text-[12px] leading-[1.45] text-fg-muted">
+        <span className="home-card-meta block mt-1 text-[12px] md:text-[12.5px] leading-[1.45] text-fg-muted">
           {meta}
         </span>
       </span>
@@ -545,7 +547,7 @@ function CardSkeleton({ slot, delay, enter = 'dc-card', wide = false }) {
         <span className="relative block h-[10px] w-[54px]"><Skeleton className="w-full h-full rounded-[4px]" /></span>
       </span>
       <span className="home-skel-body block">
-        <SkelLine className="home-skel-focus text-[15px] font-extrabold tracking-[-0.3px]" w="58%" />
+        <SkelLine className="home-skel-focus text-[15px] md:text-[16.5px] md:leading-[22.5px] font-extrabold tracking-[-0.3px]" w="58%" />
         <SkelLine className="home-skel-meta mt-1 text-[12px] leading-[1.45]" w="84%" />
       </span>
     </div>
@@ -975,7 +977,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
           상자를 두르지 않는다: 배경은 토큰으로 만든 글로우 한 겹뿐이다.
           `-z-10`이라야 뒤로 간다 — 자리를 잡은(absolute) 요소는 기본적으로 흐름 안의
           글보다 위에 그려져서, 그냥 두면 글로우가 인사말을 덮는다. */}
-      <section className="home-hero relative text-center pt-3 pb-6 md:pt-7 md:pb-8">
+      <section className="home-hero relative text-center pt-3 pb-6 md:pt-5 md:pb-6">
         <div className="home-hero-glow pointer-events-none absolute -z-10 inset-x-0 -top-6 h-[300px] md:h-[420px]"
           style={HERO_GLOW} aria-hidden="true" />
 

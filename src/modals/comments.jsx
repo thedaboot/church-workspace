@@ -85,6 +85,9 @@ const cardOfComment = (commentId) => {
 //    셋을 넘으면 +N이고 그 버튼만 전체 목록을 연다. 셋 이하는 얼굴의 title이 이름이다.
 // ③ 얼굴이 붙고 떨어져도 **줄 높이가 안 변한다** — 칩 높이는 아이콘 버튼(24px)이
 //    정하고 얼굴은 15px + 링이라 그 안에 들어간다. 가로만 늘어난다.
+// 아무도 누르지 않은 반응은 테두리 없이 흐린 아이콘만(UI 다듬기 2026-10-26) — 댓글마다 원 셋이 서 있어
+// 댓글 네 개면 원이 열둘이라 글보다 버튼이 먼저 보였다. 버튼은 그 자리에 그대로 있다(숨기지 않는다 · §8).
+// 누가 누르면 테두리·얼굴이 붙어 그 칩만 선다.
 const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
   // 줄바꿈하지 않는다 — 좁은 사이드바에서 확인 칩만 둘째 줄로 떨어져 어색했다
   // (사용자 지적 2026-08-30). 같은 종류가 이어지는 줄이라 가로 스크롤이 §8에
@@ -96,7 +99,7 @@ const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
       const extra = count - shown.length;
       return (
         <span key={kind}
-          className={`inline-flex items-center shrink-0 rounded-full border transition-colors ${mine ? on : 'border-line text-fg-faint'}`}>
+          className={`inline-flex items-center shrink-0 rounded-full border transition-colors ${mine ? on : count > 0 ? 'border-line text-fg-faint' : 'border-transparent text-fg-faint'}`}>
           <button
             type="button" onClick={() => onToggle(kind)} aria-pressed={mine}
             title={mine ? `${label} 취소` : label} aria-label={mine ? `${label} 취소` : label}

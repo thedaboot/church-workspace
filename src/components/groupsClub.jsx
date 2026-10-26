@@ -168,7 +168,9 @@ function ClubList({ clubs, people, members, apps, perms, nextMeet = {}, creating
         autoScroll={{ threshold: { x: 0, y: 0.2 } }}
         onDragStart={e => setDragId(String(e.active.id))}
         onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
-        <div className="space-y-2">
+        {/* 넓은 화면은 격자(UI 다듬기 2026-10-26) — 1400px 줄에 글이 150px만 서서 오른쪽이 통째로 비었다.
+            차례는 왼쪽→오른쪽, 위→아래로 읽고 끌어 놓기는 그대로 '놓은 카드 앞'(위쪽 accent 선)이다. 폰은 한 열. */}
+        <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3 items-stretch">
           {clubs.map(g => (
             <ClubCard key={g.id} club={g} people={people} members={members} next={nextMeet[g.id] || ''}
               joined={mine.has(g.id)} pending={myPending.has(g.id)} onOpen={onOpen} />

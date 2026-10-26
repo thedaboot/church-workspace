@@ -1310,6 +1310,10 @@ online을 기다렸다 한 번 새로 고친다(`main.jsx` — 10초 고리 판�
     폰 뒤로가기(App.jsx popstate)도 같은 길로 걷힌다(60-g — 처음에는 곧바로 내렸다).
 57-e. **검사는 열자마자 rect를 재면 등장 transform 중이다**(최대 380ms · scale .96부터) — `offsetWidth`·계산값 top으로 재거나 그 뒤에 잰다. 닫은 판은 180ms 동안 DOM에 남는다(`aria-hidden`) —
     '닫혔나'는 `:not([aria-hidden="true"])`로 보고, 닫을 때 붙는 저장(본문 활동 한 줄 등)은 그만큼 늦게 온다(`tests/modalclose` ⑥ · `tests/roster` 환송).
+57-f. **폰 업무 창(.dc-rise)은 투명도를 앞 12%에서 끝낸다**(UI 다듬기 2026-10-26) — 투명도와 28px 이동이 같이 가면 뒤판이 없는 전면 창이라
+    첫 0.1초 동안 뒤 보드 글자와 창 글자가 두 겹으로 겹쳐 '깨진 화면'처럼 보인다(1/10 속도 프레임 `node scripts/ui-shots.mjs --deep --motion --only task-new`로 확인).
+    키프레임에서 투명도만 12%에 1을 찍고 transform은 0%→끝 한 구간이다(빠진 속성은 그 속성을 가진 키프레임끼리만 잇는다). 같은 이유로 **회색 토글의 고른 칸은
+    `--app-seg-on`**(다크 #393836 — 통 #2a2a2a보다 밝게)이고 흰 칸은 `.ops-seg-thumb`이 미끄러지며 칠한다(segmented.jsx · 버튼은 투명 · 통이 안 보여 못 재면 버튼이 스스로 칠한다).
 
 ### UX 다듬기 2차 P3 (2026-10-15)
 

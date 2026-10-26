@@ -339,7 +339,9 @@ export function PersonPick({
 // 키보드가 뜨지 않으므로 그 사정이 없고, 흐름에 두면 목록이 아래 것들을 밀어낸다 —
 // 머리줄에서는 제목·가로선이 통째로 내려가고, 사람 줄에서는 그 줄이 벌어진다.
 // **PersonPick은 그대로 흐름이다**(거기는 입력칸이 있다).
-export function MenuPick({ items = [], onPick, label, empty, children, className = '' }) {
+// quiet — 테두리 없는 글자 버튼(순 편성의 '순 옮기기' · UI 다듬기 2026-10-26): 사람마다 테두리 칸이 서면 순 하나가
+// 아홉 줄짜리 입력 양식처럼 보였다. 글자·자리·누르는 동작은 그대로다(숨기지 않는다 · §8).
+export function MenuPick({ items = [], onPick, label, empty, children, className = '', quiet = false }) {
   const [open, setOpen] = useState(false);
   const [w, setW] = useState(MENU_EST_W);
   // 언제나 포털이다(머리말) — 이 값은 남겨 두지 않는다.
@@ -369,7 +371,7 @@ export function MenuPick({ items = [], onPick, label, empty, children, className
   return (
     <span ref={rootRef} className={`inline-flex ${className}`}>
       <button type="button" aria-label={label} aria-expanded={open} onClick={toggle}
-        className="menu-pick inline-flex items-center gap-1 px-1.5 py-1 rounded-xs border border-line bg-surface text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">
+        className={`menu-pick inline-flex items-center gap-1 px-1.5 py-1 rounded-xs border text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95 ${quiet ? 'border-transparent' : 'border-line bg-surface'}`}>
         <span>{children}</span><ChevronDown size={11} className="shrink-0" />
       </button>
       {open && createPortal(menu, document.body)}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckSquare, Clock, X, User, Hash, CalendarRange, Check, ArrowLeftRight } from 'lucide-react';
+import { CheckSquare, Clock, X, User, Hash, CalendarRange, Check, ArrowLeftRight, ChevronDown } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { keepVisible, byNewest, imeComposing } from '../utils.js';
 import { useStore } from '../store/workspaceStore.js';
@@ -64,11 +64,16 @@ function DependsRow({ formData, setFormData }) {
           </span>
         ))}
         {options.length > 0 && (
-          <select value="" onChange={(e) => add(e.target.value)} aria-label="선행 업무"
-            className="text-[11px] text-fg-muted bg-surface border border-line rounded-full px-2 py-1 outline-none focus:border-accent max-w-[200px]">
-            <option value="">{chosen.length ? '+ 더 추가' : '+ 먼저 끝나야 하는 업무'}</option>
-            {options.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-          </select>
+          // 목록은 OS의 선택창 그대로(폰에서 길어도 잘 굴러간다) — 겉모양만 담당자 칸과 같은 한 벌로(UI 다듬기 2026-10-26:
+          // 브라우저 기본 화살표의 굵은 알약이 업무 창에서 혼자 다른 앱처럼 보였다)
+          <span className="relative inline-flex max-w-[220px]">
+            <select value="" onChange={(e) => add(e.target.value)} aria-label="선행 업무"
+              className="appearance-none w-full text-[11.5px] text-fg-muted bg-surface border border-line rounded-md pl-2.5 pr-7 py-[5px] outline-none focus:border-accent hover:bg-surface-hover transition-colors cursor-pointer truncate">
+              <option value="">{chosen.length ? '+ 더 추가' : '+ 먼저 끝나야 하는 업무'}</option>
+              {options.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+            </select>
+            <ChevronDown size={12} aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-fg-faint" />
+          </span>
         )}
         {!options.length && !chosen.length && (
           <span className="text-[11px] text-fg-muted">이 프로젝트에 다른 업무가 생기면 고를 수 있어요</span>

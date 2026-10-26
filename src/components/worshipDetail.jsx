@@ -512,22 +512,24 @@ function ServicePaper({ service, nameOf, real = null, rosterKey = '', namesReady
   return (
     <div className="worship-paper">
       {/* 도구는 종이 위 한 줄 — 감추지 않는다(§8). 본문이 아직 안 왔으면 잠긴다:
-          그때 구우면 본문 없는 주보가 나간다 */}
+          그때 구우면 본문 없는 주보가 나간다.
+          셋 다 연한 단(BTN_SOFT)이다(UI 다듬기 2026-10-26) — '확정'이 아니라 가져가기·보기라서. 진한 파랑 셋이
+          남색 종이 머리 바로 위에 붙어 종이보다 먼저 보였다(§8 진한 accent = 확정). */}
       <div className="flex items-center gap-1.5 mb-3">
         <button type="button" onClick={pdf.share} disabled={pdf.busy || verses === null || !namesReady}
-          className={`worship-paper-pdf ${WITH_ICON} ${BTN}`}>
+          className={`worship-paper-pdf ${WITH_ICON} ${BTN_SOFT}`}>
           {pdf.busy ? <Loader2 size={13} className="animate-spin" /> : <Share2 size={13} />}
           <span>PDF로 공유</span>
         </button>
         {link !== '' && (
           <button type="button" onClick={shareLink} disabled={link === null}
-            className={`worship-paper-link ${WITH_ICON} ${BTN}`}>
+            className={`worship-paper-link ${WITH_ICON} ${BTN_SOFT}`}>
             <Link2 size={13} />
             <span>링크로 공유</span>
           </button>
         )}
         <button ref={storyBtn} type="button" onClick={() => setStory(true)} disabled={verses === null}
-          className={`worship-story-open md:hidden ${WITH_ICON} ${BTN}`}>
+          className={`worship-story-open md:hidden ${WITH_ICON} ${BTN_SOFT}`}>
           <GalleryHorizontalEnd size={13} />
           <span>넘기면서 보기</span>
         </button>
@@ -800,7 +802,7 @@ export function ServiceDetail({
                 className={`worship-save shrink-0 hidden md:inline-flex ${BTN}`}>저장</button>
               <ConfirmPopover className="shrink-0 hidden md:inline-flex" onConfirm={onDelete}
                 message={<><span className="font-bold text-fg">이 주보를 삭제할까요?</span><br />모든 내용이 같이 사라지니 신중하게 선택해주세요</>}>
-                <button type="button" className="worship-head-delete px-2.5 py-1.5 rounded-md text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
+                <button type="button" className="worship-head-delete px-2.5 py-1.5 rounded-md bg-surface text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
               </ConfirmPopover>
             </>
           )}
@@ -836,7 +838,9 @@ export function ServiceDetail({
 
       {/* 탭을 바꾸면 판이 .dc-fade(.2s · 움직임 줄이기면 없음)로 갈린다 — 탭마다 높이가 달라 뚝 바뀌던 것을 누그러뜨린다(시안 E9).
           key가 탭이라 바꿀 때마다 새로 들어온다(수정 들어가기·나오기는 같은 탭이라 다시 돌지 않는다) */}
-      <div key={activeTab} className="worship-tabpanel dc-fade">
+      {/* 수정 중에는 읽는 폭(880px)으로 모은다(UI 다듬기 2026-10-26) — 설교 제목 칸이 700px, 구절 줄이 1400px로
+          늘어나 고치는 동안 눈이 좌우로 크게 오갔다. 보기 탭은 그대로다. */}
+      <div key={activeTab} className={`worship-tabpanel dc-fade${editing ? ' max-w-[880px]' : ''}`}>
         {activeTab === 'paper' && (
           <ServicePaper service={service} nameOf={nameOf} real={real} rosterKey={rosterKey} namesReady={rosterReady} cover={cover} onShareLink={onShareLink} />
         )}

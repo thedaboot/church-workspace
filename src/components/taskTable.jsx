@@ -51,12 +51,15 @@ function StatusCell({ task, onStatusChange, compact = false }) {
   const btnRef = useRef(null);
   const close = useCallback(() => setOpen(false), []);
   const s = task.status;
+  // 끝난 업무('완료')는 바탕 없이 점+글자로 가라앉힌다(UI 다듬기 2026-10-26) — 27줄이 다 완료면 초록 바탕 칩이
+  // 세로 기둥처럼 서서 제목보다 먼저 보였다. 아직 움직이는 상태만 바탕을 둬서 표를 열면 손볼 줄이 튄다.
+  const quiet = s === '완료';
   const chip = (
     <span className={`inline-flex items-center gap-1.5 ${compact ? 'pl-[6px] pr-[7px]' : 'pl-[7px] pr-[9px]'} py-[3px] rounded-xs whitespace-nowrap`}
-      style={{ background: CONFIG.STATUS_BG_VAR[s] }}>
+      style={{ background: quiet ? 'transparent' : CONFIG.STATUS_BG_VAR[s] }}>
       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_DOT_VAR[s] }} />
       <span className="text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[s] }}>{s}</span>
-      {onStatusChange && !compact && <ChevronDown size={11} className="-mr-0.5" style={{ color: CONFIG.STATUS_FG_VAR[s] }} />}
+      {onStatusChange && !compact && <ChevronDown size={11} className={`-mr-0.5${quiet ? ' opacity-60' : ''}`} style={{ color: CONFIG.STATUS_FG_VAR[s] }} />}
     </span>
   );
   if (!onStatusChange || compact) return chip;

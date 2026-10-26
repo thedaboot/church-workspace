@@ -415,8 +415,10 @@ function MeetingRow({ meeting, list, manage, onToggle, onDelete, report = null }
             <button key={p.id} type="button" disabled={!manage} aria-pressed={on}
               onClick={() => onToggle(meeting, p.id)}
               className="club-meet-chip px-2.5 py-1 rounded-full text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-60"
+              // 참석은 연한 초록 — 내 순의 '출석' 칩과 같은 색(UI 다듬기 2026-10-26). 진한 파랑은 버튼(확정)의 색이라
+              // 같은 '왔다'가 화면마다 다른 뜻처럼 읽혔다.
               style={on
-                ? { background: 'var(--app-accent)', color: '#fff' }
+                ? { background: 'var(--app-tag-green)', color: 'var(--app-tag-green-fg)' }
                 : { background: 'var(--app-surface-hover)', color: 'var(--app-ink-muted)' }}>
               {p.name}
             </button>

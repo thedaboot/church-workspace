@@ -706,7 +706,7 @@ await send('Emulation.clearDeviceMetricsOverride');
   }
   await ev(`localStorage.removeItem('theme')`);
 }
-// ② 알림 종 판 — 좁은 폰(SE 375 · 폴드 겉화면 344)에서는 화면 폭 - 32px로 서고 좌우 16px(앱 거터)이 같다. 데스크톱은 320px 그대로 종 오른쪽 끝에.
+// ② 알림 종 판 — 좁은 폰(SE 375 · 폴드 겉화면 344)에서는 화면 폭 - 32px로 서고 좌우 16px(앱 거터)이 같다. 데스크톱은 360px(UI 다듬기 2026-10-26 — 320에서 넓혔다) 그대로 종 오른쪽 끝에.
 //    종은 클라우드에서만 서서 게스트 화면에는 없다 — 앱과 같은 react로 NotificationBell을 직접 그려 잰다(폰 상단바 자리 · 오른쪽에서 56px).
 //    **되돌리기**: notificationBell.jsx 판 클래스의 `max-sm:w-[calc(100vw-2rem)]!`나 gap 16을 걷으면 왼쪽 8~9px · 오른쪽 23~47px로 깨진다.
 {
@@ -742,7 +742,7 @@ await send('Emulation.clearDeviceMetricsOverride');
     check(`알림 판(${label}): 좌우 16px 거터가 같다`, !!p && Math.abs(p.left - 16) <= 1 && Math.abs(p.right - 16) <= 1, JSON.stringify(p));
   }
   const d = await bellAt(1440, 900, false);
-  check('알림 판(데스크톱 1440): 320px 그대로 종 오른쪽 끝에 맞춘다', !!d && d.width === 320 && Math.abs((d.left + d.width) - d.bellRight) <= 1, JSON.stringify(d));
+  check('알림 판(데스크톱 1440): 360px 그대로 종 오른쪽 끝에 맞춘다', !!d && d.width === 360 && Math.abs((d.left + d.width) - d.bellRight) <= 1, JSON.stringify(d));
   await send('Emulation.clearDeviceMetricsOverride');
 }
 

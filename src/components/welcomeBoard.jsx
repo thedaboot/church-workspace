@@ -147,7 +147,10 @@ function EmptyColumnMark() {
   );
 }
 
-function Column({ stage, label, count, share, dragging, children }) {
+// allEmpty — 일곱 칸이 다 비었을 때(UI 다듬기 2026-10-26): 데스크톱은 칸이 한 화면에 다 보여서 같은 그림·문구가
+// 일곱 번 반복되면 무늬가 됐다. 그때 데스크톱은 칸마다 점선 자리만 두고 그림·문구는 보드 아래 한 번(WelcomeBoard).
+// 폰은 칸을 하나씩 넘겨 보므로 칸마다 그대로다.
+function Column({ stage, label, count, share, dragging, allEmpty = false, children }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   return (
     <div ref={setNodeRef} data-stage={stage}
@@ -164,8 +167,9 @@ function Column({ stage, label, count, share, dragging, children }) {
       </div>
       <div className="pt-0.5">
         {children}
+        {!count && !dragging && allEmpty && <div className="hidden md:block mt-2.5 h-14 rounded-md border border-dashed border-line" data-empty-slot="" />}
         {!count && !dragging && (
-          <div className="py-[22px] text-center">
+          <div className={`py-[22px] text-center${allEmpty ? ' md:hidden' : ''}`}>
             <EmptyColumnMark />
             <p className="text-[11px] text-fg-muted">해당 항목은 비어 있어요</p>
           </div>
@@ -369,13 +373,19 @@ export function WelcomeBoard({ suns = [], members = [], people = [], meName = ''
         <div ref={scrollRef} onScroll={onScroll} data-fade-r={fadeR ? '' : undefined}
           className={`${over ? 'x-fade-edge ' : ''}flex gap-[14px] md:gap-[18px] pb-1.5 overflow-x-auto overflow-y-hidden max-md:scrollbar-hide [overscroll-behavior-x:none] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}>
           {W.STAGES.map(([k, label]) => (
-            <Column key={k} stage={k} label={label} count={byStage[k].length} share={active ? byStage[k].length / active : 0} dragging={!!activeId}>
+            <Column key={k} stage={k} label={label} count={byStage[k].length} share={active ? byStage[k].length / active : 0} dragging={!!activeId} allEmpty={!active}>
               {byStage[k].map((c, i) => (
                 <DraggableCard key={c.id} c={c} index={stagger ? i : 0} sunName={sunOf(c.person_id)?.name} onOpen={setOpenId} onMove={move} />
               ))}
             </Column>
           ))}
         </div>
+        {!active && !activeId && (
+          <div className="hidden md:block py-6 text-center" data-empty-all="">
+            <EmptyColumnMark />
+            <p className="text-[11px] text-fg-muted">해당 항목은 비어 있어요</p>
+          </div>
+        )}
       </section>
       {createPortal(
         <DragOverlay dropAnimation={{ duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>

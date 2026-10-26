@@ -55,7 +55,7 @@ export const PAPER = {
   // 형광펜 바탕과 체크 상자 채움. 앱의 라이트 토큰(--app-tag-yellow · --app-tag-green-fg)과
   // 같은 값이되 **여기 한 벌만** 적는다 — 편집 종이(index.css `.note-paper`)가 이것을
   // `--paper-mark`·`--paper-check`으로 받아 쓴다(종이는 다크를 따라가지 않는다 · §6-32-i).
-  mark: '#fbecd0',
+  mark: '#f3d474',   // 형광펜 자국(글자 아래 40%) — 예전 #fbecd0은 글자 전체를 덮는 옅은 네모였다(UI 다듬기 2026-10-26)
   check: '#2c5d42',
 };
 

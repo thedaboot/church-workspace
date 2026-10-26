@@ -107,8 +107,8 @@ function PushRow() {
       {on ? <BellRing size={13} strokeWidth={1.75} className="shrink-0 text-accent-text" />
           : <Bell size={13} strokeWidth={1.75} className="shrink-0 text-fg-muted" />}
       <span className="flex-1 min-w-0">
-        <span className="block text-[11px] text-fg">{on ? '이 기기로 알림 받는 중' : '이 기기로 알림 받기'}</span>
-        <span className="block text-[10px] text-fg-muted mt-0.5">{on ? '눌러서 끄기' : '앱을 닫아도 알림이 와요'}</span>
+        <span className="block text-[12px] text-fg">{on ? '이 기기로 알림 받는 중' : '이 기기로 알림 받기'}</span>
+        <span className="block text-[11px] text-fg-muted mt-0.5">{on ? '눌러서 끄기' : '앱을 닫아도 알림이 와요'}</span>
       </span>
     </button>
   );
@@ -132,8 +132,8 @@ function KakaoOutRow() {
       className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-line text-left hover:bg-surface-hover transition-colors">
       <Compass size={13} strokeWidth={1.75} className="shrink-0 text-accent-text" />
       <span className="flex-1 min-w-0">
-        <span className="block text-[11px] text-fg">{KAKAO_OUT_COPY.title}</span>
-        <span className="block text-[10px] text-fg-muted mt-0.5">{KAKAO_OUT_COPY.sub}</span>
+        <span className="block text-[12px] text-fg">{KAKAO_OUT_COPY.title}</span>
+        <span className="block text-[11px] text-fg-muted mt-0.5">{KAKAO_OUT_COPY.sub}</span>
       </span>
     </button>
   );
@@ -200,7 +200,9 @@ function CloudBell({ onOpenTask, onOpenLink }) {
   // rootRef 안에 그려진다(포털이 아니다 · portal: false)
   // 좁은 폰(640 미만)은 판이 화면 폭 - 32px로 서고 좌우 16px 여백(앱 거터)에 맞춘다 — 320px 판을 종 오른쪽 끝에 맞추면
   // 왼쪽 9px · 오른쪽 25~48px로 어긋났다(2026-10-14 점검 · PITFALLS 49-f). 폭은 아래 판 클래스(!)가 정하고, measure로 그 실제 폭을 재서 가둔다.
-  const pop = usePopover(320, 240, { portal: false, gap: 16, measure: true });
+  // 판 폭 360(UI 다듬기 2026-10-26 — 320일 때 제목 11px · 미리보기·시각 10px라 판을 열면 회색 글이 빼곡했다).
+  // 글은 한 단씩 올렸다: 제목 12.5 · 미리보기·시각 11 · 기기 알림 줄 12/11. 폰은 그대로 화면 폭 - 32px.
+  const pop = usePopover(360, 240, { portal: false, gap: 16, measure: true });
   const unread = shown.filter(n => !n.read).length;
 
   // 앱 아이콘 뱃지. **아이폰 홈 화면 웹앱에서만 보인다** — 안드로이드 크롬은 이 API가
@@ -438,13 +440,13 @@ function NotifRows({ items, openItem, dismiss }) {
               <Avatar name={n.actor_name || ''} className="flex w-6 h-6 text-[10px]" />
             )}
             <span className="flex-1 min-w-0">
-              <span className="block text-[11px] text-fg-secondary leading-snug">
+              <span className="block text-[12.5px] text-fg-secondary leading-snug">
                 {isSystemNotif(n.kind)
                   ? notifLine(n.kind, n.actor_name)
                   : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
               </span>
-              {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
-              <span className="block text-[10px] text-fg-muted mt-0.5">{formatRelative(n.created_at)}</span>
+              {n.preview && <span className="block text-[11px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
+              <span className="block text-[11px] text-fg-muted mt-0.5">{formatRelative(n.created_at)}</span>
             </span>
           </button>
           {/* hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 이 기능이 아예

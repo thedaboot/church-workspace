@@ -864,7 +864,8 @@ export function GroupsView() {
         )}
         {active === 'welcome' && (
           <button type="button" onClick={() => setJoinQr(true)} data-join-qr-open=""
-            className={`${WITH_ICON} px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95`}>
+            // QR 보기는 확정이 아니라 연한 단(UI 다듬기 2026-10-26 · §8 진한 accent = 확정 · 멤버 '가입 QR'도 무채색)
+            className={`${WITH_ICON} px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95`}>
             <QrCode size={13} /><span>새가족 QR</span>
           </button>
         )}

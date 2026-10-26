@@ -61,6 +61,21 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
   check('D9: 주 버튼 비활성에 bg-line을 쓰지 않는다(opacity .4)', bgLine.length === 0, bgLine.join(' · '));
   check('D9: 10px 미만 글자는 얼굴 머리글자·종이뿐이다', tiny.length === 0, tiny.join(' · '));
   check('D9: 12px 미만 글에 faint를 쓰지 않는다', faintSmall.length === 0, faintSmall.join(' · '));
+  // ── UI 다듬기 회차(2026-10-26) 규격 — 소스로 지킨다 ──
+  // ⑤ 다크의 회색 토글 고른 칸(--app-seg-on)은 통(--app-surface-hover)보다 밝다 — 어두우면 꺼진 칸으로 읽힌다(PITFALLS 57-f)
+  // ⑥ 폰 업무 창 등장(dc-rise-in)은 투명도를 앞 12%에서 끝낸다 — 같이 가면 첫 0.1초에 뒤 보드 글자와 두 겹으로 겹친다
+  // ⑦ 형광펜은 글자색을 바꾸지 않는다(bibleParts HL_STYLE color: inherit · 펜 자국 그라데이션) — 빨강이면 말씀이 빨간 글씨가 됐다
+  // **되돌리기**: index.css 다크 --app-seg-on을 #202020으로, dc-rise-in의 '12% { opacity: 1; }'를 지우면 ⑤·⑥이 깨진다.
+  {
+    const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+    const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255].reduce((a, v) => a + v, 0); };
+    const dark = css.slice(css.indexOf(":root[data-theme='dark'] {"));
+    const segOn = dark.match(/--app-seg-on:\s*(#[0-9a-f]{6})/i)?.[1], track = dark.match(/--app-surface-hover:\s*(#[0-9a-f]{6})/i)?.[1];
+    check('다듬기: 다크 회색 토글의 고른 칸이 통보다 밝다', !!segOn && !!track && lum(segOn) > lum(track), `${segOn} / ${track}`);
+    check('다듬기: 폰 업무 창은 투명도를 먼저 채우고 떠오른다(dc-rise-in 12%)', /@keyframes dc-rise-in\s*\{[^}]*\}\s*12%\s*\{\s*opacity:\s*1;?\s*\}/.test(css));
+    const bp = readFileSync(new URL('../src/components/bibleParts.jsx', import.meta.url), 'utf8');
+    check('다듬기: 형광펜은 글자색을 바꾸지 않는다(펜 자국)', /color:\s*'inherit'/.test(bp) && !/tag-(red|blue|yellow|green)-fg/.test(bp.slice(bp.indexOf('const HL_TOKEN'), bp.indexOf('export const hlColor'))), '');
+  }
   // ③-b 같은 문자열만 보면 구멍이 둘이다(2026-10-07 · 19차 묶음 E) — **조건부 문자열**(`text-[10px] ${열림 ? '…' : 'text-fg-faint'}`)과
   // **물려받은 색**(글자 색이 없는 10px 버튼이 faint 칩 안에 선다). 그래서 JSX를 읽어(vite parseAst) className 식 안의 문자열 조각을
   // 모두 모으고, 색은 조상에게서, 크기는 자기 것으로 본다. 대문자 부품(Avatar 등)은 안에서 제 색을 정하므로 물려받기는 소문자 태그만.

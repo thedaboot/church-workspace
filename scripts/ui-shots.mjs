@@ -31,6 +31,8 @@ const SIZES = { desk: [1440, 900, 1, false], phone: [390, 844, 2, true] };
 const sizes = (arg('sizes', 'desk,phone')).split(',');
 const themes = (arg('themes', 'light,dark')).split(',');
 const CLICK = arg('click');
+const DEEP = has('deep');     // 첫 화면 대신 상세·창·탭(업무 창 · 주보 상세/수정 · 가이드 · 동아리 · 위키 장 · 인수인계 · 알림 · 검색 …)
+const MOTION = has('motion'); // 마지막 누름을 애니메이션 1/10 속도로 틀고 0.25초마다 찍는다(실제 25ms 간격 · <화면>-<폭>-f<N>.png · 지금 테마 하나)
 
 const env = Object.fromEntries(readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n').map(l => l.trim())
   .filter(l => l && !l.startsWith('#') && l.includes('=')).map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
@@ -51,6 +53,38 @@ else if (db) {
   for (const c of cs || []) n.set(c.project_id, (n.get(c.project_id) || 0) + 1);
   const best = (ps || []).map(p => p.id).sort((a, b) => (n.get(b) || 0) - (n.get(a) || 0))[0];
   if (best) SCREENS.push(['board', `?p=${best}`]);
+}
+if (DEEP && db && !arg('path')) {
+  // 상세는 실데이터에서 내용이 가장 많은 것(빈 상세는 다듬을 것이 안 보인다)
+  const board = SCREENS.find(([n]) => n === 'board')?.[1];
+  const one = async (q) => { try { return (await q).data?.[0] || null; } catch { return null; } };
+  const talk = await one(db.from('cards').select('id,project_id').is('deleted_at', null).order('comment_count', { ascending: false }).limit(1));
+  const files = await one(db.from('cards').select('id,project_id').is('deleted_at', null).order('file_count', { ascending: false }).limit(1));
+  const svc = await one(db.from('services').select('id').not('published_at', 'is', null).order('service_date', { ascending: false }).limit(1));
+  const guide = await one(db.from('sun_guides').select('service_id').order('created_at', { ascending: false }).limit(1));
+  const { data: gm } = await db.from('group_meetings').select('group_id').limit(2000);
+  const gn = new Map();
+  for (const m of gm || []) gn.set(m.group_id, (gn.get(m.group_id) || 0) + 1);
+  const club = [...gn].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const event = await one(db.from('events').select('id').order('start_date', { ascending: false }).limit(1));
+  const wiki = await one(db.from('wiki_pages').select('id').order('source_count', { ascending: false }).limit(1));
+  const task = (c) => `?p=${c.project_id}&t=${c.id}`;
+  const s = svc && `?p=worship&s=${svc.id}`;
+  SCREENS.splice(0, SCREENS.length,
+    ...(talk ? [['task', task(talk)], ['task-edit', task(talk), '수정']] : []),
+    ...(files ? [['task-files', task(files)]] : []),
+    ...(board ? [['task-new', board, '새 업무'], ['board-table', board, '표'], ['board-cal', board, '캘린더'], ['board-graph', board, '그래프']] : []),
+    ...(s ? [['bulletin', s], ['bulletin-word', s, '말씀'], ['bulletin-songs', s, '찬양'], ['bulletin-notices', s, '광고'], ['bulletin-edit', s, '수정'], ['story', s, '넘기면서 보기']] : []),
+    ['mynotes', '?p=worship', '내 예배 노트'],
+    ...(guide ? [['guide', `?p=groups&guide=${guide.service_id}`]] : []),
+    ...(club ? [['club-detail', `?p=groups&g=${club}`]] : []),
+    ['sunplan', '?p=groups', '순 편성'], ['bible', '?p=word', '성경 읽기'],
+    ...(wiki ? [['wiki-page', `?p=wiki&wiki=${wiki.id}`]] : []),
+    ...(event ? [['event', `?p=schedule&ev=${event.id}`]] : []),
+    ['roster', '?p=members', '청년 명단'], ['handover', '?p=members', '인수인계'],
+    ['dash-people', '?p=dashboard', '청년'], ['dash-map', '?p=dashboard', '연결'],
+    ['bell', '', '알림'], ['search', '', '검색'], ['dabooti', '', '다붓이에게 물어보기'],
+  );
 }
 const only = arg('only')?.split(',');
 const screens = only ? SCREENS.filter(([n]) => only.includes(n)) : SCREENS;
@@ -134,15 +168,36 @@ for (const size of sizes) {
     await loaded;
     // 뼈대가 걷힐 때까지(최대 10초) — 다 뜬 화면을 찍는다
     for (let i = 0; i < 40; i++) { if (!(await ev(`document.querySelectorAll('.dc-skeleton, [aria-busy="true"]').length`))) break; await sleep(250); }
-    await sleep(1200);
-    if (tap) {
-      // 탭은 권한을 읽은 뒤에 선다 — 버튼이 생길 때까지(최대 10초) 기다렸다 누르고, 다시 뼈대가 걷히길 기다린다
-      for (let i = 0; i < 40; i++) { if (await ev(`!![...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(tap)})`)) break; await sleep(250); }
-      await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(tap)})?.click()`);
+    await sleep(2000);   // 1.2초였을 때 홈 카드 몇 장이 아직 읽는 중에 찍혔다(2026-10-26)
+    // 누름 — ' > '로 이어 누른다 · '@'로 시작하면 선택자 · 아니면 보이는 버튼·탭·링크의 글자/aria-label/title
+    const steps = tap ? tap.split(' > ') : [];
+    for (const [si, t] of steps.entries()) {
+      // 탭은 권한을 읽은 뒤에 선다 — 생길 때까지(최대 10초) 기다렸다 누르고, 다시 뼈대가 걷히길 기다린다
+      const find = t.startsWith('@') ? `document.querySelector(${JSON.stringify(t.slice(1))})`
+        : `[...document.querySelectorAll('button,[role=tab],a')].find(b => b.offsetParent !== null && [b.textContent.trim(), b.getAttribute('aria-label'), b.getAttribute('title')].includes(${JSON.stringify(t)}))`;
+      let found = false;
+      for (let i = 0; i < 40 && !(found = await ev(`!!(${find})`)); i++) await sleep(250);
+      if (!found) { console.log(`  못 찾음 ${name}-${size} · ${t}`); break; }
+      if (MOTION && si === steps.length - 1) {
+        await send('Animation.enable');
+        await send('Animation.setPlaybackRate', { playbackRate: 0.1 });
+        await ev(`(${find})?.click()`);
+        for (let k = 0; k < 16; k++) {
+          const { data } = await send('Page.captureScreenshot', { format: 'png' });
+          const file = `${name}-${size}-f${String(k).padStart(2, '0')}.png`;
+          writeFileSync(join(OUT, file), Buffer.from(data, 'base64'));
+          shots.push({ name, size, theme: `f${k}`, file });
+          await sleep(250);
+        }
+        await send('Animation.setPlaybackRate', { playbackRate: 1 });
+        break;
+      }
+      await ev(`(${find})?.click()`);
       await sleep(600);
       for (let i = 0; i < 40; i++) { if (!(await ev(`document.querySelectorAll('.dc-skeleton, [aria-busy="true"]').length`))) break; await sleep(250); }
       await sleep(900);
     }
+    if (MOTION) { console.log('찍음', `${name}-${size} 프레임`); continue; }
     if (CLICK) { await ev(`document.querySelector(${JSON.stringify(CLICK)})?.click()`); await sleep(1200); }
     for (const theme of themes) {
       await ev(`document.documentElement.setAttribute('data-theme', '${theme}')`);

@@ -131,7 +131,9 @@ function PairStep({ m, onEditRoster }) {
           const changed = p.from && p.to !== p.auto;
           const drop = p.kind === 'drop';
           const pick = !m.hv.applied && p.kind !== 'new' && (
-            <MenuPick label="인수자" items={options.filter(o => (drop ? o.id !== DROP_SEAT : o.id !== (p.to || '')))} onPick={(id) => setTo(p.key, id)}>
+            // 데스크톱은 끝 열(7.5rem)을 꽉 채운다(UI 다듬기 2026-10-26) — '변경'과 '인계할 사람 선택'의 폭이 달라 오른쪽 끝이
+            // 들쭉날쭉했다. 끝이 한 줄로 서면 세로로 훑어 남은 줄을 바로 센다.
+            <MenuPick className="md:w-full md:[&>.menu-pick]:w-full md:[&>.menu-pick]:justify-between" label="인수자" items={options.filter(o => (drop ? o.id !== DROP_SEAT : o.id !== (p.to || '')))} onPick={(id) => setTo(p.key, id)}>
               {drop ? '인계할 사람 선택' : to ? '변경' : '선택'}
             </MenuPick>
           );
@@ -142,7 +144,7 @@ function PairStep({ m, onEditRoster }) {
               className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] md:grid-cols-[7.5rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)_7.5rem] items-center gap-x-2 md:gap-x-3 gap-y-2 px-3 py-2.5"
               style={i ? { borderTop: '1px solid var(--app-line)' } : undefined}>
               <span className="col-span-2 md:col-span-1 flex items-center gap-1.5 min-h-7"><Badge label={slotLabel(p.slot)} /></span>
-              <span data-pair-pick="" className="row-start-1 col-start-3 md:col-start-5 justify-self-end">{pick}</span>
+              <span data-pair-pick="" className="row-start-1 col-start-3 md:col-start-5 justify-self-end md:justify-self-stretch">{pick}</span>
               <span className="min-w-0">{from ? <Who person={from} /> : <Quiet>새로 맡음</Quiet>}</span>
               <span className="flex justify-center text-fg-faint"><ArrowRight size={14} /></span>
               <span className="min-w-0 flex items-center gap-1.5">

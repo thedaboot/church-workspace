@@ -115,10 +115,13 @@ export function PassageSkeleton({ lines = 8, step = 1 }) {
 // 걸면 여러 줄로 감기는 절도 **각 줄의 글자 폭만** 칠해진다(안 걸면 마지막 줄 끝까지
 // 한 덩이로 이어진다). 좌우 padding은 같은 값의 음수 margin으로 상쇄해 글자 자리가
 // 밀리지 않게 한다. 색은 업무 본문의 ==형광펜==과 같은 토큰이다(RichText·.tiptap mark).
+// 펜 자국 — 글자 아래 40%만 칠하고 글자색은 그대로(UI 다듬기 2026-10-26 · 색은 index.css --app-hl-*).
+// 예전엔 태그 바탕으로 글자 전체를 덮고 글자색까지 태그 글자색으로 바꿔서, 빨강이면 말씀이 빨간 글씨가 됐다.
 const HL_STYLE = {
-  borderRadius: '3px',
-  padding: '1px 2px',
+  borderRadius: '2px',
+  padding: '0 2px',
   margin: '0 -2px',
+  color: 'inherit',
   boxDecorationBreak: 'clone',
   WebkitBoxDecorationBreak: 'clone',
 };
@@ -129,17 +132,14 @@ const HL_STYLE = {
 // (0038로 들어간 항목에는 색 칸이 없었다 — 마이그레이션 없이 화면에서 흡수한다).
 const HL_COLORS = [['red', '빨강'], ['blue', '파랑'], ['yellow', '노랑'], ['green', '초록']];
 const HL_TOKEN = {
-  red: ['var(--app-tag-red)', 'var(--app-tag-red-fg)'],
-  blue: ['var(--app-tag-blue)', 'var(--app-tag-blue-fg)'],
-  yellow: ['var(--app-tag-yellow)', 'var(--app-tag-yellow-fg)'],
-  green: ['var(--app-tag-green)', 'var(--app-tag-green-fg)'],
+  red: 'var(--app-hl-red)', blue: 'var(--app-hl-blue)', yellow: 'var(--app-hl-yellow)', green: 'var(--app-hl-green)',
 };
 export const hlColor = (c) => (HL_TOKEN[c] ? c : 'yellow');
 
 export function Hl({ color, children }) {
   const c = hlColor(color);
-  const [bg, fg] = HL_TOKEN[c];
-  return <mark data-lit={c} style={{ ...HL_STYLE, background: bg, color: fg }}>{children}</mark>;
+  const v = HL_TOKEN[c];
+  return <mark data-lit={c} style={{ ...HL_STYLE, background: `linear-gradient(transparent 54%, ${v} 54%, ${v} 94%, transparent 94%)` }}>{children}</mark>;
 }
 
 // ── 본문 한 덩이 (QT 탭도 같이 쓴다) ───────────────────────────────────────
@@ -260,7 +260,7 @@ function VerseTool({ label, current, lit, onPaint, onErase }) {
           aria-pressed={current === c} title={`${ko}으로 칠하기`} aria-label={`${ko}으로 칠하기`}
           className="shrink-0 w-7 h-7 rounded-full transition active:scale-90"
           style={{
-            background: HL_TOKEN[c][0],
+            background: HL_TOKEN[c],
             // 지금 칠해져 있는 색에는 accent 링이 돈다 — '현재 색'을 칩이 말한다
             boxShadow: current === c ? 'inset 0 0 0 2px var(--app-accent)' : 'inset 0 0 0 1px var(--app-line)',
           }}

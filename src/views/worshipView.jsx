@@ -290,7 +290,8 @@ function ServiceList({ services, perms, counts = {}, covers = {}, onOpen, onCrea
   return (
     <div className="worship-list dc-screen pb-8">
       <div className="flex items-center gap-2 mb-4">
-        <h2 className="text-lg md:text-xl font-extrabold text-fg tracking-[-0.4px]">예배</h2>
+        {/* 폰에서는 상단바가 이미 '예배'를 말한다 — 같은 글자가 바로 아래 또 서지 않게 md부터(UI 다듬기 2026-10-26) */}
+        <h2 className="hidden md:block text-xl font-extrabold text-fg tracking-[-0.4px]">예배</h2>
         <span className="flex-1" />
         {/* '새 주보' 왼쪽 — 연한 accent(들어가는 버튼 · §8 색 규칙). 노트가 없어도 선다(목업 판단) */}
         {onOpenNotes && (
