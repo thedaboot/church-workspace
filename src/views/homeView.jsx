@@ -129,6 +129,8 @@ const momentNow = () => (import.meta.env?.DEV && typeof window !== 'undefined' &
 // blur가 아니라 radial-gradient다(§4.2 — 큰 블러 레이어는 모바일 래스터 비용이 크다).
 const HERO_GLOW = {
   backgroundRepeat: 'no-repeat',
+  maskImage: 'linear-gradient(to bottom, #000 62%, transparent)',
+  WebkitMaskImage: 'linear-gradient(to bottom, #000 62%, transparent)',
   backgroundImage: [
     'radial-gradient(52rem 24rem at 22% 6%, color-mix(in srgb, var(--app-accent-weak) 92%, transparent), transparent 70%)',
     'radial-gradient(40rem 20rem at 80% 0%, color-mix(in srgb, var(--app-tag-purple) 62%, transparent), transparent 72%)',
@@ -548,7 +550,7 @@ function CardSkeleton({ slot, delay, enter = 'dc-card', wide = false }) {
       </span>
       <span className="home-skel-body block">
         <SkelLine className="home-skel-focus text-[15px] md:text-[16.5px] md:leading-[22.5px] font-extrabold tracking-[-0.3px]" w="58%" />
-        <SkelLine className="home-skel-meta mt-1 text-[12px] leading-[1.45]" w="84%" />
+        <SkelLine className="home-skel-meta mt-1 text-[12px] md:text-[12.5px] leading-[1.45]" w="84%" />
       </span>
     </div>
   );
@@ -978,7 +980,8 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
           `-z-10`이라야 뒤로 간다 — 자리를 잡은(absolute) 요소는 기본적으로 흐름 안의
           글보다 위에 그려져서, 그냥 두면 글로우가 인사말을 덮는다. */}
       <section className="home-hero relative text-center pt-3 pb-6 md:pt-5 md:pb-6">
-        <div className="home-hero-glow pointer-events-none absolute -z-10 inset-x-0 -top-6 h-[300px] md:h-[420px]"
+        {/* 옆은 main의 좌우 여백(px-3 · md:px-4)까지 덮고 아래는 흐려지며 끝난다 — 안쪽에 두면 양옆에 빈 띠가, 아래에는 네모 끝선이 보였다(사용자 지적 2026-10-27 · 다크에서 또렷) */}
+        <div className="home-hero-glow pointer-events-none absolute -z-10 -inset-x-3 md:-inset-x-4 -top-6 h-[300px] md:h-[420px]"
           style={HERO_GLOW} aria-hidden="true" />
 
         <div className="home-hero-text dc-card mx-auto max-w-[720px]">

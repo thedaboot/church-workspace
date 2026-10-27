@@ -175,9 +175,9 @@ const isOutsideImage = (src) => /^https?:\/\//i.test(src)
 // **카카오 프로필 사진 `k.kakaocdn.net`(·`t1`)에는 CORS 머리가 없다**(2026-10-19 실측 — 라이브 사진 26장 중 12장) —
 // 받지 못해 그림에서 빈 자리가 됐다(사용자 지적: 피드백 화면 사진에 프로필 사진이 안 나온다). 같은 사진을 카카오
 // 썸네일 주소 `img1.kakaocdn.net/thumb/…?fname=`으로 받으면 `access-control-allow-origin: *`이 붙어 온다.
-// 받는 주소만 바꾼다(화면의 src는 그대로).
+// 받는 주소만 바꾼다(화면의 src는 그대로). C = 가운데 정사각 자르기 — R은 비율을 무시하고 늘려 찌그러졌다(Avatar.jsx와 같은 이유 · 2026-10-27).
 export const corsImageUrl = (src) => (/^https?:\/\/(k|t1)\.kakaocdn\.net\//i.test(src)
-  ? `https://img1.kakaocdn.net/thumb/R640x640.q70/?fname=${encodeURIComponent(src)}`
+  ? `https://img1.kakaocdn.net/thumb/C640x640.q70/?fname=${encodeURIComponent(src)}`
   : src);
 
 export const toDataUrl = (blob) => new Promise((ok, no) => {

@@ -81,6 +81,15 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.strictEqual(httpsImage('https://x.com/i?u=http://y.com/a.png'), 'https://x.com/i?u=http://y.com/a.png');
   console.log('PASS  프로필 사진 https 승격 7가지');
 }
+// 카카오 썸네일은 C(가운데 정사각 자르기)다 — R은 비율을 무시하고 늘려 480×640 세로 사진이 찌그러졌다(2026-10-27 사용자 지적).
+// 되돌리기: Avatar.jsx나 shareImage.js의 thumb/C를 thumb/R로 바꾸면 깨진다.
+{
+  for (const f of ['src/components/Avatar.jsx', 'src/services/shareImage.js']) {
+    const s = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
+    assert.ok(/kakaocdn\.net\/thumb\/C\d+x\d+/.test(s) && !/kakaocdn\.net\/thumb\/R\d+x\d+/.test(s), `${f}: 카카오 썸네일은 C(자르기)`);
+  }
+  console.log('PASS  카카오 프로필 썸네일은 자르기(C) — 찌그러지지 않는다');
+}
 
 // ── 프로젝트 탭 순서 (selectors.selectProjectsList) ──
 // 0021의 position이 1차 키, created_at이 2차 키다. position이 전부 0인 옛 데이터에서
