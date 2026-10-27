@@ -206,6 +206,9 @@ function CloudBell({ onOpenTask, onOpenLink }) {
   // 글은 한 단씩 올렸다: 제목 12.5 · 미리보기·시각 11 · 기기 알림 줄 12/11. 폰은 그대로 화면 폭 - 32px.
   const pop = usePopover(360, 240, { portal: false, gap: 16, measure: true });
   const unread = shown.filter(n => !n.read).length;
+  // 첫 목록이 오기 전의 빈 목록을 기준으로 삼으면 첫 목록이 통째로 '새 알림'이 된다 — 받은 뒤부터 센다(M19)
+  const [listed, setListed] = useState(false);
+  const ring = useBellRing(items, shown, listed);
 
   // 앱 아이콘 뱃지. **아이폰 홈 화면 웹앱에서만 보인다** — 안드로이드 크롬은 이 API가
   // 아예 없고(대신 알림이 와 있으면 OS가 알아서 점을 붙인다), 데스크톱은 설치한 창에서만
@@ -223,7 +226,7 @@ function CloudBell({ onOpenTask, onOpenLink }) {
     if (!userId) return;
     let alive = true;
     const load = () => cloudSync.listMyNotifications(30)
-      .then(rows => { if (alive) setItems(rows || []); })
+      .then(rows => { if (alive) { setItems(rows || []); setListed(true); } })
       .catch(e => console.error('[cloud] 알림 로드 실패:', e));
     reloadRef.current = load;
     load();
@@ -304,7 +307,7 @@ function CloudBell({ onOpenTask, onOpenLink }) {
 
   return (
     <span className="inline-flex shrink-0" ref={pop.rootRef}>
-      <BellTrigger pop={pop} unread={unread} />
+      <BellTrigger pop={pop} unread={unread} ring={ring} />
       <BellPanel pop={pop} items={shown} unread={unread} readAll={readAll} openItem={openItem} dismiss={dismiss} off={off} />
     </span>
   );
@@ -379,7 +382,23 @@ function SmoothBox({ children }) {
   );
 }
 
-function BellTrigger({ pop, unread }) {
+// 새 알림이 **올 때만** 종이 한 번 흔들리고 빨간 숫자가 톡(UI 다듬기 2차 M19 · .dc-bell-ring · PITFALLS 76-c).
+// 처음 그릴 때(클라우드는 첫 목록을 받을 때)는 본 것으로 적기만 한다 — 화면을 열 때마다 흔들리면 '새 것'이 아니다.
+// 읽음·지우기로 줄 때도 아니다. 꺼 둔 종류(shown에서 빠진 것)는 와도 흔들지 않는다. 지금 그 업무 창을 보고 있어 읽음으로 들어온 줄도 아니다.
+export function useBellRing(all, shown, ready = true) {
+  const seen = useRef(null);
+  const [ring, setRing] = useState(0);
+  useEffect(() => {
+    if (!ready) return;
+    if (seen.current === null) { seen.current = new Set(all.map(n => n.id)); return; }
+    const fresh = shown.some(n => !n.read && !seen.current.has(n.id));
+    all.forEach(n => seen.current.add(n.id));
+    if (fresh) setRing(r => r + 1);
+  }, [all, shown, ready]);
+  return ring;
+}
+
+function BellTrigger({ pop, unread, ring = 0 }) {
   return (
     <span ref={pop.btnRef} className="inline-flex">
       <button
@@ -389,9 +408,10 @@ function BellTrigger({ pop, unread }) {
         className="relative p-2 min-w-11 min-h-11 flex items-center justify-center rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"
         title="알림"
       >
-        <Bell size={18} strokeWidth={1.75} />
+        {/* key가 바뀌면 다시 붙어 애니메이션이 처음부터 돈다 */}
+        <Bell key={`b${ring}`} size={18} strokeWidth={1.75} className={ring ? 'dc-bell-ring' : undefined} />
         {unread > 0 && (
-          <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-surface text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
+          <span key={`n${ring}`} className={`absolute top-1.5 right-1.5 bg-tag-red-fg text-surface text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center${ring ? ' dc-badge-pop' : ''}`}>
             {unread > 9 ? '9+' : unread}
           </span>
         )}
@@ -486,6 +506,7 @@ function GuestBell({ onOpenLink }) {
   const items = useMemo(() => filterNotifs(all, off), [all, off]);
   const unread = items.filter(n => !n.read).length;
   const pop = usePopover(320, 240, { portal: false, gap: 16, measure: true });
+  const ring = useBellRing(all, items);
   const openItem = (n) => {
     setGuestNotifs(list => list.map(x => (x.id === n.id ? { ...x, read: true } : x)));
     pop.close();
@@ -495,7 +516,7 @@ function GuestBell({ onOpenLink }) {
   const readAll = () => setGuestNotifs(list => list.map(x => ({ ...x, read: true })));
   return (
     <span className="inline-flex shrink-0" ref={pop.rootRef}>
-      <BellTrigger pop={pop} unread={unread} />
+      <BellTrigger pop={pop} unread={unread} ring={ring} />
       <BellPanel pop={pop} items={items} unread={unread} readAll={readAll} openItem={openItem} dismiss={dismiss} off={off} />
     </span>
   );

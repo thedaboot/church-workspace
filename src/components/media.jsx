@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2 } from 'lucide-react';
 
@@ -22,9 +22,19 @@ export const Skeleton = ({ className = '' }) => (
 // `onReady` — 다 받은 `<img>` 요소를 그대로 넘긴다(`naturalWidth/Height`를 쓰려는 쪽이 있다).
 // 미리보기 창의 확대가 그 값으로 **그림이 칸에 맞춰진 크기**를 재고, 그 배수로 확대한다
 // (통 크기의 배수로 두면 레터박스 여백까지 같이 커져 빈 자리를 스크롤하게 된다 · §6-29-z-13-a).
-export function SmartImage({ src, alt = '', className = '', style = undefined, wrapperClassName = '', skeletonClassName = '', loadingText = '', onClick, title, onReady }) {
+// `reveal` — 다 받은 사진이 위에서 아래로 드러난다(UI 다듬기 2차 M18 · .dc-reveal-in · PITFALLS 76-b · 업무 첨부 썸네일만 넘긴다).
+//   자리는 부르는 쪽이 미리 잡은 칸 그대로라 아무것도 밀지 않는다. **붙는 순간 이미 다 받은 사진(캐시)은 드러냄 없이** 그냥 선다.
+//   받기 전에는 예전처럼 opacity-0이다 — **다 잘린 clip-path로 숨기면 늦게 받는(lazy) 그림을 브라우저가 안 보이는 것으로 쳐서 영영 받지 않는다**.
+export function SmartImage({ src, alt = '', className = '', style = undefined, wrapperClassName = '', skeletonClassName = '', loadingText = '', onClick, title, onReady, reveal = false }) {
   const [state, setState] = useState('loading'); // loading | ready | error
+  const [cachedSrc, setCachedSrc] = useState(null);
   useEffect(() => { setState('loading'); }, [src]);
+  // 캐시에서 바로 그려진 사진은 onLoad보다 먼저 complete다 — 붙는 순간(그리기 전) 본다. 주소로 들고 있다(위 효과가 붙은 뒤에 돈다)
+  const imgRef = useCallback((el) => { if (reveal && el?.complete && el.naturalWidth) setCachedSrc(el.getAttribute('src')); }, [reveal]);
+  const cached = reveal && !!src && cachedSrc === src;
+  const shown = reveal
+    ? (cached ? '' : state === 'ready' ? 'dc-reveal-in' : 'opacity-0')
+    : `${state === 'ready' ? '' : 'opacity-0'} transition-opacity duration-200`;
 
   // display는 호출부가 정한다 — 여기서 inline-block을 고정하면 래퍼에 확정 높이를
   // 줄 수 없어서, 안쪽 이미지의 max-h-full이 기준을 못 잡고 가로 화면에서 넘쳤다.
@@ -38,7 +48,7 @@ export function SmartImage({ src, alt = '', className = '', style = undefined, w
           · `absolute top-1/2 left-1/2 -translate-…` → 절대 위치가 아니라 상대 오프셋이
             되어 스켈레톤이 **오른쪽 아래로 밀려났습니다**(사용자 지적 — 두 번째).
           자리는 바깥 span이 잡고, Skeleton은 크기만 받는다. */}
-      {state !== 'ready' && (
+      {state !== 'ready' && !cached && (
         <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <Skeleton className={skeletonClassName || 'w-full h-full'} />
           {/* **받는 중일 때만** 돈다. 예전에는 `state !== 'ready'`를 그대로 따라가서, 그림이 안 오면
@@ -52,7 +62,7 @@ export function SmartImage({ src, alt = '', className = '', style = undefined, w
         </span>
       )}
       {src && (
-        <img referrerPolicy="no-referrer"
+        <img referrerPolicy="no-referrer" ref={imgRef}
           src={src} alt={alt} title={title} onClick={onClick} style={style}
           /* 브라우저의 '이미지 끌어놓기'를 끊는다 — 시작되면 그 손짓 동안 mouseup·click이
              통째로 사라져서 **버튼이 죽은 것처럼 보인다**(usePanDrag 머리말 · §6-29-z-16).
@@ -61,7 +71,7 @@ export function SmartImage({ src, alt = '', className = '', style = undefined, w
           /* 사진이 여럿 붙은 업무에서 화면 밖 썸네일까지 한꺼번에 받지 않는다 */
           loading="lazy" decoding="async"
           onLoad={(e) => { setState('ready'); onReady?.(e.currentTarget); }} onError={() => setState('error')}
-          className={`${className} ${state === 'ready' ? '' : 'opacity-0'} ${onClick ? 'cursor-zoom-in' : ''} transition-opacity duration-200`}
+          className={`${className} ${shown} ${onClick ? 'cursor-zoom-in' : ''}`}
         />
       )}
       {state === 'error' && (

@@ -1338,7 +1338,7 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
    M17 회색 토글 글자(components/segmented.jsx · 글이 문자열인 칸만 .dc-seg-l) — 글자 위에 같은 글자를 진한 색으로 한 겹(::after · data-l) 얹고, 그 겹을
        흰 칸(.ops-seg-thumb) 자리로 잘라(clip-path · --seg-clip) 흰 칸과 같은 길이·곡선(--dur-seg-slide)으로 옮긴다. 흰 칸이 지나가는 글자만 진해진다.
        규칙 밖(clip-path)이지만 글자 한 줄 크기라 작다(76-a). 겹의 바탕은 흰 칸 색 — 아래 흐린 글자를 덮는다.
-   M18 사진이 위에서 아래로 드러남(첨부 썸네일 · 주보 표지) — 받은 뒤에만 .55s · 캐시에서 바로 그려진 사진은 드러냄 없이(76-b).
+   M18 사진이 위에서 아래로 드러남(첨부 썸네일 · 주보 표지) — 받은 뒤에만 .55s 애니메이션(전이가 아니다) · 캐시에서 바로 그려진 사진은 드러냄 없이(76-b).
    M19 새 알림이 오면 종이 한 번 흔들리고(.7s ease-out · 축은 위 8%) 빨간 숫자가 톡(.4s) — 올 때만(76-c).
    M20 보드 카드를 누르는 순간 들린다(scale 1.04 · 그림자 한 단 · .2s) — 끌기 시작 거리(6px)·길게 누르기(200ms)를 넘기 전에(76-d).
        `scale` 속성을 쓴다 — .dc-card 등장 애니메이션이 fill both로 transform을 쥐고 있다. 놓을 때는 전이 없이 돌아온다(누른 채 놓으면 곧 창이 열린다). */
@@ -1351,8 +1351,8 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
   clip-path: var(--seg-clip, inset(0 100% 0 0));
 }
 .dc-seg-live .dc-seg-l::after { transition: clip-path var(--dur-seg-slide) var(--ease-out-quint); }
-.dc-reveal { clip-path: inset(0 0 100% 0); }
-.dc-reveal.dc-reveal-on { clip-path: inset(0); transition: clip-path var(--dur-reveal) var(--ease-out-quint); }
+@keyframes dc-reveal-in { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
+.dc-reveal-in { animation: dc-reveal-in var(--dur-reveal) var(--ease-out-quint) both; }
 @keyframes dc-bell-ring { 0% { transform: rotate(0); } 15% { transform: rotate(14deg); } 30% { transform: rotate(-12deg); } 45% { transform: rotate(8deg); } 60% { transform: rotate(-5deg); } 75% { transform: rotate(2deg); } 100% { transform: rotate(0); } }
 .dc-bell-ring { transform-origin: 50% 8%; animation: dc-bell-ring .7s ease-out; }
 @keyframes dc-badge-pop { 0% { transform: scale(.4); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
@@ -1362,6 +1362,6 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
   transition: scale var(--dur-press-lift) var(--ease-out-quint), box-shadow var(--dur-press-lift) var(--ease-out-quint);
 }
 @media (prefers-reduced-motion: reduce) {
-  .dc-seg-live .dc-seg-l::after, .dc-reveal.dc-reveal-on, .dc-press-up { transition: none; }
-  .dc-bell-ring, .dc-badge-pop { animation: none; }
+  .dc-seg-live .dc-seg-l::after, .dc-press-up { transition: none; }
+  .dc-reveal-in, .dc-bell-ring, .dc-badge-pop { animation: none; }
 }

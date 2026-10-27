@@ -4309,6 +4309,53 @@ publicView: {
   }
 }
 
+// M18(UI 다듬기 2차 · PITFALLS 76-b): 받은 사진은 위에서 아래로 드러나고(clip-path .55s) 캐시에서 바로 그려진 사진은 드러냄 없이 선다.
+// 주보 표지(CoverImg)와 업무 첨부 썸네일(SmartImage reveal)을 앱과 같은 react로 직접 그려 프레임마다 clip-path를 적는다.
+// 썸네일은 loading="lazy"다 — 받기 전에 clip-path로 다 잘라 두면 브라우저가 영영 받지 않는다(그때는 '받은 사진' 단정의 끝이 inset(0)이 안 된다).
+// **되돌리기**: index.css의 `.dc-reveal-in` 애니메이션을 지우면 '드러나는 도중' 단정이, CoverImg·SmartImage의 캐시 판정(ref의 complete)을 지우면 '캐시' 단정이 깨진다.
+{
+  const rv = await ev(`(async () => {
+    const main = await (await fetch('/src/main.jsx')).text();
+    const reactUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)?.[1];
+    const clientUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)?.[1];
+    if (!reactUrl || !clientUrl) return null;
+    const R = await import(reactUrl), C = await import(clientUrl);
+    const React = R.default ?? R, createRoot = (C.default ?? C).createRoot;
+    const { SmartImage } = await import('/src/components/media.jsx');
+    const { CoverImg } = await import('/src/components/worshipCover.jsx');
+    const fresh = async (color) => { const cv = document.createElement('canvas'); cv.width = 96; cv.height = 64; const g = cv.getContext('2d');
+      g.fillStyle = color; g.fillRect(0, 0, 96, 64); return URL.createObjectURL(await new Promise(r => cv.toBlob(r))); };
+    const run = async (make) => {
+      const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;width:240px;height:90px;z-index:300';
+      document.body.appendChild(host);
+      const root = createRoot(host), frames = [];
+      let on = true;
+      const tick = () => { const img = host.querySelector('img'); if (img) frames.push({ cls: img.className, clip: getComputedStyle(img).clipPath, ok: img.complete });
+        if (on) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+      root.render(make(React));
+      await new Promise(r => setTimeout(r, 1100)); on = false;
+      const im = host.querySelector('img'), done = im ? { ok: im.complete, nw: im.naturalWidth } : null;
+      const skel = host.querySelectorAll('.dc-skeleton').length;
+      root.unmount(); host.remove();
+      const partial = frames.some(f => /inset\\(0px 0px ([1-9][0-9]?(\\.[0-9]+)?)%\\)/.test(f.clip));
+      return { n: frames.length, first: frames[0]?.clip, last: frames.at(-1)?.clip, partial,
+        anyReveal: frames.some(f => /dc-reveal/.test(f.cls)), skel, done };
+    };
+    const u1 = await fresh('#4a7'), u2 = await fresh('#a47');
+    const thumb = (src) => (React) => React.createElement(SmartImage, { src, reveal: true, wrapperClassName: 'h-20 w-20 inline-block', className: 'h-20 w-20 object-cover' });
+    const cover = (src) => (React) => React.createElement('div', { className: 'has-cover', style: { position: 'relative', height: 80 } },
+      React.createElement(CoverImg, { cover: { _src: src } }));
+    return { thumbNew: await run(thumb(u1)), thumbCached: await run(thumb(u1)), coverNew: await run(cover(u2)), coverCached: await run(cover(u2)) };
+  })()`, true);
+  const grew = (r) => !!r && r.anyReveal && r.partial && /^inset\(0px( 0px)*( 0%)?\)$/.test(r.last);
+  const plain = (r) => !!r && !r.anyReveal && r.last === 'none';
+  check('M18 첨부 썸네일: 받은 사진은 위에서 아래로 드러난다(도중 프레임이 있다) · 끝은 inset(0)', grew(rv?.thumbNew), JSON.stringify(rv?.thumbNew));
+  check('M18 첨부 썸네일: 캐시에서 바로 그려진 사진은 드러냄 없이 · 뼈대 없이', plain(rv?.thumbCached) && rv.thumbCached.skel === 0, JSON.stringify(rv?.thumbCached));
+  check('M18 주보 표지: 받은 사진은 위에서 아래로 드러나고 끝나면 뼈대를 걷는다', grew(rv?.coverNew) && rv.coverNew.skel === 0, JSON.stringify(rv?.coverNew));
+  check('M18 주보 표지: 캐시에서 바로 그려진 사진은 드러냄 없이', plain(rv?.coverCached) && rv.coverCached.skel === 0, JSON.stringify(rv?.coverCached));
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));

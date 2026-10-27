@@ -483,7 +483,7 @@ const AttachmentRow = ({ row, meta, canDelete, thumb, thumbFailed, onOpen, onRem
     <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
       {isImage && (
         <SmartImage
-          src={src} alt={row.name} onClick={onOpen} title="미리보기"
+          src={src} alt={row.name} onClick={onOpen} title="미리보기" reveal
           wrapperClassName="h-20 w-20 shrink-0 inline-block"
           className="h-20 w-20 object-cover rounded-md border border-line"
         />

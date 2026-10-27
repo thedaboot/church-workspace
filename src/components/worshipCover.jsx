@@ -28,13 +28,16 @@ export function CoverImg({ cover, focus = 0.5, onFail, className = '', sizes = '
   const img = coverImage(cover);
   const [bad, setBad] = useState(null);
   const [loaded, setLoaded] = useState(null);
+  // 받은 뒤에 선 사진만 위에서 아래로 드러난다(UI 다듬기 2차 M18 · .dc-reveal-in · PITFALLS 76-b) — 캐시에서 바로 그려진 사진은 그냥 선다
+  const [cached, setCached] = useState(false);
   // 캐시에서 바로 그려진 사진은 onLoad가 붙기 전에 끝났을 수 있다 — 붙는 순간 complete를 본다
-  const ref = useCallback((el) => { if (el?.complete && el.naturalWidth) setLoaded(el.currentSrc || el.src); }, []);
+  const ref = useCallback((el) => { if (el?.complete && el.naturalWidth) { setLoaded(el.currentSrc || el.src); setCached(true); } }, []);
   if (!img || bad === img.src) return null;
+  const reveal = cached || !loaded ? '' : ' dc-reveal-in';
   return (
     <>
       {!loaded && <span className={`cover-img dc-skeleton ${className}`} aria-hidden="true" />}
-      <img ref={ref} referrerPolicy="no-referrer" className={`cover-img ${className}`} alt="" aria-hidden="true" decoding="async" draggable={false}
+      <img ref={ref} referrerPolicy="no-referrer" className={`cover-img ${className}${reveal}`} alt="" aria-hidden="true" decoding="async" draggable={false}
         src={img.src} srcSet={img.srcSet} sizes={img.srcSet ? sizes : undefined} style={{ objectPosition: coverPosition(focus) }}
         onLoad={(e) => setLoaded(e.currentTarget.currentSrc || e.currentTarget.src)}
         onError={() => { setBad(img.src); onFail?.(); }} />

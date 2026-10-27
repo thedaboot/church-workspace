@@ -1802,5 +1802,11 @@ check('C16 끊긴 업로드 확인은 파일이 실제로 있는 폴더 id를 �
   assert.ok(cloud.includes('folderId: foundIn || folderHint.folderId || undefined, existing: true }'), '프로젝트 폴더 id가 업무 폴더 자리로 갈 수 있다');
 });
 
+// M18(UI 다듬기 2차 · PITFALLS 76-b): 업무 첨부 썸네일은 받은 뒤 위에서 아래로 드러난다(SmartImage reveal · 움직임은 tests/worship이 잰다).
+// 되돌리기: attachments.jsx 썸네일의 `reveal`을 지우면 깨진다.
+check('M18 업무 첨부 썸네일은 SmartImage reveal로 그린다', () => {
+  assert.ok(/<SmartImage\s+src=\{src\} alt=\{row\.name\} onClick=\{onOpen\} title="미리보기" reveal\b/.test(att), '첨부 썸네일에 reveal이 없다');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);

@@ -779,6 +779,47 @@ await send('Emulation.clearDeviceMetricsOverride');
   const d = await bellAt(1440, 900, false);
   check('알림 판(데스크톱 1440): 360px 그대로 종 오른쪽 끝에 맞춘다', !!d && d.width === 360 && Math.abs((d.left + d.width) - d.bellRight) <= 1, JSON.stringify(d));
   await send('Emulation.clearDeviceMetricsOverride');
+
+  // M19(UI 다듬기 2차 · PITFALLS 76-c): 새 알림이 **올 때만** 종이 흔들리고(.dc-bell-ring) 숫자가 톡(.dc-badge-pop) — 처음 그릴 때·모두 읽음으로 줄 때는 아니다.
+  // 게스트 종(guest)을 앱과 같은 react로 직접 그리고 브라우저 알림 목록(opsDemo)에 한 줄을 넣는다.
+  // **되돌리기**: notificationBell.jsx useBellRing의 첫 기준(`seen.current === null`이면 적기만)을 지우면 '처음' 단정이, BellTrigger의 key를 지우면 '두 번째 알림' 단정이 깨진다.
+  const ring = await ev(`(async () => {
+    const main = await (await fetch('/src/main.jsx')).text();
+    const reactUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)?.[1];
+    const clientUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)?.[1];
+    if (!reactUrl || !clientUrl) return null;
+    const R = await import(reactUrl), C = await import(clientUrl);
+    const React = R.default ?? R, createRoot = (C.default ?? C).createRoot;
+    const { NotificationBell } = await import('/src/components/notificationBell.jsx');
+    const { setGuestNotifs } = await import('/src/services/opsDemo.js');
+    const host = document.createElement('div'); host.style.cssText = 'position:fixed;top:4px;right:56px;z-index:200';
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    // 그리기 전에 안 읽은 줄 하나를 깔아 둔다 — 처음 그릴 때 이미 있던 안 읽은 알림으로는 흔들리지 않아야 한다
+    setGuestNotifs(list => [{ id: 'm19-0', kind: 'mention', actor_name: '임성빈', preview: '이미 있던 알림', created_at: new Date().toISOString(), read: false }, ...list]);
+    root.render(React.createElement(NotificationBell, { guest: true }));
+    const nap = (ms) => new Promise(r => setTimeout(r, ms));
+    const look = () => { const b = host.querySelector('button[title="알림"]'), svg = b?.querySelector('svg'), n = b?.querySelector('span');
+      return { svg: svg?.getAttribute('class') || '', anim: svg ? getComputedStyle(svg).animationName : '', badge: n?.className.includes('dc-badge-pop') || false, num: n?.textContent || '' }; };
+    await nap(300);
+    const first = look();
+    const add = (id) => setGuestNotifs(list => [{ id, kind: 'mention', actor_name: '김은지', preview: '새 알림', created_at: new Date().toISOString(), read: false }, ...list]);
+    add('m19-a'); await nap(80);
+    const one = look(), svgOne = host.querySelector('button[title="알림"] svg');
+    add('m19-b'); await nap(80);
+    const two = look(), remounted = host.querySelector('button[title="알림"] svg') !== svgOne;
+    await nap(800);
+    const svgDone = host.querySelector('button[title="알림"] svg');
+    setGuestNotifs(list => list.map(x => ({ ...x, read: true }))); await nap(80);
+    const read = look(), sameAfterRead = host.querySelector('button[title="알림"] svg') === svgDone;
+    setGuestNotifs(list => list.filter(x => !String(x.id).startsWith('m19-')));
+    root.unmount(); host.remove();
+    return { first, one, two, remounted, read, sameAfterRead };
+  })()`, true);
+  check('M19 알림 종: 처음 그릴 때는 흔들리지 않는다(안 읽은 알림이 있어도)', !!ring && !/dc-bell-ring/.test(ring.first.svg) && !ring.first.badge && ring.first.num !== '', JSON.stringify(ring?.first));
+  check('M19 새 알림이 오면 종이 흔들리고(.7s · 축 위 8%) 숫자가 톡', !!ring && /dc-bell-ring/.test(ring.one.svg) && ring.one.anim === 'dc-bell-ring' && ring.one.badge, JSON.stringify(ring?.one));
+  check('M19 또 오면 처음부터 다시 흔들린다(새로 붙는다)', !!ring && /dc-bell-ring/.test(ring.two.svg) && ring.remounted, JSON.stringify({ two: ring?.two, re: ring?.remounted }));
+  check('M19 모두 읽음으로 줄 때는 흔들리지 않는다(숫자 없음 · 종은 그대로)', !!ring && ring.read.num === '' && ring.sameAfterRead, JSON.stringify({ read: ring?.read, same: ring?.sameAfterRead }));
 }
 
 // ── 아이패드 세로 상단 바(768~1023 · 시안 승인 2026-10-14 · PITFALLS 51-a) ─────────────────────────────
