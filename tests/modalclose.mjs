@@ -267,6 +267,27 @@ await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, dev
 check('댓글 칸은 맨 아래(최신 댓글이 보이게)에서 연다 — 데스크톱·폰',
   ['desk', 'phone'].every(k => cmtBottom[k].found && cmtBottom[k].scrollTop > 0 && Math.abs(cmtBottom[k].gap) <= 2 && cmtBottom[k].lastVisible), JSON.stringify(cmtBottom));
 
+// 바닥 40px 안에서 읽는 중 — 반응·재조회처럼 **댓글이 늘지 않은** 갱신에는 끌어내리지 않고, 새 댓글이 붙으면 내린다(UX 감사 2026-10-27)
+// 되돌리기 검사(§3-5): modals.jsx 바닥 붙이기 효과의 의존을 `cmtTail`에서 `source.comments`로 되돌리면 첫 단정이 깨진다.
+{
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=t0' }); await wait('Page.loadEventFired'); await sleep(1500);
+  const BOX = `[...document.querySelectorAll('.fixed.z-50 button')].find(b => /^이전 댓글 [0-9]+개 더 보기$/.test(b.textContent.trim()))?.closest('.overflow-y-auto')`;
+  const gapNow = () => ev(`(() => { const box = ${BOX}; return box ? Math.round(box.scrollHeight - box.scrollTop - box.clientHeight) : null; })()`);
+  await ev(`(() => { const box = ${BOX}; box.scrollTop = box.scrollHeight - box.clientHeight - 25; })()`); await sleep(300);
+  const g0 = await gapNow();
+  // 반응 하나 · 재조회 — 개수와 마지막 댓글은 그대로, 배열만 새것
+  await ev(`(() => { const t = window.__store.getState().tasks.byId.t0;
+    window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 't0', comments: t.comments.map(c => ({ ...c })) } }); })()`);
+  await sleep(400);
+  const g1 = await gapNow();
+  await ev(`(() => { const t = window.__store.getState().tasks.byId.t0;
+    window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 't0', comments: [...t.comments, { ...t.comments[t.comments.length - 1], id: 'tail-new', text: '새로 붙은 댓글', parentId: null }] } }); })()`);
+  await sleep(400);
+  const g2 = await gapNow();
+  check('바닥 근처에서 읽는 중 반응·재조회로는 끌어내리지 않는다', g0 !== null && g0 >= 20 && Math.abs(g1 - g0) <= 2, JSON.stringify({ g0, g1 }));
+  check('새 댓글이 붙으면 바닥으로 내린다', g2 !== null && Math.abs(g2) <= 2, JSON.stringify({ g2 }));
+}
+
 // ── 태블릿: 키보드가 떠도 댓글 칸이 보인다 (사용자 지적 2026-10-05 · PITFALLS 33-v) ─────────────
 // 아이패드는 넓은 창을 쓰고, 키보드가 레이아웃 뷰포트(innerHeight)는 그대로 두고 보이는 창만 줄인다 — 그걸 흉내 낸다.
 // 되돌리기 검사: 딤을 다시 fixed inset-0으로 두거나 창 높이를 85dvh로만 두면 칸이 키보드 밑(700 아래)에 남는다.

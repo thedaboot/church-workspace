@@ -166,10 +166,14 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   const cmtPin = useRef(true);
   const cmtShown = listsReady && !!task.id && (isMobile ? mobileTab : activeTab) === 'comments';
   useLayoutEffect(() => { cmtPin.current = true; }, [task.id, cmtShown]);
+  // **댓글이 늘었을 때만** 다시 내린다(UX 감사 2026-10-27) — 목록이 바뀔 때마다 내리면 반응 하나·실시간 재조회에도 바닥 40px 안에서
+  // 읽던 칸이 바닥으로 툭 내려갔다. 개수와 마지막 댓글 id로 본다.
+  const cmtList = source.comments || [];
+  const cmtTail = `${cmtList.length}:${cmtList[cmtList.length - 1]?.id || ''}`;
   useLayoutEffect(() => {
     const el = cmtBox.current;
     if (cmtShown && el && cmtPin.current) el.scrollTop = el.scrollHeight;
-  }, [cmtShown, detailLoading, source.comments]);
+  }, [cmtShown, detailLoading, cmtTail]);
   const onCmtScroll = (e) => { const el = e.currentTarget; cmtPin.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; };
   const addComment = (text) => { cmtPin.current = true; onAddComment(text); };
 
