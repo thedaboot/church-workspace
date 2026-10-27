@@ -413,6 +413,16 @@ assert.equal(notified[0].meta.kind, 'reply');
   assert.ok(sync.reactionSummary(three, 'u9').every(s => !s.mine));
   assert.deepStrictEqual(sync.reactionSummary(three.concat(other), 'u1')[0].people.map(p => p.userId),
     ['u1', 'u2'], '누른 사람 목록을 그대로 돌려줘야 얼굴·이름을 세울 수 있다');
+
+  // 좋아요 튐(2026-10-27 사용자 지적) — 화면 덮개는 서버가 따라잡을 때만 걷고, 얼굴은 순번이 아닌 사람으로
+  // 열쇠를 잡고, 서버는 누른 차례로 돌려주고, 같은 반응의 쓰기는 차례대로 간다. 소스로 지킨다.
+  const cm = readFileSync(join(ROOT, 'src', 'modals', 'comments.jsx'), 'utf8');
+  const bd = readFileSync(join(ROOT, 'src', 'services', 'cloud', 'board.js'), 'utf8');
+  assert.ok(!/setLocal\(prev => \(Object\.keys\(prev\)\.length \? \{\} : prev\)\)/.test(cm), '댓글 배열이 바뀌었다고 덮개를 통째로 버리지 않는다');
+  assert.ok(/<Avatar key=\{p\.userId\}/.test(cm), '반응 얼굴 열쇠는 사람 id(순번을 섞으면 순서가 바뀔 때 다시 튀어나온다)');
+  assert.ok(/chain\.current\[key\] = \(chain\.current\[key\] \|\| Promise\.resolve\(\)\)\.then/.test(cm), '같은 반응 쓰기는 앞 쓰기 뒤에 간다');
+  assert.ok(/listCardReactions[\s\S]{0,400}\.order\('created_at'/.test(bd), '반응은 누른 차례로 읽는다');
+  console.log('PASS  좋아요 튐: 덮개는 서버가 따라잡을 때만 · 얼굴 열쇠 · 쓰기 차례 · 읽는 차례');
 }
 
 // 반응 알림: 댓글 작성자 한 명에게, kind는 'reaction'.

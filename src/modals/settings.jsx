@@ -315,12 +315,11 @@ export function ProjectModal({ onClose, onSave, onArchive, onDuplicate, project 
             그때 엉뚱한 해에 들어갔다(사용자 지적 → 0025). 이름 앞 네 자리를 따라가되
             사람이 고칠 수 있게 둔다. */}
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">연도</label>
-        <select
-          value={year} onChange={e => setYear(Number(e.target.value))} aria-label="연도"
-          className="w-full border border-line p-2.5 rounded-xs mb-6 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none"
-        >
-          {YEARS.map(y => <option key={y} value={y}>{y}년</option>)}
-        </select>
+        {/* 값이 서넛뿐이라 복제 창과 같은 세그먼트로 고른다 — 네이티브 select는 화살표가 칸 끝에 붙어 어긋나 보였다(사용자 지적 2026-10-27) */}
+        <div className="flex mb-6" aria-label="연도">
+          <Segmented className="flex p-[3px] rounded-md" items={YEARS.map(y => [y, `${y}년`])} value={year} onPick={setYear}
+            btnClassName="px-3 py-[5px] rounded-sm text-[12.5px] font-semibold tabular-nums transition-colors" />
+        </div>
         {/* 보관은 눌러야 보이는 기능이라 회색 글자 한 줄로 두면 아무도 못 찾는다.
             테두리와 아이콘 칩을 줘서 '누를 수 있는 것'으로 읽히게 한다. 다만 이 창의
             주 행동은 '저장'이므로 구조색(accent)은 쓰지 않는다 — 노란 칩은 '잠시

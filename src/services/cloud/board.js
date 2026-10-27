@@ -262,7 +262,9 @@ export async function setCommentResolved(id, on) {
 export async function listCardReactions(cardId) {
   return unwrap(await client().from('comment_reactions')
     .select('comment_id, user_id, kind, comments!inner(card_id)')
-    .eq('comments.card_id', cardId));
+    .eq('comments.card_id', cardId)
+    // 누른 차례로 — 화면이 새로 누른 얼굴을 맨 뒤에 붙이므로 서버 값이 와도 얼굴 순서가 안 바뀐다(좋아요 튐 2026-10-27)
+    .order('created_at', { ascending: true }));
 }
 
 // 켜기. user_id는 DB가 컬럼 기본값으로 채운다(0032 · 0063부터 effective_uid()) —

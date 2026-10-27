@@ -109,8 +109,8 @@ const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
           </button>
           {count > 0 && (
             <span className={`flex items-center pl-0.5 ${extra > 0 ? 'pr-1' : 'pr-2'}`}>
-              {shown.map((p, i) => (
-                <Avatar key={`${p.userId}-${i}`} name={p.name || '이름 미상'}
+              {shown.map((p) => (
+                <Avatar key={p.userId} name={p.name || '이름 미상'}
                   className="flex w-[15px] h-[15px] text-[8.5px] leading-none -ml-[5px] first:ml-0 ring-[1.5px] ring-surface animate-in fade-in zoom-in-75 duration-200" />
               ))}
               {/* 넘치는 사람만 +N으로 접는다. aria에 조사를 붙이면 '확인를'이 되므로
@@ -487,42 +487,70 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
   }, [showAll]);
 
   // ── 반응 (0032) ──────────────────────────────────────────────────────────
-  // 클라우드: 서버가 원본이고 댓글에 실려 온다(loadCardDetail). local은 방금 누른
-  //   것을 서버 응답보다 먼저 보여주기 위한 덮개이고, 새 댓글 목록이 오면 버린다.
+  // 클라우드: 서버가 원본이고 댓글에 실려 온다(loadCardDetail). intent는 **내가 방금 누른 것만**
+  //   ({ 댓글 id: { kind: 켬/끔 } }) 서버 값 위에 얹는 덮개다 — 서버가 그 값을 따라잡고 쓰기가 다
+  //   끝났을 때만 걷는다. 예전에는 댓글 배열이 무슨 이유로든 바뀌면(남의 반응·고정·재조회) 덮개를
+  //   통째로 버려서, 저장 전이면 좋아요가 꺼졌다 켜지며 튀었다(2026-10-27 사용자 지적 · PITFALLS 19-b).
+  //   같은 반응의 쓰기는 차례대로 보낸다 — 켰다 끄기를 빨리 누르면 끄기가 먼저 도착해 서버에 켜진 채 남았다.
   // 게스트: local이 곧 원본이고 localStorage에 남는다(댓글과 같은 방식).
   const { enabled, session, isAdmin, isMaster } = useAuth();
   const cloudMode = enabled && !!session;
   // 열쇠는 auth user id다 — 이름으로 판정하면 동명이인이 서로의 반응을 자기 것으로 본다.
   // **합친 계정이면 남긴 계정의 id**(0063) — DB가 그 값으로 주인을 적고(comment_reactions
   // 의 컬럼 기본값) 0059가 옛 반응도 그리로 옮겼다. 세션 uid로 보면 자기가 누른 반응이
-  // '내 것'으로 안 잡혀서 한 번 더 눌러야 꺼졌다.
-  const me = useMemo(() => ({
-    userId: cloudMode ? (myUidSync() || session?.user?.id || '') : 'guest',
-    name: currentUser?.name || '',
-  }), [cloudMode, session, currentUser?.name]);
+  // '내 것'으로 안 잡혀서 한 번 더 눌러야 꺼졌다. uid가 늦게 채워져도 다시 계산되게 값을 deps에 둔다.
+  const myUid = cloudMode ? (myUidSync() || session?.user?.id || '') : 'guest';
+  const me = useMemo(() => ({ userId: myUid, name: currentUser?.name || '' }), [myUid, currentUser?.name]);
   const [local, setLocal] = useState(() => (cloudMode ? {} : readGuestReactions()));
+  const [intent, setIntent] = useState({});
+  const pending = useRef({});     // 'id:kind' → 아직 안 끝난 쓰기 수
+  const chain = useRef({});       // 'id:kind' → 마지막 쓰기(차례 지키기)
+  const commentsRef = useRef(comments);
+  commentsRef.current = comments;
   const [peekAt, setPeekAt] = useState(null);   // { commentId, kind }
 
-  // 서버에서 새 목록이 오면 덮개를 버린다(서버가 원본이다). 게스트는 서버가 없다.
-  useEffect(() => {
-    if (!cloudMode) return;
-    setLocal(prev => (Object.keys(prev).length ? {} : prev));
-  }, [comments, cloudMode]);
+  const mineOn = (list, kind) => (list || []).some(r => r && r.kind === kind && r.userId === me.userId);
+  // 서버가 따라잡았고 쓰기가 다 끝난 것만 걷는다
+  const settleIntent = () => setIntent(prev => {
+    let changed = false; const next = {};
+    for (const c of commentsRef.current || []) {
+      const want = prev[c.id];
+      if (!want) continue;
+      const keep = {};
+      for (const [kind, on] of Object.entries(want)) {
+        if (pending.current[`${c.id}:${kind}`] || mineOn(c.reactions, kind) !== on) keep[kind] = on; else changed = true;
+      }
+      if (Object.keys(keep).length) next[c.id] = keep;
+    }
+    if (Object.keys(next).length !== Object.keys(prev).length) changed = true;
+    return changed ? next : prev;
+  });
+  useEffect(() => { if (cloudMode) settleIntent(); }, [comments, cloudMode]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const reactionsOf = (c) => local[c.id] || (cloudMode ? (c.reactions || []) : []);
+  const reactionsOf = (c) => {
+    if (!cloudMode) return local[c.id] || [];
+    let list = c.reactions || [];
+    for (const [kind, on] of Object.entries(intent[c.id] || {})) {
+      if (mineOn(list, kind) !== on) list = toggleReaction(list, kind, me);
+    }
+    return list;
+  };
 
   const toggleFor = (c, kind) => {
     const before = reactionsOf(c);
     const next = toggleReaction(before, kind, me);
     if (next === before) return;
     const turnedOn = next.length > before.length;
-    setLocal(prev => ({ ...prev, [c.id]: next }));
     if (!cloudMode) {
+      setLocal(prev => ({ ...prev, [c.id]: next }));
       writeGuestReactions({ ...readGuestReactions(), [c.id]: next });
       return;
     }
+    const key = `${c.id}:${kind}`;
+    setIntent(prev => ({ ...prev, [c.id]: { ...prev[c.id], [kind]: turnedOn } }));
+    pending.current[key] = (pending.current[key] || 0) + 1;
     const card = cardOfComment(c.id);
-    commentReactionCloud(c.id, kind, turnedOn)
+    chain.current[key] = (chain.current[key] || Promise.resolve()).then(() => commentReactionCloud(c.id, kind, turnedOn)
       // 취소는 아무에게도 알리지 않는다. 본인 제외는 notifyReaction이 auth user id로
       // 최종 차단한다 — 이름으로 미리 거르지 않는 이유는 판정이 두 곳으로 갈라지면
       // 한쪽이 조용히 어긋나기 때문이다(§6-29).
@@ -536,9 +564,11 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
       }))
       .catch(e => {
         console.error('[cloud] 반응을 저장하지 못했습니다:', e);
-        setLocal(prev => ({ ...prev, [c.id]: before }));   // 화면이 거짓말하지 않게 되돌린다
+        // 화면이 거짓말하지 않게 되돌린다 — 덮개를 걷으면 서버 값이 보인다
+        setIntent(prev => { const { [kind]: _drop, ...rest } = prev[c.id] || {}; return { ...prev, [c.id]: rest }; });
         showToast('반응을 남기지 못했어요\n잠시 후 다시 시도해주세요');
-      });
+      })
+      .finally(() => { pending.current[key] -= 1; settleIntent(); }));
   };
 
   const peekPeople = useMemo(() => {
@@ -547,7 +577,7 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
     if (!c) return [];
     return reactionSummary(reactionsOf(c), me.userId).find(s => s.kind === peekAt.kind)?.people || [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peekAt, all, local, cloudMode, me.userId]);
+  }, [peekAt, all, local, intent, cloudMode, me.userId]);
   // 고정한 댓글은 맨 위 묶음으로 빠지고(고정한 차례), 나머지만 시간 순 목록·'이전 댓글'에 든다(services/commentMarks.js)
   const { pinned, rest: allTopLevel } = useMemo(() => splitPinned(all), [all]);
   // 해결한 댓글 중 펼쳐 둔 것 — 창을 다시 열면 다시 접힌다
