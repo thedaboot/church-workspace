@@ -8,6 +8,7 @@ import { prefersReducedMotion } from './useReducedMotion.js';
 //   usePresence(open)  열림 값을 밖에서 받는 판(팝오버) — { shown, leaving }. 닫혀도 EXIT_MS 동안 shown.
 //   useLeave()         닫기를 스스로 부르는 창(대화창·업무 창) — [leaving, leave]. leave(fn)은 걷는 것을 그린 뒤 fn.
 //                      두 번 불러도 한 번만 닫는다(걷히는 동안 딤을 또 누르는 일).
+//                      leave(fn, wait) — 그 한 번만 기다리는 길이를 바꾼다(폰 업무 창을 끌어 내려 닫을 때 500ms · useSheetDrag).
 export const EXIT_MS = 180;   // index.css --dur-exit와 같은 값
 
 export function usePresence(open, ms = EXIT_MS) {
@@ -25,7 +26,7 @@ export function useLeave(ms = EXIT_MS) {
   const [leaving, setLeaving] = useState(false);
   const timer = useRef(null);
   useEffect(() => () => clearTimeout(timer.current), []);
-  const leave = useCallback((fn) => {
+  const leave = useCallback((fn, wait = ms) => {
     if (prefersReducedMotion()) { fn?.(); return; }
     if (timer.current) return;
     setLeaving(true);
@@ -33,7 +34,7 @@ export function useLeave(ms = EXIT_MS) {
       timer.current = null;
       setLeaving(false);   // 부르는 쪽이 닫지 않았으면(거절) 다시 선다
       fn?.();
-    }, ms);
+    }, wait);
   }, [ms]);
   return [leaving, leave];
 }

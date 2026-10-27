@@ -1227,3 +1227,16 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
 /* 테마를 바꾸는 그 순간만 모든 전환을 끈다(UI 다듬기 2차 D8 · PITFALLS 72-c) — 안 끄면 칸마다 제 전환 길이(.15~.3s)로
    따로 색을 갈아입어 얼룩이 진다. layout.jsx ThemeMenuItem이 붙이고, 스타일을 한 번 계산시킨 뒤 다음 프레임에 뗀다. */
 .dc-theme-swap, .dc-theme-swap *, .dc-theme-swap *::before, .dc-theme-swap *::after { transition: none !important; }
+
+/* ── M 시트·넘김·스크롤 (UI 다듬기 2차 M10·M12~M16 · 2026-10-27 · 시안 값 그대로 · PITFALLS 75) ─────────────
+   transform·opacity만 움직이고, 움직임 줄이기면 끈다(맨 아래 블록).
+   M12 --ease-sheet · --dur-sheet-phone : 아이폰 시트 곡선 500ms — **폰 아래 시트에만**(.dc-sheet-up · 폰의 .dc-sheet-dialog).
+       닫힘은 그대로 짧다(.dc-out · --dur-exit). 데스크톱 대화창·팝오버·폰 업무 창의 등장(.dc-rise · 57-f)은 그대로다.
+   M10 .dc-sheet-grab : 폰 업무 창 머리줄 — 끌어 내려 닫는 손잡이(hooks/useSheetDrag.js). 브라우저가 손을 가져가지 않게.
+       [data-flung] : 끌어 내려 닫은 창은 걷히는 모양(.dc-rise.dc-out)을 끄고 손이 놓인 자리에서 아래로 마저 내려간다. */
+:root { --ease-sheet: cubic-bezier(.32, .72, 0, 1); --dur-sheet-phone: .5s; }
+@media (max-width: 767px) {
+  .dc-sheet-up, .dc-sheet-dialog { animation-duration: var(--dur-sheet-phone); animation-timing-function: var(--ease-sheet); }
+}
+.dc-sheet-grab { touch-action: none; }
+.dc-rise.dc-out[data-flung] { animation: none; }

@@ -45,6 +45,7 @@ import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useLeave } from '../hooks/useExit.js';
 import { morphOpen, morphClose } from '../hooks/morph.js';
+import { useSheetDrag, SHEET } from '../hooks/useSheetDrag.js';
 import { showToast } from '../components/Toast.jsx';
 import { trackEditing } from '../services/presence.js';
 import { LeaderChip } from '../components/leaderOnly.jsx';
@@ -573,6 +574,21 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   );
   const closeX = <button onClick={dirty ? undefined : close} title="닫기" aria-label="닫기" className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>;
 
+  // 폰: 머리줄을 끌어 내려 닫는다(UI 다듬기 2차 M10 · hooks/useSheetDrag.js · PITFALLS 75-a). ✕와 같은 길 — 저장 안 한 새 업무면
+  // 닫지 않고 제자리로 돌아와 ✕의 확인을 연다. 닫힐 때는 창이 아래로 마저 내려가는 동안(500ms) 기다린다 — 줄로 줄어드는 유령(morph)은
+  // 쓰지 않는다(손이 이미 아래로 끌고 있다). `data-flung`이 걷히는 모양(.dc-rise.dc-out)을 끈다(index.css 'M 시트·넘김·스크롤').
+  const winRef = useRef(null);
+  const grabRef = useRef(null);
+  useSheetDrag(grabRef, winRef, () => {
+    if (dirty) { closeXRef.current?.querySelector('button')?.click(); return false; }
+    const win = winRef.current;
+    if (win) win.dataset.flung = '';
+    flushAll();
+    const id = idRef.current;
+    leave(() => { if (idRef.current === id) onClose(); }, SHEET.ms);
+    return true;
+  }, { enabled: isMobile });
+
   // ── 공용 조각 (데스크톱/모바일 레이아웃이 재사용) ──
   const headerInner = (
     <>
@@ -679,8 +695,8 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
          `fixed`는 **레이아웃 뷰포트**에 붙으므로, 키보드가 올라와 앱 뿌리가 줄어도
          이 창의 바닥은 그대로 화면 밖(키보드 밑)에 남는다. 뿌리와 같은 높이를 쓰면
          댓글 입력칸과 아래 도구 줄이 키보드 바로 위에 선다(App.jsx의 --app-vh 주석). */
-      <div data-task-window="" className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-50 bg-surface flex flex-col dc-rise${out}`}>
-        <div className="shrink-0 px-4 py-3 border-b border-line flex justify-between items-center gap-2 bg-surface">{headerInner}</div>
+      <div ref={winRef} data-task-window="" className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-50 bg-surface flex flex-col dc-rise${out}`}>
+        <div ref={grabRef} data-sheet-grab="" className="dc-sheet-grab shrink-0 px-4 py-3 border-b border-line flex justify-between items-center gap-2 bg-surface">{headerInner}</div>
         {!isNew && !closed && (
           <div className="flex border-b border-line bg-surface shrink-0">
             {segBtn('detail', '상세')}

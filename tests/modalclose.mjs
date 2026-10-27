@@ -2676,6 +2676,56 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   check('M8 알림 판 줄도 같은 쓸기(useSwipeAway → dismiss)', /useSwipeAway\(ref, \(\) => dismiss\(n\)\)/.test(src) && /dc-swipe-row/.test(src));
 }
 
+// ── 폰 업무 창 끌어 내려 닫기 · 폰 시트 곡선 (UI 다듬기 2차 M10·M12 · 2026-10-27 · 시안 값 · PITFALLS 75-a) ──────────
+// M10 머리줄을 손가락으로: 위로 당기면 무거워져 40px 안쪽 · 천천히 조금 내리면 제자리 · 절반을 넘기거나 빨리 튕기면(0.45px/ms) 닫힌다 ·
+//     닫힐 때 걷히는 모양(.dc-rise.dc-out)이 아니라 손이 놓인 자리에서 아래로 마저 내려간다 · 머리줄 버튼에서 시작한 누름은 끌기가 아니다
+// M12 폰 아래 시트는 아이폰 곡선 500ms(닫힘은 그대로 짧다)
+// **되돌리기**: useSheetDrag의 sheetFling을 false로 두면 '닫힌다' 둘이, rub을 빼면 '무거워져'가 깨진다.
+{
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1300);
+  const drag = (steps, from = '[data-sheet-grab]') => ev(`(async () => { const g = document.querySelector('[data-sheet-grab]'); const el = document.querySelector(${JSON.stringify(from)}); if (!g || !el) return null;
+    const r = el.getBoundingClientRect(), x = r.left + Math.min(40, r.width / 2), y = r.top + r.height / 2;
+    const fire = (type, cy) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 9, pointerType: 'touch', clientX: x, clientY: cy, isPrimary: true }));
+    fire('pointerdown', y);
+    for (const [dy, wait] of ${JSON.stringify(steps)}) { await new Promise(r => setTimeout(r, wait)); fire('pointermove', y + dy); }
+    const mid = document.querySelector('[data-task-window]').style.transform;
+    fire('pointerup', y + ${JSON.stringify(steps)}.at(-1)[0]);
+    return mid; })()`, true);
+  const win = () => ev(`(() => { const w = document.querySelector('[data-task-window]'); return w ? { t: w.style.transform, flung: w.hasAttribute('data-flung'), out: w.classList.contains('dc-out'), anim: getComputedStyle(w).animationName } : null; })()`);
+  await openCard();
+  check('M10 폰 업무 창 머리줄이 손잡이다(touch-action none)', (await ev(`getComputedStyle(document.querySelector('[data-sheet-grab]')).touchAction`)) === 'none');
+  const up = await drag([[-60, 30], [-140, 30], [-220, 30]]);
+  await sleep(650);
+  const upPx = Math.abs(parseFloat(String(up).replace('translateY(', '')));
+  const w1 = await win();
+  check('M10 위로 당기면 무거워져(220px → 40px 안쪽) 놓으면 제자리', upPx > 25 && upPx < 40 && w1?.t === '' && !w1.out, JSON.stringify({ up, w1 }));
+  await drag([[40, 200], [80, 200], [120, 200]]);
+  await sleep(650);
+  const w2 = await win();
+  check('M10 천천히 조금(120px) 내리면 돌아온다', !!w2 && w2.t === '' && !w2.out, JSON.stringify(w2));
+  await drag([[30, 30], [60, 30], [90, 30]], '[data-sheet-grab] button[aria-label="닫기"]');
+  await sleep(300);
+  const w3 = await win();
+  check('M10 머리줄 버튼에서 시작한 누름은 끌기가 아니다', !!w3 && w3.t === '' && !w3.out, JSON.stringify(w3));
+  await drag([[12, 16], [30, 16], [50, 16]]);
+  await sleep(200);
+  const w4 = await win();
+  check('M10 짧게 빨리 튕기면 닫힌다 — 걷히는 모양이 아니라 아래로 마저 내려간다', !!w4 && w4.flung && w4.out && w4.anim === 'none' && /translateY\((8\d\d|9\d\d)/.test(w4.t), JSON.stringify(w4));
+  await sleep(600);
+  check('M10 내려간 뒤 창이 걷힌다', !(await ev(`!!document.querySelector('[data-task-window]')`)));
+  await openCard();
+  await drag([[150, 60], [300, 60], [450, 60], [452, 200]]);
+  await sleep(800);
+  check('M10 절반을 넘겨 내리면(멈췄다 놓아도) 닫힌다', !(await ev(`!!document.querySelector('[data-task-window]')`)));
+  const sheet = await ev(`(() => { const d = document.createElement('div'); d.className = 'dc-sheet-up'; document.body.appendChild(d);
+    const s = getComputedStyle(d), r = { dur: s.animationDuration, ease: s.animationTimingFunction }; d.classList.add('dc-out'); r.out = getComputedStyle(d).animationDuration; d.remove(); return r; })()`);
+  check('M12 폰 아래 시트는 아이폰 곡선 500ms · 닫힘은 짧게 그대로', sheet.dur === '0.5s' && sheet.ease === 'cubic-bezier(0.32, 0.72, 0, 1)' && sheet.out === '0.18s', JSON.stringify(sheet));
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

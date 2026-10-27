@@ -1555,3 +1555,10 @@ S2 모서리: 떠 있는 판(팝오버·메뉴·창) 12px(`rounded-lg`) · 폰 �
 `::after`의 opacity만 움직인다(box-shadow를 전이하지 않는다). 모르는 브라우저(사파리)는 @supports 밖의 `inset 0 -1px` 늘 선 — 지금과 같다. 머리에 `border-b`를 다시 달지 않는다(두 줄이 된다).
 **73-f.** **종이 결(`.paper-grain` · `data-paper-grain`)은 화면에만 깐다 — 그림·PDF로 굽는 두 길(modern-screenshot `filter` · html2canvas `ignoreElements`)이 이 판을 뺀다**(services/shareImage.js `isGrain`).
 잡음 무늬는 PNG·PDF에서 압축이 안 돼 파일이 커지고, 주보는 인쇄되는 공식 문서다. 판은 종이의 맨 뒤(z -1)라 종이가 `isolation: isolate`로 층을 가둔다 — 띠·사진·글자 위에는 앉지 않는다.
+### 시트 · 넘김 · 스크롤 (UI 다듬기 2차 M10~M16 · 2026-10-27)
+**75-a.** **폰 업무 창을 끌어 내려 닫는 손잡이는 머리줄 하나다**(`hooks/useSheetDrag.js` · `modals.jsx` `[data-sheet-grab]`). 창 전체에 걸면 본문 스크롤·편집기 끌기·댓글 칸과 다툰다.
+손가락만 받고(마우스는 ✕·닫기), 머리줄 안의 버튼·글 칸에서 시작한 누름은 끌기가 아니다. 닫을 때 **`useLeave`의 걷는 모양(.dc-rise.dc-out — 20px 아래로 가며 흐려짐)을 그대로 두면
+손이 놓인 자리(수백 px 아래)에서 창이 20px 자리로 튀어 올라간다** — `data-flung`으로 그 애니메이션을 끄고 창은 인라인 transform으로 아래로 마저 내려가며, `leave(fn, 500)`이 그만큼 기다린다(`useLeave`에 기다림 길이 인자를 붙였다).
+줄로 줄어드는 유령(morph · 71-f)은 이 길에서 쓰지 않는다. 저장 안 한 새 업무면 닫지 않고 제자리로 돌아와 ✕의 확인을 연다. 검사 `modalclose`(M10).
+**75-b.** **아이폰 시트 곡선(500ms · `--ease-sheet`)은 폰 아래 시트의 등장에만**(M12 · `.dc-sheet-up`·폰의 `.dc-sheet-dialog` · index.css 맨 끝 구역). 닫힘은 `--dur-exit` 그대로(닫힘이 열림보다 짧다).
+폰 업무 창(.dc-rise)의 등장은 전면 창이 28px 떠오르는 모양이라(57-f) 시트가 아니다 — 이 곡선을 주지 않았다. 끌기에서 돌아오고 마저 내려가는 것만 같은 곡선이다.
