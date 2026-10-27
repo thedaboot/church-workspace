@@ -160,6 +160,33 @@ export function createFailedComments() {
 }
 export const failedComments = createFailedComments();
 
+// ── 댓글 고치기·지우기가 실패했을 때 (UX 감사 2026-10-27 · PITFALLS 70-c) ─────────────────────────────────────────
+// 고치기·지우기도 화면이 먼저다(controllers.handleUpdateComment·handleDeleteComment). 예전에는 실패해도 토스트만 떠서 고친 글·지운 댓글이
+// 화면에만 남았다. prev — 바꾸기 전 목록 · wrote — 내가 넣은 목록 · live — 지금 스토어 목록. 돌릴 것이 없으면 null.
+//   · 고친 댓글: 지금 글이 내가 쓴 글 그대로일 때만 전 글로(그 사이 다시 고쳤으면 둔다 · 반응 같은 다른 칸은 지금 것)
+//   · 지운 댓글(답글 포함): 지금 목록에 없으면 원래 자리(전 목록의 차례)에 되살린다
+export function restoreComments({ prev = [], wrote = [], live = [] }) {
+  const wroteById = new Map(wrote.map(c => [c.id, c]));
+  const liveIds = new Set(live.map(c => c.id));
+  const order = new Map(prev.map((c, i) => [c.id, i]));
+  let changed = false;
+  const out = live.map(c => {
+    const p = prev.find(x => x.id === c.id), w = wroteById.get(c.id);
+    if (!p || !w || w.text === p.text || c.text !== w.text) return c;
+    changed = true;
+    return { ...c, text: p.text, edited: p.edited, updatedAt: p.updatedAt };
+  });
+  for (const p of prev) {
+    if (wroteById.has(p.id) || liveIds.has(p.id)) continue;
+    const i = order.get(p.id);
+    let at = out.findIndex(c => (order.get(c.id) ?? Infinity) > i);
+    if (at < 0) at = out.length;
+    out.splice(at, 0, p);
+    changed = true;
+  }
+  return changed ? out : null;
+}
+
 // ── 내 쓰기가 아직 안 끝난 칸 (UX 감사 2026-10-27 · PITFALLS 70-a) ─────────────────────────────────────────
 // 화면은 먼저 바뀌고 쓰기는 뒤따른다. 그런데 실시간 재조회(App.syncCard · 전체 재조회)는 **내 쓰기가 아직 서버에 안 닿은 칸**을 옛 값으로
 // 읽어 온다 — 보드에서 카드를 끌어 놓으면 상태 저장의 에코가 옛 자리(position)를 들고 와 카드가 옛 칸으로 튀었다가 순서 저장이 끝나면

@@ -7,7 +7,7 @@ import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { showToast, HOLD_MS_ACTION } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { rollbackPatch, createDeleteHold, failedComments, pendingCardFields } from '../services/optimistic.js';
+import { rollbackPatch, createDeleteHold, failedComments, pendingCardFields, restoreComments } from '../services/optimistic.js';
 import { openTaskId } from '../modals/taskFocus.js';
 import { trashTask } from '../services/trash.js';
 import { copyTasks } from '../services/projectCopy.js';
@@ -33,6 +33,18 @@ const reportCloudError = (what) => (err) => {
 // 0104부터 '서버 삭제'는 휴지통에 넣기다(cloudSync.cardTrashCloud — DB 함수가 없으면 예전 행 삭제로 되돌아간다).
 // 게스트는 브라우저 휴지통(services/trash.js)에 지운 순간의 모습을 넣는다.
 const deleteHold = createDeleteHold({ store, ms: HOLD_MS_ACTION + 300 });   // 토스트가 걷힌 뒤에 보낸다
+
+// 댓글 고치기·지우기의 **댓글 행 쓰기**가 실패했다 — 고친 글은 전 글로, 지운 댓글(답글까지)은 제자리로 되돌리고 그 쓰기가 붙인 활동 줄을 걷는다
+// (services/optimistic.restoreComments · PITFALLS 70-c). 뒤따른 활동 줄·알림의 실패는 댓글이 이미 바뀐 것이라 되돌리지 않는다.
+function undoCommentWrite(task, updated, addedLogs) {
+  const live = store.getState().tasks.byId[task.id];
+  if (!live) return;
+  const comments = restoreComments({ prev: task.comments || [], wrote: updated.comments || [], live: live.comments || [] });
+  const drop = new Set((addedLogs || []).map(l => l.id));
+  const activityLog = drop.size ? (live.activityLog || []).filter(l => !drop.has(l.id)) : null;
+  if (!comments && !activityLog) return;
+  store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, ...(comments ? { comments } : {}), ...(activityLog ? { activityLog } : {}) } });
+}
 
 // ============================================================================
 // 8. Controllers (비즈니스 로직 훅)
@@ -226,8 +238,11 @@ export const useWorkspaceController = () => {
       const mentionIds = cloudSync.newMentionsOnly(newText, before, currentUser.name);
       cloudSync.commentUpdateCloud(commentId, newText)
         .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id).catch(reportCloudError('활동 기록을 남기지 못했어요')))
-        .then(() => mentionIds.length && cloudSync.notifyMentions(newText, { actorName: currentUser.name, cardId: task.id, projectId: task.projectId, recipientIds: mentionIds }))
-        .catch(reportCloudError('댓글을 고치지 못했어요'));
+        .then(() => mentionIds.length && cloudSync.notifyMentions(newText, { actorName: currentUser.name, cardId: task.id, projectId: task.projectId, recipientIds: mentionIds })
+          .catch(reportCloudError('활동 기록을 남기지 못했어요')), (e) => {
+          undoCommentWrite(task, updated, addedLogs);
+          reportCloudError('댓글을 고치지 못했어요')(e);
+        });
     }
     return updated;
   }, [currentUser.name, cloudOn]);
@@ -238,8 +253,10 @@ export const useWorkspaceController = () => {
     if (cloudOn) {
       const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);
       cloudSync.commentDeleteCloud(commentId)
-        .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
-        .catch(reportCloudError('댓글을 지우지 못했어요'));
+        .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id).catch(reportCloudError('활동 기록을 남기지 못했어요')), (e) => {
+          undoCommentWrite(task, updated, addedLogs);
+          reportCloudError('댓글을 지우지 못했어요')(e);
+        });
     }
     return updated;
   }, [currentUser.name, cloudOn]);

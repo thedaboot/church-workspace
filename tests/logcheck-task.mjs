@@ -1312,5 +1312,33 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  동아리 모임 출석 — 한 줄로 · 실패한 한 번만 되돌린다(createSerialToggles) 8가지');
 }
 
+// ── 댓글 고치기·지우기 실패 → 되돌린다(UX 감사 2026-10-27 · PITFALLS 70-c · services/optimistic.restoreComments) ─────────
+// 예전에는 토스트만 떠서 고친 글·지운 댓글이 화면에만 남았다(새로 고치면 바뀌었다).
+// **되돌리기**: controllers.js 고치기의 실패 갈래에서 `undoCommentWrite(task, updated, addedLogs);`를 빼면 ③이, restoreComments의 지운 댓글 되살리기 고리를 빼면 ②가 깨진다.
+{
+  const O = await import(new URL('../src/services/optimistic.js', import.meta.url).href);
+  const c = (id, text, extra = {}) => ({ id, author: '노준석', text, timestamp: '2026-10-01T00:00:00Z', parentId: null, ...extra });
+  const task = { id: 'k', comments: [c('a', '하나'), c('b', '둘'), c('b1', '둘의 답글', { parentId: 'b' }), c('d', '넷')], activityLog: [] };
+  // ① 고친 글 → 전 글(반응 같은 다른 칸은 지금 것) · 그 사이 다시 고쳤으면 둔다
+  const edited = TaskService.updateComment(task, 'a', '하나 고침', '노준석');
+  const live1 = edited.comments.map(x => (x.id === 'a' ? { ...x, reactions: ['heart'] } : x));
+  const r1 = O.restoreComments({ prev: task.comments, wrote: edited.comments, live: live1 });
+  assert.deepStrictEqual(r1.map(x => [x.id, x.text, !!x.edited]), [['a', '하나', false], ['b', '둘', false], ['b1', '둘의 답글', false], ['d', '넷', false]], '① 고친 글이 전 글로');
+  assert.deepStrictEqual(r1[0].reactions, ['heart'], '① 다른 칸은 지금 것');
+  assert.strictEqual(O.restoreComments({ prev: task.comments, wrote: edited.comments, live: edited.comments.map(x => (x.id === 'a' ? { ...x, text: '또 고침' } : x)) }), null, '① 그 사이 다시 고쳤으면 둔다');
+  // ② 지운 댓글(답글까지) → 원래 자리 · 그 사이 새로 온 댓글은 끝에 그대로
+  const del = TaskService.deleteComment(task, 'b', '노준석');
+  const r2 = O.restoreComments({ prev: task.comments, wrote: del.comments, live: [...del.comments, c('e', '새 댓글')] });
+  assert.deepStrictEqual(r2.map(x => x.id), ['a', 'b', 'b1', 'd', 'e'], '② 지운 댓글과 답글이 제자리로');
+  assert.strictEqual(O.restoreComments({ prev: task.comments, wrote: del.comments, live: task.comments }), null, '② 이미 다시 들어와 있으면 아무것도');
+  // ③ 배선 — 댓글 행 쓰기가 실패했을 때만(뒤따른 활동·알림 실패는 아니다)
+  const ctl = readFileSync(new URL('../src/hooks/controllers.js', import.meta.url), 'utf8');
+  assert.ok(/recipientIds: mentionIds \}\)\s*\.catch\(reportCloudError\('활동 기록을 남기지 못했어요'\)\), \(e\) => \{\s*undoCommentWrite\(task, updated, addedLogs\);\s*reportCloudError\('댓글을 고치지 못했어요'\)\(e\);/.test(ctl),
+    '③ 고치기 실패가 되돌린다');
+  assert.ok(/cloudSync\.commentDeleteCloud\(commentId\)\s*\.then\([^\n]*\.catch\(reportCloudError\('활동 기록을 남기지 못했어요'\)\), \(e\) => \{\s*undoCommentWrite\(task, updated, addedLogs\);\s*reportCloudError\('댓글을 지우지 못했어요'\)\(e\);/.test(ctl),
+    '③ 지우기 실패가 되돌린다');
+  console.log('PASS  댓글 고치기·지우기 실패 되돌리기(restoreComments) 7가지');
+}
+
 // 진행 검사의 일부 줄은 일부러 끝내지 않는다(차례·멈춤을 보려고) — 그 줄의 진행 타이머가 프로세스를 붙들지 않게 여기서 끝낸다
 process.exit(0);
