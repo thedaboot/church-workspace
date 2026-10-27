@@ -1432,6 +1432,53 @@ check("'나만 보기'로 되돌리면 칩이 '나만 볼게요'다",
   backRow.shared === false && backRow.chip === '나만 볼게요' && backRow.body.includes('기쁨은'),
   JSON.stringify(backRow));
 
+// **공유·저장은 화면이 먼저다**(UX 감사 2026-10-27 · PITFALLS 70-d) — 서버를 기다리는 동안에도 세그먼트가 바뀌고 저장은 곧바로 읽기 종이다.
+// 실패하면 공유는 저장된 값으로, 저장은 쓰던 글 그대로 편집기로 돌아가고 실패 토스트가 뜬다.
+// 게스트는 실패가 없어 `window.__devFail.note`(worshipView devNoteGate · 개발 빌드만)가 쓰기를 붙들었다가 실패시킨다.
+// 되돌리기 검사: MyNote setShare의 `setOptShared(v)`를 빼면 ①이, save의 `setOptBody(kept)`와 `setEditing(false)`를 await 뒤로 옮기면 ②가 깨진다.
+{
+  const pressedNow = () => ev(`[...document.querySelectorAll('.worship-note button[aria-pressed]')].map(b => b.getAttribute('aria-pressed'))`);
+  const toasts = () => ev(`[...document.querySelectorAll('[data-toast]')].map(t => t.innerText).join(' / ')`);
+  const logsBefore = logs.length;
+  await ev(`window.__devFail = { note: new Promise(r => { window.__noteGate = r; }) }`);
+  await ev(`document.querySelectorAll('.worship-note button[aria-pressed]')[1].click()`); await sleep(150);
+  const sh1 = await pressedNow();
+  await ev(`window.__noteGate(false)`); await sleep(500);
+  const sh2 = { pressed: await pressedNow(), toast: await toasts(),
+    stored: JSON.parse(await ev(`localStorage.getItem('church_worship_v1')`)).service_notes[0]?.shared_to_sun };
+  check('① 순에 공유는 누르는 순간 바뀐다(서버를 기다리지 않는다)', JSON.stringify(sh1) === '["false","true"]', JSON.stringify(sh1));
+  check('① 공유가 실패하면 저장된 값(나만 보기)으로 돌아가고 실패 토스트', JSON.stringify(sh2.pressed) === '["true","false"]'
+    && /노트를 순에 공유하지 못했어요/.test(sh2.toast) && sh2.stored === false, JSON.stringify(sh2));
+  // ② 저장
+  await ev(`document.querySelector('.worship-note-edit')?.click()`); await sleep(700);
+  await waitFor(`!!document.querySelector('.worship-note .tiptap')`);
+  await sleep(300);
+  await ev(`(() => { const t = document.querySelector('.worship-note .tiptap'); if (!t) return;
+    const p = [...t.children].find(el => el.tagName === 'P');
+    t.focus(); const r = document.createRange(); r.selectNodeContents(p); r.collapse(false);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); })()`);
+  await sleep(150);
+  await send('Input.insertText', { text: ' 실패할 저장' });
+  await sleep(300);
+  await ev(`window.__devFail = { note: new Promise(r => { window.__noteGate = r; }) }`);
+  await ev(`document.querySelector('.worship-note-save').click()`); await sleep(150);
+  const sv1 = await ev(`({ read: !!document.querySelector('.worship-note-read'), text: document.querySelector('.worship-note-read')?.innerText || '',
+    editor: !!document.querySelector('.worship-note .tiptap') })`);
+  await ev(`window.__noteGate(false)`); await sleep(700);
+  await waitFor(`!!document.querySelector('.worship-note .tiptap')`);
+  const sv2 = await ev(`({ editor: !!document.querySelector('.worship-note .tiptap'), text: document.querySelector('.worship-note .tiptap')?.innerText || '',
+    stored: (JSON.parse(localStorage.getItem('church_worship_v1')).service_notes[0]?.body || '').includes('실패할 저장') })`);
+  sv2.toast = await toasts();
+  check('② 저장은 누르는 순간 읽기 종이로 넘어간다(쓴 글이 종이에 선다)', sv1.read && !sv1.editor && sv1.text.includes('실패할 저장'), JSON.stringify(sv1));
+  check('② 저장이 실패하면 쓰던 글 그대로 편집기로 돌아가고 실패 토스트', sv2.editor && sv2.text.includes('실패할 저장') && !sv2.stored
+    && /예배 노트를 저장하지 못했어요/.test(sv2.toast), JSON.stringify(sv2));
+  await ev(`window.__devFail = {}`);
+  await ev(`document.querySelector('.worship-note-cancel')?.click()`); await sleep(500);
+  // 일부러 낸 실패의 콘솔 줄은 이 검사의 몫이다 — 아래 '콘솔 오류 0'에서 뺀다
+  const mine = logs.splice(logsBefore).filter(l => !/\[worship\] 예배 노트 (공유 변경|저장) 실패: Error: dev: note/.test(l));
+  logs.push(...mine);
+}
+
 // **고치는 중에 공유를 바꿔도 쓰던 글이 그대로다**(2026-09-25 감사 S1·S2). 예전에는 공유가
 // 돌려준 note가 MyNote의 효과를 다시 돌려 편집기 글을 저장본으로 되돌리고 편집을 닫았다.
 // 되돌리기 검사: MyNote 효과의 `synced.current.key === draftKey` 갈래를 빼면 깨진다.

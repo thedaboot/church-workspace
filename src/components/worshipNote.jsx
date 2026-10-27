@@ -75,25 +75,34 @@ export function MyNote({ note, serviceId = '', serviceDate = '', passageRef = ''
   const [busy, setBusy] = useState(false);
   // 저장된 노트가 없으면 처음부터 편집기다 — 빈 읽기 상자를 세울 이유가 없다
   const [editing, setEditing] = useState(!note);
+  // **저장·공유는 화면이 먼저다**(UX 감사 2026-10-27 · PITFALLS 70-d) — 예전에는 서버 왕복이 끝나야 읽기 종이로 넘어가고 칩이 바뀌었다.
+  // 보내는 동안의 값을 여기 들고(저장 중인 글 · 바꾸는 중인 공유) 서버 쓰기가 끝나면 걷는다 — 그때는 부르는 쪽이 돌려준 note가 서 있다.
+  // 실패하면 걷기만 하면 저장된 값으로 돌아간다(저장은 쓰던 글 그대로 편집기로 · 토스트는 부르는 쪽 attempt가 띄운다).
+  const [optBody, setOptBody] = useState(null);
+  const [optShared, setOptShared] = useState(null);
 
-  const saved = !!note;
-  const shared = !!note?.shared_to_sun;
+  const savedBody = optBody ?? note?.body;
+  const saved = !!note || optBody !== null;
+  const shared = optShared ?? !!note?.shared_to_sun;
   // 되돌아갈 자리 — 저장된 글이 있으면 그것, 없으면 손대지 않은 템플릿이다
-  const base = bodyOrTemplate(note?.body, tpl);
+  const base = bodyOrTemplate(savedBody, tpl);
   // **손대지 않은 템플릿은 빈 노트다.** 제목 줄이 있다는 이유로 저장이 열리면
   // 아무도 쓰지 않은 제목 세 줄이 그대로 저장된다(isTemplateOnly).
   const hasText = !isTemplateOnly(body, passageRef);
   const dirty = body !== base;
   const reading = saved && !editing;
   // 종이에 세울 도막. 저장된 글만 본다 — 편집 중인 글은 종이가 아니라 편집기가 그린다.
-  const sections = useMemo(() => splitNoteSections(note?.body || ''), [note?.body]);
+  const sections = useMemo(() => splitNoteSections(savedBody || ''), [savedBody]);
   const draftKey = noteDraftKey('worship', serviceId || serviceDate);
+  // 보내는 사이 다른 주보로 넘어갔으면 돌아온 결과로 이 칸을 건드리지 않는다
+  const keyRef = useRef(draftKey);
+  keyRef.current = draftKey;
   const sheetRef = useRef(null);
   // **누르기 전에 그림까지 구워 둔다**(hooks/useSheetShare.js) — 미리 받기만으로는
   // 폰에서 공유 시트가 열리지 않았다(사용자 보고 2026-09-09).
   const img = useSheetShare({
     refs: [sheetRef], background: PAPER.surface,
-    key: reading ? `${note?.id || 'none'}:${note?.body || ''}` : '',
+    key: reading ? `${note?.id || 'none'}:${savedBody || ''}` : '',
     fileName: `예배 노트 ${paperDate(serviceDate)}`.trim(),
     what: '이미지를 저장하지 못했어요',
   });
@@ -133,6 +142,7 @@ export function MyNote({ note, serviceId = '', serviceDate = '', passageRef = ''
     }
     synced.current = { key: draftKey, body: fresh, note };
     userEditing.current = false;
+    setOptBody(null); setOptShared(null);
     const draft = readCache(draftKey);
     if (hasDraft(draft, fresh)) { setBody(draft.body); setState('draft'); setEditing(true); userEditing.current = true; return; }
     setBody(fresh); setEditing(!note);
@@ -141,7 +151,8 @@ export function MyNote({ note, serviceId = '', serviceDate = '', passageRef = ''
   // 편집 중에는 주기적으로 브라우저에 남긴다. 저장된 글과 같아지는 순간(저장·취소·
   // 되돌아옴) 지운다 — 되살릴 것이 없는 초안이 자리만 차지하지 않게. 쓰고 곧바로 떠나도
   // 그 자리에서 남는다(hooks/useNoteDraft.js 머리말 · 말씀 화면과 같은 짝).
-  useNoteDraft(draftKey, body === base ? null : { body });
+  // 견주는 것은 **서버에 있는 글**이다 — 저장을 보내는 동안(optBody)에도 초안은 남는다(실패하면 그때가 초안이 가장 필요한 때다)
+  useNoteDraft(draftKey, body === bodyOrTemplate(note?.body, tpl) ? null : { body });
 
   useEffect(() => {
     if (!focus) return undefined;
@@ -169,21 +180,26 @@ export function MyNote({ note, serviceId = '', serviceDate = '', passageRef = ''
 
   const save = async () => {
     if (busy || !hasText || !dirty) return;
-    setBusy(true); setState('saving'); setShareState('');
+    const key = draftKey;
     // **도막 제목은 지워지지 않는다**(사용자 결정 2026-09-09 — "중제목들 안 지워지게").
     // 편집기에서 지웠어도 저장되는 글에는 세 도막이 그 순서로 서 있다. 사람이 쓴
     // 글과 새로 만든 도막은 그대로 남는다(services/noteTemplate.js ensureNoteSections).
     const kept = ensureNoteSections(body, WORSHIP_SECTIONS);
-    const ok = await onSave({ body: kept, sharedToSun: shared });
-    setBusy(false); setState(ok ? 'saved' : '');
-    // 저장했으면 초안은 할 일을 다 했다. **실패하면 남긴다** — 그때가 초안이 가장 필요한 때다
-    // 편집기 글도 저장된 글로 맞춘다 — 저장이 돌려준 note는 위 효과가 '고치는 중'으로 보고
+    // **누르는 순간 읽기 종이로 넘어간다**(UX 감사 2026-10-27) — 서버 쓰기는 뒤따른다(optBody가 종이에 선다).
+    // 편집기 글도 저장될 글로 맞춘다 — 저장이 돌려준 note는 위 효과가 '고치는 중'으로 보고
     // 건너뛰므로(S1), 여기서 맞추지 않으면 도막이 되살아난 만큼 저장 직후에도 dirty로 남는다.
-    if (ok) {
-      const next = bodyOrTemplate(kept, tpl);
-      synced.current.body = next; userEditing.current = false;
-      setBody(next); dropCache(draftKey); setEditing(false);
-    }
+    const next = bodyOrTemplate(kept, tpl);
+    setBusy(true); setState('saving'); setShareState('');
+    setOptBody(kept);
+    synced.current.body = next; userEditing.current = false;
+    setBody(next); setEditing(false);
+    const ok = await onSave({ body: kept, sharedToSun: shared });
+    if (keyRef.current !== key) return;
+    setBusy(false); setOptBody(null); setState(ok ? 'saved' : '');
+    // 저장했으면 초안은 할 일을 다 했다. **실패하면 남긴다** — 그때가 초안이 가장 필요한 때다.
+    // 실패하면 쓰던 글 그대로 편집기로 돌아간다(그 사이 다시 '수정'을 눌러 고쳤으면 그 글이 그대로다).
+    if (ok) dropCache(key);
+    else { userEditing.current = true; setEditing(true); }
   };
 
   // 취소는 **저장된 글로 되돌리고** 읽기 모드로 나간다(고치던 것을 버린다).
@@ -197,8 +213,12 @@ export function MyNote({ note, serviceId = '', serviceDate = '', passageRef = ''
   // onShare는 부르는 쪽이 services의 setNoteShared로 잇는다(모임 화면도 같은 함수를 쓴다).
   const setShare = async (v) => {
     if (!saved || v === shared || shareState === 'saving') return;
-    setShareState('saving'); setState('');
+    const key = draftKey;
+    // 누르는 순간 세그먼트가 바뀐다(UX 감사 2026-10-27) — 실패하면 걷어서 저장된 값으로 돌아간다(토스트는 부르는 쪽)
+    setOptShared(v); setShareState('saving'); setState('');
     const ok = onShare ? await onShare(v) : await onSave({ body: note?.body || '', sharedToSun: v });
+    if (keyRef.current !== key) return;
+    setOptShared(null);
     setShareState(ok ? 'saved' : '');
   };
 

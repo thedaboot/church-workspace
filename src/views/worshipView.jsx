@@ -92,6 +92,15 @@ const reasonOf = (err, byCode = {}) => {
 const LIST_FAIL = '주보 목록을 받지 못했어요';
 const LIST_FAIL_BY = { 42501: '승인된 멤버만 주보를 볼 수 있어요' };
 
+// 개발 빌드의 게스트 검사만(tests/worship) — `window.__devFail = { note: true | Promise<boolean> }`면 노트 저장·공유가 그 약속을 기다렸다가
+// 거짓이면 실패한다(true는 바로 실패). 게스트는 서버가 없어 실패하는 길이 없다 · 배포 빌드에서는 늘 그냥 지나간다(controllers.devFail과 같은 관례).
+async function devNoteGate() {
+  if (!(import.meta.env?.DEV && typeof window !== 'undefined')) return;
+  const g = window.__devFail?.note;
+  if (!g) return;
+  if (!(g === true ? false : await g)) throw new Error('dev: note');
+}
+
 // 쓰기·읽기 한 번 — 이 화면의 핸들러 열일곱이 같은 꼴(try → 실패면 콘솔 + 토스트 + 실패 값)이라 한 벌로 둔다.
 //   log    콘솔 줄 `[worship] {log} 실패:` 그대로(원문은 콘솔에 남긴다 · §8 실패 문구 · tests/errhunt가 콘솔을 본다)
 //   what   토스트 앞도막(무엇을 못 했는지) · byCode 아는 오류 코드 → 사람 말(뒷도막 · 위 fail)
@@ -663,6 +672,7 @@ export function WorshipView({ onOpenBible } = {}) {
       42501: '노트는 로그인한 본인만 쓸 수 있어요',
       PGRST116: GONE,
     }, async () => {
+      await devNoteGate();
       const row = await saveMyNote(openId, { body, sharedToSun });
       if (row) setNote(row);
       invalidate();
@@ -775,6 +785,7 @@ export function WorshipView({ onOpenBible } = {}) {
       42501: '노트는 로그인한 본인만 바꿀 수 있어요',
       PGRST116: '이 노트가 이미 지워졌어요\n새로고침해주세요',
     }, async () => {
+      await devNoteGate();
       const row = await setNoteShared(openId, shared);
       if (row) setNote(row);
       invalidate();
