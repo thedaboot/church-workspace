@@ -638,7 +638,7 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
   await openGraph(1280); await sleep(2600);
   const deskGap = await ev(`(() => {
     const m = document.querySelector('main'); m.scrollTop = m.scrollHeight;
-    const panel = document.querySelector('[data-graph-root] > .rounded-\\\\[10px\\\\]'); if (!panel) return null;
+    const panel = document.querySelector('[data-graph-root] > .rounded-lg'); if (!panel) return null;
     return { gap: Math.round(m.getBoundingClientRect().bottom - panel.getBoundingClientRect().bottom) };
   })()`);
   check('그래프 데스크톱 1280: 끝까지 내리면 판 아래에 12px 넘는 틈', !!deskGap && deskGap.gap >= 12, JSON.stringify(deskGap));
