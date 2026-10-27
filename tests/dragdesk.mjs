@@ -55,13 +55,22 @@ const dg = await ev(`(() => {
     from: { x: cr.left + cr.width / 2, y: cr.top + 26 }, to: { x: tr.left + tr.width / 2, y: tr.bottom + 140 } };
 })()`);
 const before = await statusOf(dg.title);
+// M20(UI 다듬기 2차 · PITFALLS 76-d): 끌기 시작 거리(6px)를 넘기 전, 누르는 순간 카드가 들린다(scale 1.04 · 그림자 한 단 · .2s) — 끌기가 시작되면 원래 자리는 내려온다.
+// **되돌리기**: boards.jsx DraggableCard의 `onPointerDown={pressLift}`를 지우면 첫 단정이 깨진다.
+const liftOf = `(() => { const c = document.querySelector('.board-card'); const cs = getComputedStyle(c);
+  return { up: c.classList.contains('dc-press-up'), scale: cs.scale, shadow: cs.boxShadow !== 'none', faded: c.classList.contains('opacity-40') }; })()`;
 await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: dg.from.x, y: dg.from.y, button: 'left', clickCount: 1 });
+await sleep(260);
+const pressed = await ev(liftOf);
+check('M20 보드 카드: 움직이기 전, 누르는 순간 들린다(scale 1.04 · 그림자)', pressed.up && pressed.scale === '1.04' && pressed.shadow && !pressed.faded, JSON.stringify(pressed));
 for (let i = 1; i <= 16; i++) {
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', button: 'left',
     x: dg.from.x + (dg.to.x - dg.from.x) * (i / 16), y: dg.from.y + (dg.to.y - dg.from.y) * (i / 16) });
   await sleep(25);
 }
 await sleep(150);
+const dragging = await ev(liftOf);
+check('M20 끌기가 시작되면 원래 자리는 내려오고 흐려진다(손에 든 것은 미리보기)', !dragging.up && dragging.scale !== '1.04' && dragging.faded, JSON.stringify(dragging));
 await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: dg.to.x, y: dg.to.y, button: 'left', clickCount: 1 });
 await sleep(800);
 const after = await statusOf(dg.title);
@@ -78,8 +87,10 @@ const opened = await ev(`(async () => {
 })()`, true);
 await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: opened.x, y: opened.y, button: 'left', clickCount: 1 });
 await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: opened.x, y: opened.y, button: 'left', clickCount: 1 });
+const released = await ev(liftOf);
 await sleep(800);
 check('데스크톱 클릭은 상세 열기', await ev(`!!document.querySelector('.fixed.inset-0.z-50')`), '');
+check('M20 놓으면 곧바로 내려온다(전이 없이 — 곧 창이 열린다)', !released.up && released.scale === 'none', JSON.stringify(released));
 // 핸드오프는 데스크톱 카드에도 우상단 ⇄ 를 둔다(드래그 말고도 옮길 수 있어야 한다)
 await ev(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await sleep(400);
 check('데스크톱 카드에도 상태 옮기기 버튼이 보인다', await ev(`(() => {

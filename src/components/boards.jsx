@@ -43,6 +43,25 @@ const ddLabel = (task) => {
 };
 const isLate = (task) => isOverdue(task, todayIso());
 
+// 누르는 순간 카드가 들린다(UI 다듬기 2차 M20 · .dc-press-up · PITFALLS 76-d) — 끌기 시작 거리(마우스 6px)·길게 누르기(손가락 200ms)를
+// 넘기 전에 '잡혔다'를 먼저 보여 준다. 클래스는 DOM에 바로 붙인다(다시 그리면 보드 카드 서른 장의 memo가 흔들린다 · 9-bm).
+// 손가락은 100ms 뒤에 든다 — 보드를 굴리려고 카드에 닿을 때마다 들렸다 떨어지면 깜빡인다(굴리기는 그 안에 pointercancel이 온다).
+// 카드 안 버튼(상태 옮기기 등)을 누를 때는 들지 않는다. 끌기가 시작되면 React가 className(opacity-40)을 통째로 다시 써서 저절로 내려온다 —
+// 손에 든 것은 DragOverlay가 그린다.
+const TOUCH_LIFT_MS = 100;
+function pressLift(e) {
+  const el = e.currentTarget;
+  // 카드 자신도 role="button"이다(dnd-kit attributes) — 카드 안쪽에서 만난 것만 거른다
+  const inner = e.target.closest?.('button, a, input, textarea, [role="button"]');
+  if (e.button !== 0 || (inner && inner !== el)) return;
+  let timer = 0;
+  const up = () => { clearTimeout(timer); el.classList.remove('dc-press-up'); off(); };
+  const off = () => ['pointerup', 'pointercancel'].forEach(t => window.removeEventListener(t, up, true));
+  ['pointerup', 'pointercancel'].forEach(t => window.addEventListener(t, up, true));
+  if (e.pointerType === 'touch') timer = setTimeout(() => el.classList.add('dc-press-up'), TOUCH_LIFT_MS);
+  else el.classList.add('dc-press-up');
+}
+
 // 카드 내부 프레젠테이션 (실제 카드 + DragOverlay 미리보기 공용)
 // 좌측 3px 팀 컬러 레일 → 팀명(10px) → 제목(14px) → 담당자·D-day (핸드오프 규격)
 const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action = null }) => {
@@ -228,6 +247,7 @@ function DraggableCard({ task, index, projectsMap, showProjectBadge, onTaskClick
   return (
     <div
       ref={setRefs} {...attributes} {...listeners} data-flip={task.id}
+      onPointerDown={pressLift}
       onClick={() => onTaskClick(task)}
       // 카드를 흰 상자로 세우지 않고 목록의 한 줄로 둔다 — 얇은 구분선만.
       // 상자 + 그림자 + 라운드를 카드마다 반복하면 화면이 자동 생성된 것처럼 읽힌다.
