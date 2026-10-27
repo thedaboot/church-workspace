@@ -16,6 +16,7 @@ import { Skeleton } from './media.jsx';
 import { FailLeft } from './groupsParts.jsx';
 import { failText, errorReason } from '../services/errorText.js';
 import * as W from '../services/welcome.js';
+import { FadeRow } from '../hooks/useEdgeFade.js';
 
 // ============================================================================
 // 새가족 정착 보드 — 모임 > '새가족' 탭(v5 4묶음 · 사용자 승인 시안 mock/b5 · 0120)
@@ -363,12 +364,12 @@ export function WelcomeBoard({ suns = [], members = [], people = [], meName = ''
       onDragStart={(e) => setActiveId(e.active.id)} onDragEnd={handleDragEnd} onDragCancel={() => setActiveId(null)}>
       <section className="welcome-board dc-screen" data-welcome-board="">
         <HoldRow cards={byStage[W.HOLD]} dragging={!!activeId} onOpen={setOpenId} />
-        <div className="md:hidden flex gap-1.5 mb-2.5 overflow-x-auto scrollbar-hide x-scroll-lock">
+        <FadeRow className="md:hidden flex gap-1.5 mb-2.5 overflow-x-auto scrollbar-hide x-scroll-lock">
           {W.STAGES.map(([k, label], i) => (
             <StageChip key={k} stage={k} label={label} count={byStage[k].length} current={i === visibleCol}
               dragging={!!activeId} isDraggedStage={activeCard?.stage === k} onClick={() => goCol(i)} />
           ))}
-        </div>
+        </FadeRow>
         {activeId && <p className="md:hidden text-center text-[10px] text-fg-muted mb-1.5 -mt-0.5">위 라벨에 놓으면 바로 옮겨져요</p>}
         <div ref={scrollRef} onScroll={onScroll} data-fade-r={fadeR ? '' : undefined}
           className={`${over ? 'x-fade-edge ' : ''}flex gap-[14px] md:gap-[18px] pb-1.5 overflow-x-auto overflow-y-hidden max-md:scrollbar-hide [overscroll-behavior-x:none] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}>

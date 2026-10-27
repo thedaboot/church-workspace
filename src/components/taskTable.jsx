@@ -174,7 +174,7 @@ function FilterChip({ label, count, children }) {
           <ChevronDown size={13} className={`${MOTION} transition-transform ${pop.open ? 'rotate-180' : ''}`} />
         </button>
       </span>
-      {pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated p-1 max-h-[320px] overflow-y-auto', children)}
+      {pop.panel('z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1 max-h-[320px] overflow-y-auto', children)}
     </span>
   );
 }
@@ -306,8 +306,8 @@ export const TaskTable = React.memo(function TaskTable({ tasks, onTaskClick, onS
             <SlidersHorizontal size={14} />정렬·필터{filtered > 0 && <span className="tabular-nums"> · {filtered}</span>}
           </button>
         </div>
-        <div ref={flipRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-[10px] border border-line bg-surface">
-          <div className="grid items-center gap-x-2 px-3 h-9 border-b border-line sticky top-0 bg-surface z-[1]" style={grid}>
+        <div ref={flipRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-lg border border-line bg-surface">
+          <div className="grid items-center gap-x-2 px-3 h-9 stuck-edge sticky top-0 bg-surface z-[1]" style={grid}>
             <HeadCell k="title" sort={sort} onSort={onSort} />
             {cols.map(k => <HeadCell key={k} k={k} sort={sort} onSort={onSort} />)}
           </div>
@@ -347,8 +347,8 @@ export const TaskTable = React.memo(function TaskTable({ tasks, onTaskClick, onS
         <span className="flex-1" />
         <span className="text-[11.5px] text-fg-muted tabular-nums">{rows.length}건</span>
       </div>
-      <div ref={flipRef} className="flex-1 min-h-0 overflow-y-auto rounded-[10px] border border-line bg-surface shadow-soft">
-        <div role="row" className="grid items-center gap-x-3 px-4 h-9 border-b border-line sticky top-0 bg-surface z-[1]" style={grid}>
+      <div ref={flipRef} className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-line bg-surface shadow-soft">
+        <div role="row" className="grid items-center gap-x-3 px-4 h-9 stuck-edge sticky top-0 bg-surface z-[1]" style={grid}>
           {TABLE_COLS.map(([k]) => <HeadCell key={k} k={k} sort={sort} onSort={onSort} />)}
         </div>
         {rows.length === 0 ? empty : rows.map((t, i) => (

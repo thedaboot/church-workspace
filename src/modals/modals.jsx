@@ -991,13 +991,17 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
         {task.teams?.map(t => <span key={t} className={`tracking-[0.03em] ${CONFIG.TEAM_FG[t] || 'text-fg-muted'}`}>{t}</span>)}
       </div>
       <h2 className="text-xl md:text-2xl font-extrabold text-fg leading-tight tracking-[-0.6px] break-words">{task.title}</h2>
-      <div className="mt-4 border-y border-line divide-y divide-line/60 text-xs">
+      {/* 구분선은 묶음 사이 한 줄만(S4 · 수정 칸 TaskProps와 같은 묶음 · PITFALLS 73-c) — 누구·언제 | 무엇과 잇나.
+          뒤 묶음이 다 비면(선행 업무·일정 없음 · 잠김) 판째 숨는다(empty:hidden). */}
+      <div className="mt-4 border-y border-line text-xs">
         <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">담당자</span><span className="font-medium text-fg min-w-0 break-words">{task.assignees?.join(', ') || '미지정'}</span></div>
         {task.startDate && !ongoing && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">시작일</span><span className="font-semibold text-fg">{fullDate(task.startDate)}</span></div>}
         {task.dueDate && !ongoing && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">마감일</span><span className="font-semibold text-fg">{fullDate(task.dueDate)}</span></div>}
+        <div data-prop-group="" className="border-t border-line/55 empty:hidden">
         <DependsViewRow dependsOn={task.dependsOn} />
         {/* 일정 추가 · 행사 일정(목업 ④) — 행사 칸 부품은 열 때 받는다(달력 코드가 업무 창 조각에 실리지 않게) */}
         {!closed && <Suspense fallback={null}><TaskEventRow task={task} /></Suspense>}
+        </div>
       </div>
 
       {lockNotice}

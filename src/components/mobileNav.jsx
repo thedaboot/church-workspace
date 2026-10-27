@@ -27,6 +27,7 @@ import { demoOn } from '../services/opsDemo.js';
 import { LeaderTitleLock, TabLock, useSetVisibility } from './leaderOnly.jsx';
 import { prefetchView } from '../services/viewChunks.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
+import { FadeRow } from '../hooks/useEdgeFade.js';
 
 // 화면의 스크롤 통(App.jsx의 main — 뷰는 자기 안에서 스크롤하지 않는다 · §6-2)을 맨 위로. 앱의 움직임 곡선(quint ·
 // index.css --ease-out-quint와 같은 감속)으로 미끄러지고, 움직임 줄이기면 바로 간다. 올라가는 중에 손가락·휠이 닿으면
@@ -215,7 +216,7 @@ const MobileProjectTabs = React.memo(({
       onDragEnd={onDragEnd} onDragCancel={() => setDragId(null)}
     >
       {/* x-scroll-lock: 가로로 밀 때 세로 스크롤이 같이 딸려가지 않게 (index.css) */}
-      <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
+      <FadeRow className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
         {/* 연도는 미는 칸 **안**에 둔다 — 같은 종류가 이어지는 줄이고(§8), 밖으로
             빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
         {/* 폰은 더보기가 없다 — 휴지통 입구는 연도 목록 맨 아래(휴지통이 비면 서지 않는다 · 0104) */}
@@ -227,7 +228,7 @@ const MobileProjectTabs = React.memo(({
         ))}
         {/* 데스크톱과 같은 이유로 투명 2px을 깐다(§6의 항목 참고) */}
         <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
-      </div>
+      </FadeRow>
       {trashOpen && <TrashDialog onClose={() => setTrashOpen(false)} />}
       {/* 들어 올린 탭이 손가락을 따라온다. body 포털이 기본이다(§6-1) — 조상에 걸린
           transform이 fixed의 기준 박스가 되면 미리보기가 엉뚱한 자리에 뜬다. */}

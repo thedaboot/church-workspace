@@ -400,7 +400,7 @@ function BellTrigger({ pop, unread }) {
 }
 
 const PanelHead = ({ title, children, onBack }) => (
-  <div className="flex items-center gap-1 px-3 py-2.5 border-b border-line sticky top-0 z-[1] bg-surface min-h-[41px]">
+  <div className="flex items-center gap-1 px-3 py-2.5 stuck-edge sticky top-0 z-[1] bg-surface min-h-[41px]">
     {onBack && (
       <button type="button" onClick={onBack} aria-label="뒤로" title="뒤로"
         className="-ml-1.5 p-1 rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95"><ChevronLeft size={15} /></button>

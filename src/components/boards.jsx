@@ -17,6 +17,7 @@ import { selectProjectsMap } from '../store/selectors.js';
 import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { isOverdue, todayIso } from '../services/taskCounts.js';
+import { FadeRow } from '../hooks/useEdgeFade.js';
 
 // ============================================================================
 // 칸반 보드 (dnd-kit) — 카드 · 상태 칩 · 컬럼 · 상시 줄
@@ -512,7 +513,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
         {ongoing.length > 0 && <OngoingRow tasks={ongoing} dragging={!!activeId} onTaskClick={onTaskClick} />}
         {/* 모바일 전용 상태 칩 — 평소엔 요약·이동, 드래그 중에는 드롭 타깃이 된다.
             (화면에 컬럼 하나만 보이는 모바일에서 옆 컬럼까지 끌고 갈 필요가 없도록) */}
-        <div className="md:hidden flex gap-1.5 mb-2.5 overflow-x-auto scrollbar-hide x-scroll-lock shrink-0">
+        <FadeRow className="md:hidden flex gap-1.5 mb-2.5 overflow-x-auto scrollbar-hide x-scroll-lock shrink-0">
           {CONFIG.STATUSES.map((status, i) => (
             <StatusChip
               key={status} status={status} count={(byStatus[status] || []).length}
@@ -521,7 +522,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
               onClick={() => goCol(i)}
             />
           ))}
-        </div>
+        </FadeRow>
         {activeId && (
           <p className="md:hidden text-center text-[10px] text-fg-muted mb-1.5 -mt-0.5">위 상태 칩에 놓으면 바로 옮겨져요</p>
         )}

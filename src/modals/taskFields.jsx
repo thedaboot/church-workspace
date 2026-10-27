@@ -68,7 +68,7 @@ function DependsRow({ formData, setFormData }) {
           // 브라우저 기본 화살표의 굵은 알약이 업무 창에서 혼자 다른 앱처럼 보였다)
           <span className="relative inline-flex max-w-[220px]">
             <select value="" onChange={(e) => add(e.target.value)} aria-label="선행 업무"
-              className="appearance-none w-full text-[11.5px] text-fg-muted bg-surface border border-line rounded-md pl-2.5 pr-7 py-[5px] outline-none focus:border-accent hover:bg-surface-hover transition-colors cursor-pointer truncate">
+              className="appearance-none w-full text-[11.5px] text-fg-muted bg-transparent border border-line rounded-md pl-2.5 pr-7 py-[5px] outline-none focus:border-accent hover:bg-surface-hover transition-colors cursor-pointer truncate">
               <option value="">{chosen.length ? '+ 더 추가' : '+ 먼저 끝나야 하는 업무'}</option>
               {options.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
             </select>
@@ -167,7 +167,9 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
 
   return (
     <div className="relative" ref={rootRef}>
-      <div className="flex flex-wrap items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1.5 focus-within:border-accent focus-within:shadow-soft transition-all">
+      {/* 쓰는 칸은 바탕, 고르는 칸은 테두리(S11 · PITFALLS 73-c) — 이 칸은 이름을 쳐서 찾으니 바탕(surface-hover)이고,
+          날짜·선행 업무는 고르는 칸이라 테두리다. 초점은 둘 다 accent 테두리. */}
+      <div className="flex flex-wrap items-center gap-1.5 border border-transparent rounded-xs bg-surface-hover px-2 py-1.5 focus-within:border-accent focus-within:shadow-soft transition-all">
         {value.map(name => (
           <span key={name} className="inline-flex items-center gap-1 bg-accent-weak text-accent-text rounded-full pl-2 pr-1 py-0.5 text-[11px] font-medium">
             {name}
@@ -292,7 +294,9 @@ export function useNameDraft({ value, onCommit, register, hold, idleMs = NAME_ID
 export function TaskProps({ data, set, members }) {
   const toggleTeam = (team) => set(prev => ({ ...prev, teams: (prev.teams || []).includes(team) ? prev.teams.filter(t => t !== team) : [...(prev.teams || []), team] }));
   return (
-    <div className="border-y border-line divide-y divide-line/60">
+    // 구분선은 묶음 사이 한 줄만(S4 · UI 다듬기 2차 2026-10-27) — 줄마다 선을 긋던 때는 칸 여섯이 표처럼 읽혔다.
+    // 언제(상태·시작일·마감일) | 누구·무엇과(담당 팀·담당자·선행 업무). 사이 선은 line의 55%(PITFALLS 73-c).
+    <div className="border-y border-line">
       <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">
         <div className="flex flex-wrap gap-1.5">
           {/* 상시는 맨 아래(config STATUS_PICK). 상시로 고르는 순간 날짜 두 칸을 비운다 —
@@ -319,6 +323,7 @@ export function TaskProps({ data, set, members }) {
           </PropertyRow>
         </>
       )}
+      <div data-prop-group="" className="border-t border-line/55">
       <PropertyRow icon={<Hash size={13} className="text-fg-faint" />} label="담당 팀">
         <div className="flex flex-wrap gap-1.5">
           {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
@@ -339,6 +344,7 @@ export function TaskProps({ data, set, members }) {
           (프로젝트를 건너 잇기 시작하면 그래프가 화면 하나에 안 담긴다).
           네이티브 <select>다: 목록이 길어도 모바일에서 OS가 알아서 잘 굴려 준다. */}
       <DependsRow formData={data} setFormData={set} />
+      </div>
     </div>
   );
 }

@@ -1539,3 +1539,19 @@ App의 `TipHost` 하나가 문서에서 받는다 — 처음 것만 500ms 뒤 .1
 **72-b.** **스프링 곡선 토큰 `--ease-spring`(linear() 71점 · 강성 170 · 감쇠 13 · 0.7초를 풀어 찍은 값)은 `@supports (transition-timing-function: linear(0, 1))` 안에서만 쓴다** — 모르는 브라우저(사파리 17.2 아래 등)는 `linear()`가 든 선언째 버려 전환이 아예 사라진다. 그래서 `.dc-spring`은 베지어 .42s를 먼저 두고 @supports로 덮는다. 곡선은 시간 비율이라 길이를 바꾸면 흔들림 빠르기도 같이 바뀐다 — 0.7초와 짝이다.
 **72-c.** **테마를 바꿀 때는 그 순간만 `html.dc-theme-swap`으로 모든 전환을 끈다**(D8 · `layout.jsx ThemeMenuItem`). 붙이고 → `dataset.theme` → `getComputedStyle`로 새 색을 한 번 계산시킨 뒤 → rAF 두 번 뒤에 뗀다. 계산을 건너뛰면 떼는 순간 옛 색에서 전환이 시작되어 얼룩이 그대로다. 테마를 바꾸는 새 자리가 생기면 같은 순서를 따른다(`navsmoke` D8).
 **72-d.** **줄바꿈은 `text-wrap-style`(longhand)만 준다** — 제목 `balance` · `p/li/blockquote/figcaption` `pretty`(index.css base · `:where`라 아무 클래스가 덮는다 · contenteditable 안은 뺀다 — 치는 동안 앞 줄이 흔들린다). 줄임말 `text-wrap: balance`는 접기 여부(text-wrap-mode)까지 wrap으로 덮어, 부모의 nowrap(truncate)을 물려받던 제목이 두 줄이 된다. 한국어는 body의 `word-break: keep-all`과 같이 간다. 홈 쇼케이스 설명은 줄 나눔을 사용자가 정했다 — span이라 걸리지 않는다(`handoff` D6·D11).
+
+### 면 — 모서리 · 그림자 · 선 · 끝 흐림 · 종이 결 · 칸 모양 (UI 다듬기 2차 S2~S11 · 2026-10-27)
+**73-a.** **그림자 색조는 `--app-shadow-tint`(rgb 세 값) 한 곳이고, 두 단의 식은 `:root, .shadow-tint`에 적는다**(index.css '그림자 식'). 사용자 속성 안의 `var()`는 **그 속성을 적은 요소에서 풀려** 값으로 내려간다 —
+식을 뿌리에만 두면 칸에서 색조를 바꿔도 이미 풀린 그림자가 내려와 물들지 않는다. 영역 색이 있는 칸은 `.shadow-tint`를 달고 `--app-shadow-tint`만 바꾼다(지금은 절기 색 예배 카드 —
+`--season-*-sh` · 동아리·성경은 영역 색이 아직 없다). 색조 **숫자**를 바꿀 때(C3)는 `--app-shadow-tint` 두 줄(라이트·다크)만 고친다. 빛은 위에서 하나 — 새 층도 x 0 · y만 아래로(handoff S5가 단정).
+S2 모서리: 떠 있는 판(팝오버·메뉴·창) 12px(`rounded-lg`) · 폰 시트 16px · 카드 12px(옛 10px). 10px로 남은 것은 큰 버튼과 업무 잠금 판(시안 ⑨ — handoff '잠금'이 단정)뿐이다.
+**73-b.** **데스크톱 상단 바(TopNav)는 로고·내 얼굴만 옅게(.8 · .6) 쉬고 바에 마우스를 올리면(`group/bar`) 또렷하다** — 메뉴 글자는 이미 muted라 더 낮추지 않는다(faint는 바탕 위 4.5:1 아래).
+쉬는 옅음은 `[@media(hover:hover)]`에만 — 터치 아이패드는 올릴 마우스가 없어 늘 옅게 남는다. 프로필 판이 열려 있는 동안은 얼굴을 또렷하게 둔다. **다붓이 알약은 물러나지 않는다**(입구). 굵기는 바꾸지 않았다(켜고 끌 때 폭이 바뀌어 옆 메뉴가 밀린다).
+**73-c.** **업무 창 칸(TaskProps · 보기의 속성 줄)은 묶음 사이 한 줄만**(`data-prop-group` · line 55%) — 보기의 뒤 묶음(선행 업무·일정)이 다 비면 `empty:hidden`으로 판째 숨는다(빈 선 하나가 남지 않게).
+**쓰는 칸은 바탕(surface-hover · 테두리 투명), 고르는 칸은 테두리**(S11) — 담당자 찾기 칸·설정의 이름·프로젝트 이름은 바탕, 날짜·선행 업무 select는 테두리. 초점은 둘 다 accent.
+**73-d.** **양끝 흐림(`hooks/useEdgeFade.js` · `FadeRow`)은 class가 아니라 data 속성(`data-x-fade` · `data-fade-l/r`)을 단다** — 리액트가 그 줄의 className을 다시 쓰면 훅이 붙인 class가 지워진다.
+넘칠 때만 마스크(50-d와 같은 까닭) · 칩이 늘고 줄면 MutationObserver가 다시 잰다. 보드 네 칸의 `.x-fade-edge`(오른쪽만 32px)는 그대로다. 마스크는 줄의 테두리까지 흐린다 — 주보 탭 줄(아래 선이 탭 표시의 바닥)에는 걸지 않았고, 폰 프로젝트 탭 줄은 위 선이 넘칠 때 끝에서 같이 옅어진다(받아들였다).
+**73-e.** **붙었을 때만 머리 선(`.stuck-edge`)은 CSS 스크롤 상태 질의다** — 머리 자신이 `container-type: scroll-state`이고 선·그림자는 그 머리의 `::after`가 갖는다(컨테이너는 자기 자신이 아니라 자식·가상 요소만 질의로 칠할 수 있다).
+`::after`의 opacity만 움직인다(box-shadow를 전이하지 않는다). 모르는 브라우저(사파리)는 @supports 밖의 `inset 0 -1px` 늘 선 — 지금과 같다. 머리에 `border-b`를 다시 달지 않는다(두 줄이 된다).
+**73-f.** **종이 결(`.paper-grain` · `data-paper-grain`)은 화면에만 깐다 — 그림·PDF로 굽는 두 길(modern-screenshot `filter` · html2canvas `ignoreElements`)이 이 판을 뺀다**(services/shareImage.js `isGrain`).
+잡음 무늬는 PNG·PDF에서 압축이 안 돼 파일이 커지고, 주보는 인쇄되는 공식 문서다. 판은 종이의 맨 뒤(z -1)라 종이가 `isolation: isolate`로 층을 가둔다 — 띠·사진·글자 위에는 앉지 않는다.

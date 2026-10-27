@@ -109,7 +109,8 @@ export function ViewerFaces({ projectId = null, cardId = null, className = '' })
 
 // 프로필 아바타 → 내 정보·테마·로그아웃.
 // 사이드바 하단에 있던 것들이 전부 여기로 들어왔다(모바일 '내 정보' 탭도 이걸 쓴다).
-export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers }) {
+// `quiet`: 데스크톱 상단 바(TopNav)만 — 바에 마우스가 없으면 얼굴이 한 단 물러난다(S3 · 바의 `group/bar`). 폰 상단바는 그대로.
+export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers, quiet = false }) {
   const currentUser = useStore(selectCurrentUser);
   // 한 번만 부른다 — 같은 컨텍스트를 두 번 읽던 자리였다(값이 갈릴 수는 없지만 읽는 곳이
   // 둘이면 나중에 조건이 붙을 때 한쪽만 고쳐진다)
@@ -136,7 +137,7 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
     <span ref={pop.rootRef} className={className}>
       <span ref={pop.btnRef} className="inline-flex flex-1">
         {/* 열기 전에 위치를 잡는다(pop.toggle) — 첫 프레임이 {0,0}에 그려지면 좌상단에서 날아온다 */}
-        <button onClick={pop.toggle} className="inline-flex flex-1 justify-center transition active:scale-95" title="설정">
+        <button onClick={pop.toggle} className={`inline-flex flex-1 justify-center transition active:scale-95${quiet ? ` ${BAR_QUIET}${pop.open ? ' !opacity-100' : ''}` : ''}`} title="설정">
           {children || (
             /* 내 동그라미의 글자 배경만 대표 팀 색이다(남들은 이름 해시 색) — 사진이 있으면
                사진이 이기지만, 없을 때의 색은 그대로 둔다 */
@@ -200,6 +201,12 @@ function ThemeMenuItem({ className }) {
     </button>
   );
 }
+
+// 상단 바가 한 단 물러남(S3 · UI 다듬기 2차 2026-10-27 · Linear 리프레시) — 들어온 뒤에는 바가 조용하고 본문이 앞에 선다.
+// 로고·내 얼굴이 옅게 서 있다가 바에 마우스를 올리면(`group/bar`) 또렷해진다. 메뉴 글자는 이미 muted(켜진 것만 fg)라
+// 더 낮추지 않는다 — faint로 내리면 바탕 위 대비가 4.5:1 아래다. **다붓이 알약은 물러나지 않는다**(입구라서 · UI_ROUND2).
+// 바 아래 선도 한 단 옅게(line/40). 색은 opacity 전이 하나뿐이다(PITFALLS 73-b).
+const BAR_QUIET = '[@media(hover:hover)]:opacity-60 group-hover/bar:opacity-100 focus-visible:opacity-100';
 
 // 데스크톱 상단 2줄 내비
 export const TopNav = React.memo(({
@@ -266,9 +273,9 @@ export const TopNav = React.memo(({
   );
 
   return (
-    <div className="hidden md:block shrink-0 border-b border-line/70 z-20">
-      <div className="flex items-center gap-3 lg:gap-5 px-6 h-[52px]">
-        <button onClick={() => setActiveMenu('home')} className="shrink-0 transition active:scale-95" title="홈으로">
+    <div className="hidden md:block shrink-0 border-b border-line/40 z-20" data-top-nav="">
+      <div className="group/bar flex items-center gap-3 lg:gap-5 px-6 h-[52px]">
+        <button onClick={() => setActiveMenu('home')} className="shrink-0 transition active:scale-95 [@media(hover:hover)]:opacity-80 group-hover/bar:opacity-100 focus-visible:opacity-100" title="홈으로" data-bar-logo="">
           <img src={logoLight} alt="더다붓" className="h-7 w-auto dark:hidden" />
           <img src={logoDark} alt="더다붓" className="h-7 w-auto hidden dark:block" />
         </button>
@@ -294,7 +301,7 @@ export const TopNav = React.memo(({
             : <DaboutiPill active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />}
           <SearchBox onSearchSelect={onSearchSelect} variant={narrow ? 'icon' : 'inline'} />
           {(bellOn(cloudMode) || demoOn()) && <NotificationBell guest={!cloudMode && demoOn()} onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
-          <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
+          <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} quiet />
         </div>
       </div>
 

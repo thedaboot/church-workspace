@@ -1144,6 +1144,104 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   st.tasks.byId[tid].content = keep;
 }
 
+// ── 면 S2~S11 (UI 다듬기 2차 2026-10-27 · PITFALLS 73) ──────────────────────────
+// S2 높이마다 모서리 · S3 상단 바 물러남 · S4 묶음 사이 선만 · S5 빛 한 방향 · S6 영역 색 그림자 · S7 붙을 때만 머리 선 ·
+// S8 더 있을 때만 끝 흐림 · S10 종이 결(굽는 길에서는 뺀다) · S11 쓰는 칸 바탕/고르는 칸 테두리.
+// **되돌리기**: index.css 그림자 식의 `:root, .shadow-tint`에서 `.shadow-tint`를 빼면 S6이, `.stuck-edge::after`의
+// 컨테이너 질의를 지우면 S7이, mobileNav의 FadeRow를 div로 되돌리면 S8이, shareImage의 `filter: (el) => !isGrain(el)`을
+// 지우면 S10이 깨진다.
+{
+  const { readFileSync } = await import('node:fs');
+  const rd = (f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
+  // S2 — 떠 있는 판(포털 팝오버 · 메뉴)은 12px(rounded-lg) 한 벌. 10px 카드도 12px로 올렸다(버튼만 10px이 남는다).
+  const { readdirSync, statSync } = await import('node:fs');
+  const SRC = new URL('../src/', import.meta.url);
+  const walk = (u) => readdirSync(u).flatMap(n => { const c = new URL(n, u); return statSync(c).isDirectory() ? walk(new URL(n + '/', u)) : [c]; });
+  const odd = [];
+  for (const u of walk(SRC).filter(u => /\.(jsx|js)$/.test(u.pathname))) {
+    const name = decodeURIComponent(u.pathname).split('/src/')[1];
+    readFileSync(u, 'utf8').split('\n').forEach((l, i) => {
+      if (/pop\.panel\(|dc-pop/.test(l) && /shadow-elevated/.test(l) && /rounded-(?:\[\d+px\]|xl|md|sm)\b/.test(l)) odd.push(`${name}:${i + 1}`);
+      if (/rounded-\[10px\]/.test(l) && !/h-\[46px\]|h-12|h-11|worship-add-card|data-lock-/.test(l)) odd.push(`${name}:${i + 1} 10px`);
+    });
+  }
+  check('S2: 떠 있는 판은 12px 한 벌 · 카드에 10px이 남지 않는다(버튼 · 잠금 판 시안 ⑨는 그대로)', odd.length === 0, odd.join(' · '));
+  // S4 — 업무 창 칸은 묶음 사이에만 선(줄마다 divide 없음)
+  const tf = rd('modals/taskFields.jsx');
+  const props = tf.slice(tf.indexOf('export function TaskProps'));
+  check('S4: 업무 창 칸은 줄마다 선이 아니라 묶음 사이 한 줄', !/divide-y/.test(props.slice(0, 600)) && /data-prop-group/.test(props));
+  // S11 — 담당자 찾기 칸(쓰는 칸)은 바탕, 선행 업무 select(고르는 칸)는 테두리
+  check('S11: 쓰는 칸은 바탕 · 고르는 칸은 테두리', /border-transparent rounded-xs bg-surface-hover/.test(tf) && /appearance-none w-full[^\"]*bg-transparent border border-line/.test(tf));
+  // S10 — 종이 결은 굽는 두 길에서 빠진다
+  const si = rd('services/shareImage.js');
+  check('S10: 종이 결 판이 있고 그림·PDF로 굽는 두 길이 뺀다', /data-paper-grain/.test(rd('components/paper.jsx'))
+    && /filter:\s*\(el\)\s*=>\s*!isGrain\(el\)/.test(si) && /\|\|\s*isGrain\(el\)/.test(si));
+
+  await load(DESK);
+  // S5 — 모든 그림자 층이 x 0 · y > 0(위에서 오는 빛 하나) — 라이트·다크
+  const layers = await ev(`(() => {
+    const out = {};
+    for (const th of ['light', 'dark']) {
+      document.documentElement.dataset.theme = th;
+      const cs = getComputedStyle(document.documentElement);
+      for (const n of ['--app-shadow-soft', '--app-shadow-elevated']) {
+        out[th + n] = cs.getPropertyValue(n).split(/,(?![^(]*\\))/).map(s => s.trim().split(/\\s+/).slice(0, 2).map(parseFloat));
+      }
+    }
+    document.documentElement.dataset.theme = 'light';
+    return out;
+  })()`);
+  const allDown = Object.values(layers).every(ls => ls.length >= 2 && ls.every(([x, y]) => x === 0 && y > 0));
+  check('S5: 그림자 층은 모두 x 0 · y 아래(라이트·다크 두 단)', allDown, JSON.stringify(layers));
+  // S6 — 영역(.shadow-tint)이 색조를 바꾸면 그 안 카드(shadow-soft)의 그림자가 그 색으로 물든다. 밖은 기본 색조 그대로.
+  const tint = await ev(`(() => {
+    const box = document.createElement('div');
+    box.innerHTML = '<div class="season-wash shadow-tint" data-season="purple"><div class="shadow-soft" id="__s6in"></div></div><div class="shadow-soft" id="__s6out"></div>';
+    document.body.appendChild(box);
+    const r = { in: getComputedStyle(document.getElementById('__s6in')).boxShadow, out: getComputedStyle(document.getElementById('__s6out')).boxShadow };
+    box.remove(); return r;
+  })()`);
+  check('S6: 영역 색을 바꾸면 안의 카드 그림자가 그 색으로 물든다', /70, 50, 140/.test(tint.in) && /46, 36, 80/.test(tint.out) && !/46, 36, 80/.test(tint.in), JSON.stringify(tint));
+  // S7 — sticky 머리는 붙기 전엔 선이 없고(::after 0) 붙으면 선 + 그림자(::after 1)
+  const stuck = await ev(`(async () => {
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:160px;overflow-y:auto;z-index:999;background:#fff';
+    box.innerHTML = '<div class="stuck-edge" style="position:sticky;top:0;height:30px;background:#fff">머리</div>' + Array.from({ length: 30 }, (_, i) => '<div style="height:24px">' + i + '</div>').join('');
+    document.body.appendChild(box);
+    const h = box.firstElementChild; const op = () => getComputedStyle(h, '::after').opacity;
+    await new Promise(r => setTimeout(r, 300)); const before = op();
+    box.scrollTop = 60; await new Promise(r => setTimeout(r, 450)); const after = op();
+    const shadow = getComputedStyle(h, '::after').boxShadow;
+    box.remove(); return { before, after, shadow, supports: CSS.supports('container-type', 'scroll-state') };
+  })()`, true);
+  check('S7: 머리 선은 붙었을 때만(스크롤 상태 질의)', stuck.supports && stuck.before === '0' && stuck.after === '1' && /inset/.test(stuck.shadow), JSON.stringify(stuck));
+  // S3 — 데스크톱 상단 바: 로고·내 얼굴이 쉬는 동안 옅고, 바에 마우스를 올리면 또렷. 다붓이 알약은 그대로.
+  const barOp = () => ev(`(() => { const b = document.querySelector('[data-top-nav]'); const logo = b?.querySelector('[data-bar-logo]'); const me = b?.querySelector('button[title="설정"]');
+    return b && { logo: getComputedStyle(logo).opacity, me: getComputedStyle(me).opacity, line: getComputedStyle(b).borderBottomColor }; })()`);
+  const rest = await barOp();
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 700, y: 26 }); await sleep(400);
+  const hover = await barOp();
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 700, y: 600 }); await sleep(300);
+  check('S3: 상단 바는 쉬는 동안 한 단 물러나고 마우스를 올리면 또렷하다', !!rest && rest.logo === '0.8' && rest.me === '0.6' && hover.logo === '1' && hover.me === '1', JSON.stringify({ rest, hover }));
+
+  // S8 — 폰 프로젝트 탭 줄이 넘치면 오른쪽 끝만 흐리고, 끝까지 밀면 왼쪽만 흐리다(넘치지 않으면 마스크 없음)
+  const keepP = st.projects;
+  const many = {}; const ids = [];
+  for (let i = 0; i < 12; i++) { const id = `fp${i}`; ids.push(id); many[id] = { id, title: `긴 이름의 프로젝트 ${i + 1}`, pinnedLinks: [] }; }
+  st.projects = { byId: { ...keepP.byId, ...many }, allIds: [...keepP.allIds, ...ids] };
+  await load({ width: 390, height: 844, deviceScaleFactor: 1, mobile: true }, '/?p=p1');
+  const fade = await ev(`(async () => {
+    const row = [...document.querySelectorAll('.x-scroll-lock')].find(r => r.textContent.includes('긴 이름의 프로젝트'));
+    if (!row) return null;
+    const at = () => ({ over: row.hasAttribute('data-x-fade'), l: row.hasAttribute('data-fade-l'), r: row.hasAttribute('data-fade-r'), mask: getComputedStyle(row).maskImage !== 'none' });
+    const start = at();
+    row.scrollLeft = row.scrollWidth; await new Promise(r => setTimeout(r, 200));
+    return { start, end: at() };
+  })()`, true);
+  st.projects = keepP;
+  check('S8: 넘치는 줄은 더 있는 쪽 끝만 흐리다', !!fade && fade.start.over && fade.start.mask && !fade.start.l && fade.start.r && fade.end.l && !fade.end.r, JSON.stringify(fade));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,6).join('\n'):'\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

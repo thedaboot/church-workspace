@@ -168,12 +168,13 @@ export function ProfileModal({ onClose, onSave }) {
           </div>
         )}
 
+        {/* 쓰는 칸은 바탕(surface-hover) · 고르는 칸은 테두리(S11 · PITFALLS 73-c) */}
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label>
         {/* text-[13px]: 업무 창의 입력칸들(하위 업무·링크 13px)과 같은 크기 —
             text-sm(14px)은 12px 라벨 옆에서 입력만 커 보였다(실제 지적) */}
         <input
           type="text" value={name} onChange={e => setName(e.target.value)} aria-label="이름"
-          className="w-full border border-line rounded-xs p-2 mb-4 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none"
+          className="w-full border border-transparent rounded-xs p-2 mb-4 text-[13px] bg-surface-hover text-fg focus:ring-2 focus:ring-accent outline-none"
         />
 
         {/* 한 사람이 두 팀 이상에 속하는 일이 흔하다(예: 찬양팀 + 임원진) → 다중 선택.
@@ -306,7 +307,7 @@ export function ProjectModal({ onClose, onSave, onArchive, onDuplicate, project 
         <input
           type="text" value={title} onChange={e => onTitleChange(e.target.value)} aria-label="프로젝트 이름"
           placeholder="예: 2026 하계 수련회"
-          className="w-full border border-line p-2.5 rounded-xs mb-4 text-[13px] bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
+          className="w-full border border-transparent p-2.5 rounded-xs mb-4 text-[13px] bg-surface-hover text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
           autoFocus
           onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') submit(); }}
         />
@@ -423,7 +424,7 @@ function DuplicateStep({ project, thisYear, onCancel, onConfirm }) {
       <input type="text" value={title} aria-label="프로젝트 이름"
         onChange={e => { setTitle(e.target.value); setTouched(true); }}
         onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && clean) onConfirm(clean, year); }}
-        className="w-full border border-line p-2.5 rounded-xs mb-4 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none" />
+        className="w-full border border-transparent p-2.5 rounded-xs mb-4 text-[13px] bg-surface-hover text-fg focus:ring-2 focus:ring-accent outline-none" />
       <p className="text-xs font-semibold text-fg-muted mb-1.5">옮겨질 업무 <span className="font-normal tabular-nums">{list.length}건</span></p>
       <ul data-copy-preview="" className="max-h-[min(340px,42dvh)] overflow-y-auto overscroll-contain border border-line rounded-md divide-y divide-line/70 mb-5">
         {list.map(t => {

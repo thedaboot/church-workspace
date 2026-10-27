@@ -36,6 +36,7 @@ import { buildIcs, buildIcsMulti, googleCalendarUrl, kakaoExternal, noticeEvent,
 
 import { Segmented } from '../components/segmented.jsx';
 import { useScrollMemory } from '../hooks/useScrollMemory.js';
+import { FadeRow } from '../hooks/useEdgeFade.js';
 // ============================================================================
 // v2 예배 화면 — 주보 목록/상세(말씀·임사자·찬양·광고) · 작성/발행 · 출석 체크 · 예배 노트
 // ----------------------------------------------------------------------------
@@ -118,7 +119,7 @@ async function attempt(log, what, byCode, fn, { undo = null, orElse = false, qui
   }
 }
 
-const CARD = 'rounded-[10px] shadow-soft transition active:scale-[.995]';
+const CARD = 'rounded-lg shadow-soft transition active:scale-[.995]';
 
 // 카드는 **두 줄**이다(사용자 지적 2026-09-03: "줄바꿈이 많아 무엇을 봐야 할지
 // 고민하게 된다"). 예전에는 종류 칩·날짜 / 제목 / 본문·설교자가 각각 줄이라 카드
@@ -161,7 +162,7 @@ function ServiceCard({ service, onOpen, attended = 0, cover = null }) {
   const photo = useCoverShown(cover);
   return (
     <button type="button" onClick={() => onOpen(service)} data-season={season?.color || 'plain'}
-      className={`worship-card season-wash dc-card dc-lift relative w-full text-left px-4 py-3.5 ${CARD}${photo.shown ? ' has-cover' : ''}`} style={CARD_SEASON_STYLE}>
+      className={`worship-card season-wash shadow-tint dc-card dc-lift relative w-full text-left px-4 py-3.5 ${CARD}${photo.shown ? ' has-cover' : ''}`} style={CARD_SEASON_STYLE}>
       {photo.shown && <CoverImg cover={cover} focus={service.cover_focus_y} onFail={photo.onFail} sizes="(min-width: 640px) 520px, 100vw" />}
       <div className="flex items-start gap-2">
         <p className="worship-card-title flex-1 min-w-0 text-[15px] font-bold text-fg tracking-[-0.2px] break-words">
@@ -320,7 +321,7 @@ function ServiceList({ services, perms, counts = {}, covers = {}, onOpen, onCrea
       {creating && <NewServiceForm closing={closing} onCancel={closeNew}
         onCreate={async (v) => { const ok = await onCreate(v); if (ok) { setClosing(false); setCreating(false); } }} />}
 
-      <div className="flex items-center gap-1.5 mb-3 overflow-x-auto scrollbar-hide x-scroll-lock">
+      <FadeRow className="flex items-center gap-1.5 mb-3 overflow-x-auto scrollbar-hide x-scroll-lock">
         {KINDS.map(k => (
           <button key={k.id} type="button" onClick={() => setKind(k.id)} aria-pressed={kind === k.id}
             className="worship-kind-chip shrink-0 px-3 py-1.5 rounded-full text-[11.5px] font-semibold transition active:scale-95"
@@ -330,7 +331,7 @@ function ServiceList({ services, perms, counts = {}, covers = {}, onOpen, onCrea
             {k.label}
           </button>
         ))}
-      </div>
+      </FadeRow>
 
       {/* 작성 중 줄은 편집 자격자에게만 — 없는 사람에게는 RLS가 애초에 안 준다(0036) */}
       {perms.canEdit && drafts.length > 0 && (
@@ -388,9 +389,9 @@ const LOADING = (
       <Skeleton className="h-full w-[88px] rounded-full!" />
     </div>
     <div className="worship-loading-cards grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
-      <Skeleton className="h-[76.8px] w-full rounded-[10px]" />
-      <Skeleton className="h-[76.8px] w-full rounded-[10px]" />
-      <Skeleton className="h-[76.8px] w-full rounded-[10px]" />
+      <Skeleton className="h-[76.8px] w-full rounded-lg" />
+      <Skeleton className="h-[76.8px] w-full rounded-lg" />
+      <Skeleton className="h-[76.8px] w-full rounded-lg" />
     </div>
   </div>
 );
@@ -424,7 +425,7 @@ const detailLoading = (cover = false) => (
       <Skeleton className="h-[22px] w-[76px] rounded-md" />
     </div>
     {/* 머리 카드 — 종류 칩·날짜·설교자가 한 줄로 앉는 상자 */}
-    <div className={`worship-detail-loading-head ${cover ? 'h-[76px] md:h-[92px]' : 'h-[46px]'} mb-4`}><Skeleton className="h-full w-full rounded-[10px]" /></div>
+    <div className={`worship-detail-loading-head ${cover ? 'h-[76px] md:h-[92px]' : 'h-[46px]'} mb-4`}><Skeleton className="h-full w-full rounded-lg" /></div>
     {/* 탭 줄 — 주보·말씀·담당자·찬양·광고 */}
     <div className="worship-detail-loading-tabs flex items-center gap-1 h-[37px] mb-3">
       <Skeleton className="h-[20px] w-[42px] rounded-md" />
@@ -433,7 +434,7 @@ const detailLoading = (cover = false) => (
       <Skeleton className="h-[20px] w-[42px] rounded-md" />
       <Skeleton className="h-[20px] w-[42px] rounded-md" />
     </div>
-    <Skeleton className="h-[420px] w-full rounded-[10px]" />
+    <Skeleton className="h-[420px] w-full rounded-lg" />
   </div>
 );
 

@@ -6,6 +6,7 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { NoteSheet, paperDate } from '../components/paper.jsx';
 import { splitNoteSections, QT_SECTIONS } from '../services/noteTemplate.js';
 import { TEAM_CHIP_ROW } from './viewParts.jsx';
+import { FadeRow } from '../hooks/useEdgeFade.js';
 
 // ============================================================================
 // 말씀 QT의 '오늘의 나눔' — 사람 칩 한 줄 + 종이 하나(사용자 결정 2026-09-13 · HANDOFF §7)
@@ -133,7 +134,7 @@ export function ShareFeed({ rows = [], members = [], myName = '', date, passageR
     <div data-share-feed="1">
       {/* 한 명뿐인 날에도 칩 줄은 선다 — 사람 수에 따라 있다 없다 하면 그 줄이 무엇인지
           배울 자리가 없다(§8 '기능을 숨기지 않는다'). */}
-      <div className={TEAM_CHIP_ROW}>
+      <FadeRow className={TEAM_CHIP_ROW}>
         {rows.map((e) => {
           const p = who(e);
           const on = e.id === cur.id;
@@ -153,7 +154,7 @@ export function ShareFeed({ rows = [], members = [], myName = '', date, passageR
             </button>
           );
         })}
-      </div>
+      </FadeRow>
 
       {/* 그 사람의 **종이 하나**. 칩을 바꾸면 이 종이의 내용만 바뀐다 — 쌓이지 않는다.
           머리의 구절은 '내 묵상' 칸과 **같은 값**(그날 구절 전체 이름 · §6-32-w)이고

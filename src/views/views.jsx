@@ -21,6 +21,7 @@ import { canEditEvents, eventCalItems } from '../services/events.js';
 import { useEvents, guestBirthdays } from '../services/eventStore.js';
 import { useAuth } from '../services/auth.jsx';
 import { entryParam, useEntryQuery } from '../services/entryQuery.js';
+import { FadeRow } from '../hooks/useEdgeFade.js';
 
 // 대시보드와 프로젝트 화면은 제 파일로 갈랐다(2026-10-07 19차) — App이 이 파일 하나에서 가져가므로 이어서 내보낸다.
 export { DashboardView, DASH_FILTERS, DASH_FILTER_DEFAULT } from './dashboardView.jsx';
@@ -269,7 +270,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
             제목 오른쪽에 붙여 두면 폭에 따라 두 명만 첫 줄에 서고 나머지가 접혔고,
             임원진처럼 사람이 많은 보드에서는 묶음이 통째로 아래로 떨어졌다.
             상한(5명)도 없앴다 — 넘치는 것은 가로 스크롤이 받는다. */}
-        <div className={`${TEAM_CHIP_ROW} mt-2.5`} data-team-chips="">
+        <FadeRow className={`${TEAM_CHIP_ROW} mt-2.5`} data-team-chips="">
           {members.map(m => (
             <span key={m.name} data-team-chip={m.name} className="inline-flex shrink-0 items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full"
               style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
@@ -279,12 +280,12 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
             </span>
           ))}
           {!members.length && <span className="text-[11.5px] text-fg-muted whitespace-nowrap">아직 이 팀에 속한 청년이 없어요</span>}
-        </div>
+        </FadeRow>
       </div>
 
       {/* 상태 4칸 — 대시보드 KPI와 같은 규격. 시작 전·진행 중·보류 중 3칸(좌) + 완료(우) */}
       <div className="grid gap-x-7 gap-y-3 items-stretch side-grid">
-        <div className="grid grid-cols-3 rounded-[10px] overflow-hidden shadow-soft"
+        <div className="grid grid-cols-3 rounded-lg overflow-hidden shadow-soft"
           style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
           {['시작 전', '진행 중', '보류 중'].map((s, i) => (
             <KpiCell key={s} label={s} value={counts[s]} note="" delay={i * 40}
@@ -293,7 +294,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
         </div>
         {/* 대시보드 진척도 칸과 같은 이유로 .dc-kpi + 순번 지연 (앞 3칸 다음) */}
         <KpiCell
-          className={`rounded-[10px] shadow-soft ${KPI_SOLO}`} style={{ border: '1px solid var(--app-line)' }}
+          className={`rounded-lg shadow-soft ${KPI_SOLO}`} style={{ border: '1px solid var(--app-line)' }}
           tone="green" phoneNote delay={120}
           label="완료" value={counts['완료']} note={`전체 ${kpiTotal}건 중`}
           dot="var(--app-tag-green-fg)" bar="var(--p-green)" ratio={kpiTotal ? counts['완료'] / kpiTotal : 0}

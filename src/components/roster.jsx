@@ -19,6 +19,7 @@ import { Segmented } from './segmented.jsx';
 import { BADGE_STYLE, badgeClass, LEAD_TEAMS } from './roleBadge.js';
 import { usePopover } from '../hooks/usePopover.js';
 import { rolesOffered, TEAM_LEAD, blockedSeats, leadTeamsBlocked, seatYearApplies } from '../services/handover.js';
+import { FadeRow } from '../hooks/useEdgeFade.js';
 // ============================================================================
 // 청년 명단 구역의 부품 — 멤버 화면(views/membersView.jsx)의 '청년 명단' 탭이 쓴다
 // ----------------------------------------------------------------------------
@@ -113,7 +114,7 @@ function TeamLeadChip({ team, disabled, blocked = new Set(), onPick }) {
           <ChevronDown size={11} className="shrink-0 opacity-70" />
         </button>
       </span>
-      {pop.panel('team-lead-menu z-[90] bg-surface border border-line rounded-[10px] shadow-elevated p-1', (
+      {pop.panel('team-lead-menu z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1', (
         <div role="menu" aria-label={TEAM_LEAD_LABEL}>
           {LEAD_TEAMS.map(t => (
             <button key={t} type="button" role="menuitem" disabled={blocked.has(t)} onClick={() => { pop.close(); if (t !== team) onPick(t); }}
@@ -275,11 +276,11 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
         <label className="block text-[11px] font-semibold text-fg-muted mb-1.5">
           소속 <span className="font-normal text-fg-muted">여러 개 고를 수 있어요</span>
         </label>
-        <div className={TEAM_CHIP_ROW}>
+        <FadeRow className={TEAM_CHIP_ROW}>
           {TEAM_CHIPS.map(([t, color]) => (
             <Chip key={t} on={teams.includes(t)} disabled={!teams.includes(t) && blocked.has(t)} onClick={() => toggleTeam(t)} className={color}>{t}</Chip>
           ))}
-        </div>
+        </FadeRow>
       </div>
 
       {/* 도구 줄은 오른쪽 아래다 — 확정이 왼쪽, 나가기가 오른쪽 끝(§8. 저장한 순간
@@ -420,12 +421,12 @@ function EditPanel({ person, linked, link, roleSet, team, year, busy, on }) {
           비어 있는 것이 정상 상태다(그동안은 '청년'으로 부른다). 자격·부품·모양은 아래
           직분 줄과 같고, 연도와 무관한 명단 속성이라 sub(연도)가 없다. */}
       <PanelRow label="성별">
-        <div className={`${TEAM_CHIP_ROW} py-0.5`}>
+        <FadeRow className={`${TEAM_CHIP_ROW} py-0.5`}>
           {GENDERS.map(g => (
             <Chip key={g} on={person.gender === g} disabled={busy} className={GENDER_STYLE[g]}
               onClick={() => on.gender(person, person.gender === g ? null : g)}>{GENDER_LABEL[g]}</Chip>
           ))}
-        </div>
+        </FadeRow>
       </PanelRow>
 
       <PanelRow label="직분" sub={`${year}년`}>
@@ -435,7 +436,7 @@ function EditPanel({ person, linked, link, roleSet, team, year, busy, on }) {
         {/* 묶음 다섯(services/handover.js ROLE_GROUPS · 시안 2026-10-16): 교역자 | 부장 | 회장·총무·리더순장(·리더팀장)
             | 팀장 | 비전 메이커 — 사이에 가는 세로선. 리더팀장은 2027부터 안 선다(그 해 줄이 있는 사람만 남는다).
             교역자만 연도와 무관한 명단 속성이다(people.is_pastor). 팀장은 people_roles team_lead + team(0107). */}
-        <div data-roles className={`${TEAM_CHIP_ROW} py-0.5`}>
+        <FadeRow data-roles className={`${TEAM_CHIP_ROW} py-0.5`}>
           {rolesOffered(year, roleSet).map((group, gi) => {
             const chips = group;
             if (!chips.length) return null;
@@ -451,7 +452,7 @@ function EditPanel({ person, linked, link, roleSet, team, year, busy, on }) {
               )
             ))];
           })}
-        </div>
+        </FadeRow>
       </PanelRow>
     </div>
   );
