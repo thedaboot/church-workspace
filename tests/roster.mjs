@@ -932,6 +932,36 @@ await send('Emulation.clearDeviceMetricsOverride');
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
 
+// ── 긴 명단은 보일 때 들어온다(UI 다듬기 2차 M16 · 시안 값 · PITFALLS 75-e) ──────────────────────────────
+// 첫 화면 안의 줄은 손대지 않고(숨김·움직임 없음) · 화면 밖 줄만 숨겨 두었다가 굴려서 15% 넘게 보이면 10px 아래에서 떠오른다(.4s · .55s quint) ·
+// 다 들어온 뒤에는 인라인 흔적이 없다.
+// **되돌리기**: hooks/useRevealRows.js의 hide 몸통을 비우면 '화면 밖 줄은 숨어 있다'가 깨진다.
+{
+  const many = { ...seed, people: Array.from({ length: 30 }, (_, i) => person(`m${i}`, `청년${String(i + 1).padStart(2, '0')}`)) };
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
+  await ev(`localStorage.setItem('church_roster_v1', ${JSON.stringify(JSON.stringify(many))})`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=members` });
+  await wait('Page.loadEventFired');
+  await sleep(1400);
+  await clickText('청년 명단');
+  await sleep(1200);
+  const look = () => ev(`(() => { const vh = innerHeight; return [...document.querySelectorAll('[data-person]')].map(r => { const b = r.getBoundingClientRect();
+    return { top: Math.round(b.top), out: b.top >= vh, vis: b.top >= 0 && b.bottom < vh - 100, wait: r.dataset.reveal === 'wait', op: r.style.opacity, tf: r.style.transform }; }); })()`);
+  const r0 = await look();
+  const inView = r0.filter(r => !r.out), below = r0.filter(r => r.out);
+  check('M16 첫 화면 안의 줄은 그대로(숨김·움직임 없음)', inView.length > 3 && inView.every(r => !r.wait && r.op === '' && r.tf === ''), JSON.stringify(inView.slice(0, 3)));
+  check('M16 화면 밖 줄은 숨어서 기다린다(투명 · 10px 아래)', below.length > 5 && below.every(r => r.wait && r.op === '0' && r.tf === 'translate3d(0px, 10px, 0px)'), JSON.stringify(below.slice(0, 2)));
+  await ev(`document.querySelector('main').scrollTop = 99999`);
+  await sleep(120);
+  const mid = await ev(`(() => { const r = [...document.querySelectorAll('[data-person]')].at(-1); return { reveal: r.dataset.reveal, tr: r.style.transition }; })()`);
+  await sleep(800);
+  const r1 = await look();
+  check('M16 굴려서 보이면 떠오른다(opacity .4s ease-out · transform .55s quint)', mid.reveal === 'in' && /opacity 400ms ease-out/.test(mid.tr) && /transform 550ms/.test(mid.tr), JSON.stringify(mid));
+  const seen1 = r1.filter(r => r.vis);
+  check('M16 들어온 줄에는 흔적이 남지 않는다', seen1.length > 3 && seen1.every(r => !r.wait && r.op === '' && r.tf === ''), JSON.stringify(seen1.filter(r => r.wait || r.op).slice(0, 2)));
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 2).join(' | '));
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');

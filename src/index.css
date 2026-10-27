@@ -1244,3 +1244,15 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
    .dc-turn-clip은 카드를 옮기는 동안만 가로를 자른다(clip — 스크롤 통을 만들지 않아 안의 sticky 화살표가 그대로다). */
 [data-chap-swipe] { touch-action: pan-y pinch-zoom; }
 .dc-turn-clip { overflow-x: clip; }
+/* M15 읽은 만큼 차는 막대(components/ReadBar.jsx) — 스크롤 통 맨 위에 붙는 2px · 바탕 빛 그라데이션이 스크롤만큼 찬다.
+   CSS 스크롤 타임라인이라 JS가 돌지 않는다 · 받지 않는 브라우저에는 서지 않는다 · 자리를 차지하지 않는다(아래 여백 -2px).
+   스크롤에 묶인 막대라 움직임 줄이기에서도 둔다(시간으로 흐르는 움직임이 아니다). animation 줄임말 뒤에 timeline을 쓴다(PITFALLS 75-f). */
+.dc-read-bar { display: none; }
+@supports (animation-timeline: scroll()) {
+  /* sticky의 0은 main의 안쪽 여백(App.jsx pt-2.5 · md:pt-3.5) 아래다 — 그만큼 끌어올려 머리 바로 아래 맨 위에 붙인다(그대로면 막대 위로 글이 지나간다) */
+  .dc-read-bar { display: block; position: sticky; top: -0.625rem; z-index: 5; height: 2px; margin-bottom: -2px; pointer-events: none; }
+  @media (min-width: 768px) { .dc-read-bar { top: -0.875rem; } }
+  .dc-read-bar > i { display: block; height: 100%; background: var(--app-brand-grad); transform-origin: 0 50%; transform: scaleX(0);
+    animation: dc-read linear both; animation-timeline: scroll(nearest block); }
+}
+@keyframes dc-read { to { transform: scaleX(1); } }

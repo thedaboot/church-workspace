@@ -6,6 +6,7 @@ import { useAuth } from '../services/auth.jsx';
 import { formatRelative } from '../utils.js';
 import { myUid, supabase } from '../services/supabaseClient.js';
 import { Avatar } from './Avatar.jsx';
+import { useRevealRows } from '../hooks/useRevealRows.js';
 import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
 import { notifLine, notifText, isSystemNotif, notifArea } from '../services/notifyText.js';
@@ -415,6 +416,9 @@ const ReadAllButton = ({ onClick }) => (
 );
 
 function NotifRows({ items, openItem, dismiss }) {
+  // 긴 알림은 판을 굴려 보일 때 들어온다(UI 다듬기 2차 M16 · hooks/useRevealRows.js) — 판의 첫 화면 안 줄은 그대로
+  const boxRef = useRef(null);
+  useRevealRows(boxRef, '[data-notif-row]', items.length);
   if (items.length === 0) {
     return (
       <div className="text-center py-8 px-3">
@@ -424,7 +428,7 @@ function NotifRows({ items, openItem, dismiss }) {
     );
   }
   return (
-    <div className="divide-y divide-line/60">
+    <div ref={boxRef} className="divide-y divide-line/60">
       {/* 줄 전체가 button이었는데 지우기 버튼이 그 안에 들어가야 해서 div로 바꿨다
           (button 안의 button은 유효하지 않다). 여는 영역만 button으로 남긴다. */}
       {items.map(n => <NotifRow key={n.id} n={n} openItem={openItem} dismiss={dismiss} />)}

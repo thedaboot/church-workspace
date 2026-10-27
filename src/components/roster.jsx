@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus, Check, Link2, Link2Off, UserX, Undo2, Loader2, Pencil, X, Search, CalendarDays, ChevronDown } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
+import { useRevealRows } from '../hooks/useRevealRows.js';
 import { Skeleton } from './media.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
@@ -535,6 +536,9 @@ export function RosterPanel({
   // 걸린 줄만 몇백 ms 뒤에 나타난다(useEnterStagger 주석). 지연 상한도 둔다:
   // 명단은 쉰 줄이 넘어서 순번을 끝까지 주면 아래쪽이 1.5초 뒤에 뜬다.
   const stagger = useEnterStagger();
+  // 긴 명단은 보일 때 들어온다(UI 다듬기 2차 M16 · hooks/useRevealRows.js) — 첫 화면 안의 줄은 그대로
+  const revealRef = useRef(null);
+  useRevealRows(revealRef, '[data-person]', `${loading}:${year}:${shown.length}:${shownGone.length}`);
 
   const handlers = {
     close: () => setOpenId(null),
@@ -548,7 +552,7 @@ export function RosterPanel({
   };
 
   return (
-    <section className="dc-screen">
+    <section ref={revealRef} className="dc-screen">
       {/* 줄을 **정해서** 그린다 — flex-wrap에 맡겨 두었더니 375~430px에서 '명단 추가'만
           다음 줄로 떨어져 왼쪽에 혼자 섰다(사용자 지적 2026-09-07).
           모바일: [찾기 + 명단 추가] / [연도]  ·  ≥640: [찾기 + 연도 + 명단 추가] 한 줄.

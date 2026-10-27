@@ -22,6 +22,8 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { isCloudEnabled } from '../services/supabaseClient.js';
 import { showToast } from '../components/Toast.jsx';
+import { ReadBar } from '../components/ReadBar.jsx';
+import { useRevealRows } from '../hooks/useRevealRows.js';
 import { errorReason } from '../services/errorText.js';
 import { FailTail } from '../components/groupsParts.jsx';
 import { useScrollMemory } from '../hooks/useScrollMemory.js';
@@ -154,6 +156,9 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
       .sort((a, b) => WIKI_GROUPS.indexOf(a.grp) - WIKI_GROUPS.indexOf(b.grp) || a.position - b.position || a.title.localeCompare(b.title));
   }, [data, isMaster, live.cards]);
   const page = pages.find(p => p.id === sel) || null;
+  // 긴 장 목록은 보일 때 들어온다(UI 다듬기 2차 M16 · hooks/useRevealRows.js) — 폰은 첫 화면 목록이 다시 설 때마다 다시 잰다
+  const listRef = useRef(null);
+  useRevealRows(listRef, '.wiki-item', `${isMobile ? sel === null : 'desk'}:${pages.length}`);
   const chips = useMemo(() => chipsFrom(pages), [pages]);
 
   useEffect(() => {
@@ -208,7 +213,7 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   const fresh = (p) => seen[p.id] && p.built_at && String(p.built_at) > String(seen[p.id]);
 
   const list = (
-    <nav className="wiki-list grid gap-3.5" aria-label="위키 장 목록">
+    <nav ref={listRef} className="wiki-list grid gap-3.5" aria-label="위키 장 목록">
       {groups.map(({ g, list: ps }) => (
         <div key={g}>
           <p className="ml-1.5 mb-1 text-[10.5px] font-bold text-fg-muted tracking-[.03em]">{g}</p>
@@ -404,6 +409,7 @@ function WikiPage({ page, pages = [], live = {}, mobile = false, isMaster = fals
 
   return (
     <article className="wiki-page dc-fade min-w-0" data-page={page.id}>
+      <ReadBar />
       <p className="wiki-crumb text-[12px] text-fg-muted">{editing ? `${page.title} · 수정 중` : `${page.grp} › ${page.title}`}</p>
       <div className="mt-2 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 grid gap-1.5">

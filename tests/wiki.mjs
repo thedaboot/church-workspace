@@ -385,6 +385,22 @@ try {
     const r = await ev(tocOk);
     check(`목차 번호 = 마디 머리(${t})`, r.ok, JSON.stringify(r).slice(0, 300));
   }
+  // M15 읽은 만큼 차는 막대(UI 다듬기 2차 · 시안 값 · PITFALLS 75-f): 장 맨 위에 붙는 2px 바탕 빛 그라데이션 · 자리를 차지하지 않음 ·
+  // main을 굴리는 만큼 찬다(CSS 스크롤 타임라인). **되돌리기**: index.css .dc-read-bar의 animation-timeline 줄을 지우면 '굴린 만큼'이 깨진다.
+  {
+    await openPage('월례회', 'p:wol');
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 420, deviceScaleFactor: 1, mobile: false }); await sleep(400);
+    const bar = (top) => ev(`(async () => { const m = document.querySelector('main'); m.scrollTop = ${top}; await new Promise(r => setTimeout(r, 120));
+      const b = document.querySelector('.wiki-page > .dc-read-bar'); if (!b) return null; const i = b.firstElementChild, s = getComputedStyle(b), si = getComputedStyle(i);
+      const mt = si.transform.match(/matrix\\(([^,]+)/); return { h: b.offsetHeight, mb: s.marginBottom, sticky: s.position, top: Math.round(b.getBoundingClientRect().top - m.getBoundingClientRect().top),
+        sx: mt ? +(+mt[1]).toFixed(2) : (si.transform === 'none' ? 1 : null), grad: /gradient/.test(si.backgroundImage), max: m.scrollHeight - m.clientHeight }; })()`, true);
+    const b0 = await bar(0), bMid = await bar(Math.round((b0?.max || 0) / 2)), bEnd = await bar(99999);
+    check('M15 위키 장 머리에 읽은 만큼 차는 막대(2px · 바탕 빛 · 자리 0 · 굴린 만큼 · 맨 위에 붙음)',
+      !!b0 && b0.h === 2 && b0.mb === '-2px' && b0.sticky === 'sticky' && b0.grad && b0.max > 200 && b0.sx === 0
+      && Math.abs(bMid.sx - 0.5) < 0.06 && bEnd.sx === 1 && Math.abs(bEnd.top) <= 1, JSON.stringify({ b0, bMid, bEnd }));
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }); await sleep(300);
+    await ev(`document.querySelector('main').scrollTop = 0`);
+  }
   // 목차 → 그 마디: main만 앱 곡선(quint)으로 옮기고 마디 위 12px에 세운다 · 움직임 줄이기면 즉시(2026-10-15 · hooks/scrollGlide · 56-g).
   // 화면을 낮춰 장이 스크롤되게 한다. **되돌리기**: wikiView의 tocJump를 예전 scrollIntoView(smooth)로 두면 움직임 줄이기 단정이 깨진다.
   {

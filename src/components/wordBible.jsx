@@ -26,6 +26,7 @@ import {
   useStateBox, useVersePaint, marksFor,
 } from './bibleParts.jsx';
 import { groupByBook, MarkSection } from './bibleMarks.jsx';
+import { ReadBar } from './ReadBar.jsx';
 
 import { Segmented } from './segmented.jsx';
 // 공용 부품은 bibleParts.jsx로 옮겼다(19차) — 예배·내 정보는 예전처럼 여기서 가져간다
@@ -813,6 +814,7 @@ export function BibleTab({ initialRef = '' }) {
           />
         ) : place ? (
           <div ref={bodyRef} data-col="read" className="min-w-0">
+            <ReadBar />
             {/* 좁은 폭에서도 셋이 한 줄에 그대로 선다 — 제목만 줄어들고(min-w-0 truncate)
                 양쪽 버튼은 shrink-0에 44px 터치 타깃이다(사용자 피드백 2026-09-02 4차) */}
             <div ref={headRef} data-chap-head="" className="flex items-center gap-1.5 pb-3">

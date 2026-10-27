@@ -12,6 +12,7 @@ import { useNoteDraft } from '../hooks/useNoteDraft.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { formatDay } from '../utils.js';
 import { SaveState, WorshipEmpty, BTN_SOFT, SHEET_BOX } from './worshipParts.jsx';
+import { ReadBar } from './ReadBar.jsx';
 
 // ============================================================================
 // 내 예배 노트 — 주보 아래 노트 칸(MyNote) · 예배 머리줄 '내 예배 노트' 모아 보기(MyNotesScreen)
@@ -235,6 +236,7 @@ export function MyNote({ note, serviceId = '', serviceDate = '', passageRef = ''
         // **저장하면 바로 종이다**(사용자 요청 2026-09-09). 공유되는 그림과 화면이 같은
         // 것이라야 "이 모양으로 나간다"를 눌러 보기 전에 안다.
         <div className={`worship-note-read ${SHEET_BOX}`}>
+          <ReadBar />
           <div className="rounded-lg overflow-hidden border border-line">
             <NoteSheet sheetRef={sheetRef} date={paperDate(serviceDate)} kind="예배 노트"
               passageRef={passageRef} passageTitle={passageTitle} sections={sections} cut={NOTE_CUT} />
