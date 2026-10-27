@@ -1496,3 +1496,11 @@ export const readJson = async (req) => req.body;
   assert.ok(m.indexOf('0126: 0060 뒤에 생긴 칸') < m.indexOf('set approved = false, removed_at = now()'), '0126: 옮기기는 환송 처리 앞');
   console.log('PASS  0126 계정 합치기 — 0060 뒤 칸까지(잠금 해제 · 보는 사람 · 달력 구독 · 피드백 · 인계 …)');
 }
+// 0127 — 배열 칸(card_doc_versions.editors)도 옮긴다(2026-10-27 김승찬 합치기 뒤 한 줄이 옛 계정을 가리켰다)
+// 되돌리기: 0127에서 array_replace 줄을 빼면 깨진다.
+{
+  const m = readFileSync(new URL('../supabase/migrations/0127_merge_profiles_arrays.sql', import.meta.url), 'utf8');
+  assert.ok(/update public\.card_doc_versions\s+set editors = \(select array_agg\(distinct x\) from unnest\(array_replace\(editors, p_drop, p_keep\)\) x\)/.test(m), '0127: editors 배열에서 버린 계정을 남긴 계정으로');
+  assert.ok(m.includes('update public.card_unlocks set profile_id = p_keep') && m.indexOf('array_replace') < m.indexOf('set approved = false, removed_at = now()'), '0127: 0126 갈래를 그대로 두고 · 환송 처리 앞');
+  console.log('PASS  0127 계정 합치기 — 같이 고친 사람 배열까지');
+}

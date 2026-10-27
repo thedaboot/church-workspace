@@ -46,7 +46,7 @@
 
 ### 다음 할 일 (2026-10-23 밤 · 여기부터 시작)
 
-- **[시작할 때 — 다른 PC]** `git pull` → `CLAUDE.md` → 이 줄. main 최신 · 마지막 마이그레이션 **0126(라이브)** · **다음 번호 0127** · 시안 브랜치 `mock/b5`는 남겨 둠.
+- **[시작할 때 — 다른 PC]** `git pull` → `CLAUDE.md` → 이 줄. main 최신 · 마지막 마이그레이션 **0127(라이브)** · **다음 번호 0128** · 시안 브랜치 `mock/b5`는 남겨 둠.
   PC마다 따로 맞출 것(git 밖 · §1-10): `.env` · psql 경로 · `.claude/settings.local.json`의 `Bash(psql:*)` ·
   **pstack 스킬**(2026-10-23 전체 감사에 썼다 · 이 PC에만 설치됨 — 그 PC에서 다시 쓰려면 `npx skills add backnotprop/pstack -g -y -a claude-code`) ·
   그 PC 다운로드 폴더에 검사 파일(`*.ics`·`순모임 가이드*.png`)이 쌓여 있으면 목록을 보여 주고 지운다(2026-10-22 사용자 요청 · 새로 쌓이지는 않는다).
