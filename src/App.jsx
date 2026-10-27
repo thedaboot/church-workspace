@@ -152,6 +152,7 @@ import { BTN_CONFIRM } from './components/buttons.js';
 import { errorReason } from './services/errorText.js';
 import { prefetchViewsIdle, loadView, loadedView } from './services/viewChunks.js';
 import { kakaoDemo } from './services/inApp.js';
+import { quickEnter } from './hooks/quickEnter.js';
 // 게스트 시연 표식(?demo=kakao)을 주소가 '/'로 정리되기 전에 붙잡는다(v5 2묶음 · 게스트·미리보기만 — 클라우드는 실제 UA만 · services/inApp.js)
 kakaoDemo();
 
@@ -1022,16 +1023,25 @@ function WorkspaceShell() {
   // (CHURCH_ORDER). 업무 축은 빈 문자열이라 지금 그대로 `.dc-screen` 하나로 들어온다.
   // 렌더 중에 계산하지만 **activeMenu가 바뀔 때만** 값을 갈므로 StrictMode의 두 번째
   // 렌더에서도 같은 답이 나온다(두 번째에는 menu === activeMenu라 아무 일도 안 한다).
-  const navRef = useRef({ menu: activeMenu, cls: '' });
+  // again — 이 접속에서 이미 들어가 본 화면으로 돌아왔다(D4 빈도 사다리 · hooks/quickEnter.js · PITFALLS 72-a).
+  const seenRef = useRef(null);
+  if (!seenRef.current) seenRef.current = new Set([activeMenu]);
+  const navRef = useRef({ menu: activeMenu, cls: '', again: false });
   if (navRef.current.menu !== activeMenu) {
     const from = CHURCH_ORDER.indexOf(navRef.current.menu);
     const to = CHURCH_ORDER.indexOf(activeMenu);
+    const again = seenRef.current.has(activeMenu);
+    seenRef.current.add(activeMenu);
     navRef.current = {
       menu: activeMenu,
       cls: (from >= 0 && to >= 0 && from !== to) ? `dc-nav ${to > from ? 'dc-nav-fwd' : 'dc-nav-back'}` : '',
+      again,
     };
   }
   const navClass = navRef.current.cls;
+  // 다시 온 화면은 등장을 짧게 · 순번 없이 — 화면이 선 순간(그림이 나가기 전)부터 잠깐 그 안의 등장만 고친다
+  const screenRef = useRef(null);
+  useLayoutEffect(() => (navRef.current.again ? quickEnter(screenRef.current) : undefined), [activeMenu]);
 
   if (cloudMode && loadError) return <CloudErrorScreen reason={loadError} onRetry={retryLoad} retrying={retrying} />;
   if (cloudMode && !cloudReady) return <CloudSplash />;
@@ -1074,7 +1084,7 @@ function WorkspaceShell() {
               흐르고, 넘친 부분에는 main의 padding-bottom이 적용되지 않아서
               마지막 줄이 하단 탭바에 가렸다(대시보드 '팀별 남은 업무', 팀 보드
               '참여 프로젝트'). */}
-          <div key={activeMenu} className={`app-screen ${navClass} ${needsFullHeight ? 'h-full' : ''}`}>
+          <div key={activeMenu} ref={screenRef} className={`app-screen ${navClass} ${needsFullHeight ? 'h-full' : ''}`}>
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
           {activeMenu === 'members' && <Suspense fallback={<ScreenWait />}><MembersView isAdmin={isAdmin} isMaster={isMaster} /></Suspense>}

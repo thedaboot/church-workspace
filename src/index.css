@@ -921,6 +921,8 @@ svg.lucide { stroke-width: 1.4px; }
    fill은 등장 backwards(끝나면 transform을 남기지 않는다 — fixed 자손의 기준 박스가 바뀌지 않게 · §6-1) · 퇴장 forwards.
    자리를 state(left/top)로 잡는 판에는 여전히 `transition-none`을 같이 둔다(PITFALLS 17-b). */
 :root { --dur-pop: .26s; --dur-dialog: .32s; --dur-sheet: .38s; --dur-scrim: .26s; --dur-toast: .32s; --dur-exit: .18s; }
+/* --dur-quick: 이 접속에서 이미 들어가 본 화면으로 돌아올 때의 등장 길이(D4 빈도 사다리 · hooks/quickEnter.js가 읽는다 · PITFALLS 72-a) */
+:root { --dur-quick: .15s; }
 @keyframes dc-pop-in     { from { opacity: 0; transform: translate3d(0, var(--pop-dy, -4px), 0) scale(.96); } }
 @keyframes dc-pop-out    { to   { opacity: 0; transform: translate3d(0, var(--pop-dy, -4px), 0) scale(.97); } }
 @keyframes dc-dialog-in  { from { opacity: 0; transform: translate3d(0, 8px, 0) scale(.97); } }
@@ -1158,3 +1160,6 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
   .dc-toast-at { transition: none; }
   .dc-tip.dc-tip-anim { animation: none; }
 }
+/* 테마를 바꾸는 그 순간만 모든 전환을 끈다(UI 다듬기 2차 D8 · PITFALLS 72-c) — 안 끄면 칸마다 제 전환 길이(.15~.3s)로
+   따로 색을 갈아입어 얼룩이 진다. layout.jsx ThemeMenuItem이 붙이고, 스타일을 한 번 계산시킨 뒤 다음 프레임에 뗀다. */
+.dc-theme-swap, .dc-theme-swap *, .dc-theme-swap *::before, .dc-theme-swap *::after { transition: none !important; }

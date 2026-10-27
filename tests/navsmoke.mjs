@@ -139,6 +139,23 @@ const menu = await ev(`(() => {
 })()`);
 check('프로필 메뉴에 설정·테마 ', menu.includes('설정') && menu.some(t => /모드$/.test(t)), JSON.stringify(menu));
 check('프로필 메뉴에도 가이드 없음', !menu.includes('사용 가이드'), JSON.stringify(menu));
+// D8(UI 다듬기 2차 · PITFALLS 72-c) — 테마를 바꾸는 순간은 전환이 꺼져 바탕이 **그 자리에서** 새 색이다.
+// 누른 그 스크립트 안에서 body 바탕을 읽는다 — 전환이 살아 있으면 막 시작한 전환의 첫 값(옛 라이트 색)이 나온다.
+// **되돌리기**: layout.jsx ThemeMenuItem에서 classList.add('dc-theme-swap')을 지우면 깨진다.
+const swap = await ev(`(() => {
+  const b = [...document.body.children].flatMap(c => [...c.querySelectorAll('button')]).find(x => x.textContent.trim() === '다크 모드');
+  if (!b) return null;
+  const before = getComputedStyle(document.body).backgroundColor;
+  b.click();
+  return { before, after: getComputedStyle(document.body).backgroundColor, theme: document.documentElement.dataset.theme,
+    canvas: getComputedStyle(document.documentElement).getPropertyValue('--app-canvas').trim() };
+})()`);
+await sleep(100);
+const swapOff = await ev(`document.documentElement.classList.contains('dc-theme-swap')`);
+check('테마를 바꾸는 순간 바탕이 바로 새 색이다(전환 얼룩 없음 · D8)',
+  swap && swap.theme === 'dark' && swap.after !== swap.before
+    && swap.after === `rgb(${(swap.canvas.match(/[0-9a-f]{2}/gi) || []).map(h => parseInt(h, 16)).join(', ')})` && swapOff === false, JSON.stringify({ swap, swapOff }));
+await ev(`(() => { localStorage.setItem('theme','light'); document.documentElement.dataset.theme = 'light'; })()`);
 await ev(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);
 await sleep(250);
 
@@ -566,6 +583,24 @@ await goto('예배');
 const back = await screenCls();
 check('탭 차례로 왼쪽이면 왼쪽에서 들어온다',
   back && back.cls === 'dc-nav dc-nav-back' && back.anim === 'dc-nav-back', JSON.stringify(back));
+// D4 빈도 사다리(UI 다듬기 2차 · PITFALLS 72-a) — 처음 들어간 화면은 제 길이, 이미 들어가 본 화면으로 돌아오면
+// 화면·줄·카드 등장이 150ms · 순번 지연 0(hooks/quickEnter.js가 Web Animations로 고친다 — 계산 스타일은 그대로다).
+// **되돌리기**: App.jsx의 quickEnter 호출을 지우면 '다시 온 화면' 단정이 깨진다.
+const enterTiming = () => ev(`(() => {
+  const el = document.querySelector('main .app-screen');
+  return el ? el.getAnimations({ subtree: true }).filter(a => /^dc-(nav-|screen-|row-in|card-in|fade-in)/.test(a.animationName))
+    .map(a => { const t = a.effect.getTiming(); return { n: a.animationName, d: t.duration, w: t.delay }; }) : null;
+})()`);
+{
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1600);
+  await goto('예배');
+  const once = await enterTiming();
+  await goto('홈');   // 첫 화면(홈)으로 돌아온다 — 카드마다 40ms 순번이 걸린 화면이다
+  const again = await enterTiming();
+  check('처음 들어간 화면은 등장이 제 길이다(D4)', !!once?.length && once.some(a => a.d > 150), JSON.stringify(once));
+  check('이미 들어가 본 화면으로 돌아오면 등장이 150ms · 순번 없음(D4 · 홈 카드 포함)',
+    !!again?.length && again.some(a => a.n === 'dc-card-in') && again.every(a => a.d === 150 && a.w === 0), JSON.stringify(again));
+}
 await goto('업무 대시보드');
 const work = await screenCls();
 check('업무 축 화면에는 방향 전환이 붙지 않는다',

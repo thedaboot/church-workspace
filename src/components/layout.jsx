@@ -181,7 +181,13 @@ function ThemeMenuItem({ className }) {
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'light');
   const toggle = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
+    // 바꾸는 그 순간만 모든 전환을 끈다(D8 · index.css .dc-theme-swap · PITFALLS 72-c) — 안 끄면 칸마다 제 길이로 따로 갈아입어 얼룩진다.
+    // 새 색을 한 번 계산시킨 뒤(getComputedStyle) 다음 프레임에 뗀다 — 떼는 순간에는 이미 새 색이라 전환이 시작되지 않는다.
+    const root = document.documentElement;
+    root.classList.add('dc-theme-swap');
+    root.dataset.theme = next;
+    void getComputedStyle(root).backgroundColor;
+    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('dc-theme-swap')));
     // 저장이 막힌 브라우저(사생활 보호 창·저장 공간 가득)에서 setItem이 던지면 토글째 죽었다 —
     // 그때는 이번 화면에서만 바뀐다.
     try { localStorage.setItem('theme', next); } catch { /* 기억만 못 한다 */ }

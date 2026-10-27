@@ -1532,3 +1532,10 @@ App의 `TipHost` 하나가 문서에서 받는다 — 처음 것만 500ms 뒤 .1
 **74-c.** **그냥 토스트는 쌓이고(M7) 가려진 동안 시계가 멈춘다(M9) — 동작 토스트는 둘 다 아니다.** 동작 토스트는 54-a대로 한 자리(새것이 갈아 낌)이고 벽시계다 — 업무 삭제는 `HOLD_MS_ACTION + 300ms` 뒤 서버로 나가므로(54-b) 토스트만 멈춰 두면 이미 나간 삭제에 '되돌리기'가 눌린다.
 쌓인 그냥 토스트는 **DOM에 새것이 먼저**다(`querySelector('[data-toast]')`가 가장 최근 것을 잡는다 — 검사들이 그렇게 읽는다). 같은 글이 또 오면 쌓지 않고 맨 앞 것을 새로 띄운다(같은 실패가 연달아 와도 한 장).
 묶음 상자(폭 전체)는 누름을 받지 않고, 데스크톱에서는 둘 이상 쌓였을 때만 토스트가 받는다(올리면 펼침) — 상자에 걸면 화면 아래 띠 전체가 막힌다.
+
+### 모션 토대 (UI 다듬기 2차 D · 2026-10-27)
+**72-a.** **D4 빈도 사다리 — 이미 들어가 본 화면으로 돌아오면 등장이 150ms · 순번 0**(`hooks/quickEnter.js` · App의 `seenRef`·`screenRef` · `--dur-quick`). 화면이 선 뒤 600ms 동안만 그 안의 `dc-screen/row/card/fade/nav` 애니메이션을 Web Animations로 고친다 — CSS 표시(`[data-again]`)로 하면 한참 뒤 붙는 줄까지 바뀌고, 떼면 남은 지연이 되살아나 끝난 줄이 다시 들어온다. 계산 스타일(`animationDuration`)은 그대로라 검사는 `getAnimations()`의 timing을 본다(`navsmoke` D4).
+감사(하루 빈도 · 지금 → 바꿈): 탭 이동 등장(수십 번 · .26~.32s+순번 최대 .6s → 다시 오면 .15s) · 팝오버·대화창·시트(수십 번 · .26/.32/.38s → **둠**: 10-15 '딱딱하게 뜬다'로 맞춘 값 · 57) · 업무 창이 줄에서 자람(.36s → 둠: M1 승인) · 완료 체크 그려짐(.24s+줄긋기 → 둠: 승인된 '이미 있는 것') · 반응 톡(.42s · 켤 때만 → 둠: M4 승인) · 누름 `.dc-press`(.09s → 이미 150 아래) · 잠금·모두 끝냄 그림(드묾 → 제대로 둠).
+**72-b.** **스프링 곡선 토큰 `--ease-spring`(linear() 71점 · 강성 170 · 감쇠 13 · 0.7초를 풀어 찍은 값)은 `@supports (transition-timing-function: linear(0, 1))` 안에서만 쓴다** — 모르는 브라우저(사파리 17.2 아래 등)는 `linear()`가 든 선언째 버려 전환이 아예 사라진다. 그래서 `.dc-spring`은 베지어 .42s를 먼저 두고 @supports로 덮는다. 곡선은 시간 비율이라 길이를 바꾸면 흔들림 빠르기도 같이 바뀐다 — 0.7초와 짝이다.
+**72-c.** **테마를 바꿀 때는 그 순간만 `html.dc-theme-swap`으로 모든 전환을 끈다**(D8 · `layout.jsx ThemeMenuItem`). 붙이고 → `dataset.theme` → `getComputedStyle`로 새 색을 한 번 계산시킨 뒤 → rAF 두 번 뒤에 뗀다. 계산을 건너뛰면 떼는 순간 옛 색에서 전환이 시작되어 얼룩이 그대로다. 테마를 바꾸는 새 자리가 생기면 같은 순서를 따른다(`navsmoke` D8).
+**72-d.** **줄바꿈은 `text-wrap-style`(longhand)만 준다** — 제목 `balance` · `p/li/blockquote/figcaption` `pretty`(index.css base · `:where`라 아무 클래스가 덮는다 · contenteditable 안은 뺀다 — 치는 동안 앞 줄이 흔들린다). 줄임말 `text-wrap: balance`는 접기 여부(text-wrap-mode)까지 wrap으로 덮어, 부모의 nowrap(truncate)을 물려받던 제목이 두 줄이 된다. 한국어는 body의 `word-break: keep-all`과 같이 간다. 홈 쇼케이스 설명은 줄 나눔을 사용자가 정했다 — span이라 걸리지 않는다(`handoff` D6·D11).
