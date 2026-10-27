@@ -21,6 +21,7 @@ import { BADGE_STYLE, badgeClass, LEAD_TEAMS } from './roleBadge.js';
 import { usePopover } from '../hooks/usePopover.js';
 import { rolesOffered, TEAM_LEAD, blockedSeats, leadTeamsBlocked, seatYearApplies } from '../services/handover.js';
 import { FadeRow } from '../hooks/useEdgeFade.js';
+import { staggerMs } from '../hooks/stagger.js';
 // ============================================================================
 // 청년 명단 구역의 부품 — 멤버 화면(views/membersView.jsx)의 '청년 명단' 탭이 쓴다
 // ----------------------------------------------------------------------------
@@ -167,7 +168,7 @@ export const RowSkeleton = () => (
 
 // 줄 등장 지연(ms). 상한을 둔다 — 명단은 쉰 줄이 넘어서 순번을 끝까지 주면 아래쪽이
 // 1.5초 뒤에 뜬다. stagger는 useEnterStagger()의 값(첫 마운트에만 참). membersView도 쓴다.
-export const rowDelay = (i, stagger) => (stagger ? Math.min(i, 12) * 30 : 0);
+export const rowDelay = (i, stagger) => (stagger ? staggerMs(i, 30) : 0);
 
 const Head = ({ title, count, children }) => (
   <div className="flex items-center gap-2 mb-2.5">

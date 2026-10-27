@@ -17,6 +17,8 @@ import { Fold } from './Fold.jsx';
 import {
   TABLE_COLS, PHONE_COL_CHOICES, PHONE_COLS_DEFAULT, sortTasks, nextSort, filterTasks, assigneesOf,
 } from '../services/projectViews.js';
+import { staggerMs } from '../hooks/stagger.js';
+import { BlurSwap } from './BlurSwap.jsx';
 
 // ============================================================================
 // 프로젝트 '표' 보기 (v5 2묶음 '업무 편의' · 사용자 승인 시안 mock/b3 · 2026-10-18 · 서버 없음 — 화면만)
@@ -58,8 +60,11 @@ function StatusCell({ task, onStatusChange, compact = false }) {
   const chip = (
     <span className={`inline-flex items-center gap-1.5 ${compact ? 'pl-[6px] pr-[7px]' : 'pl-[7px] pr-[9px]'} py-[3px] rounded-xs whitespace-nowrap`}
       style={{ background: quiet ? 'transparent' : CONFIG.STATUS_BG_VAR[s] }}>
-      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_DOT_VAR[s] }} />
-      <span className="text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[s] }}>{s}</span>
+      {/* 상태가 바뀌면 점·글자가 살짝 흐려지며 갈린다(M25 · BlurSwap — 작은 칸만) */}
+      <BlurSwap value={s} inner="inline-flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_DOT_VAR[s] }} />
+        <span className="text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[s] }}>{s}</span>
+      </BlurSwap>
       {onStatusChange && !compact && <ChevronDown size={11} className={`-mr-0.5${quiet ? ' opacity-60' : ''}`} style={{ color: CONFIG.STATUS_FG_VAR[s] }} />}
     </span>
   );
@@ -314,7 +319,7 @@ export const TaskTable = React.memo(function TaskTable({ tasks, onTaskClick, onS
           {rows.length === 0 ? empty : rows.map((t, i) => (
             <button key={t.id} type="button" onClick={() => onTaskClick(t)} data-table-row="" data-flip={t.id}
               className="dc-row w-full grid items-center gap-x-2 px-3 py-2.5 text-left border-b border-line/60 last:border-b-0 active:bg-surface-hover"
-              style={{ ...grid, animationDelay: `${Math.min(i, 12) * 22}ms` }}>
+              style={{ ...grid, animationDelay: `${staggerMs(i, 22)}ms` }}>
               <span className="flex items-center gap-2 min-w-0">
                 <span className="shrink-0 w-[3px] h-6 rounded-full" style={teamPaint(t.teams, true)} />
                 <span className="text-[13px] font-semibold text-fg truncate">{t.title}</span>
@@ -355,7 +360,7 @@ export const TaskTable = React.memo(function TaskTable({ tasks, onTaskClick, onS
           <div key={t.id} role="row" tabIndex={0} onClick={() => onTaskClick(t)} data-table-row="" data-flip={t.id}
             onKeyDown={(e) => { if (imeComposing(e)) return; if (e.key === 'Enter' && e.target === e.currentTarget) onTaskClick(t); }}
             className="dc-row grid items-center gap-x-3 px-4 min-h-[44px] py-1.5 cursor-pointer border-b border-line/60 last:border-b-0 hover:bg-surface-hover transition-colors outline-none focus-visible:bg-surface-hover"
-            style={{ ...grid, animationDelay: `${Math.min(i, 12) * 22}ms` }}>
+            style={{ ...grid, animationDelay: `${staggerMs(i, 22)}ms` }}>
             <span className="flex items-center gap-2.5 min-w-0">
               <span className="shrink-0 w-[3px] h-6 rounded-full" style={teamPaint(t.teams, true)} />
               <span className="text-[13px] font-semibold text-fg truncate">{t.title}</span>

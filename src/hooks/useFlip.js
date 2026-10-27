@@ -7,7 +7,13 @@ import { prefersReducedMotion } from './useReducedMotion.js';
 // - 자리는 감싼 칸 기준(+ 그 칸의 scrollTop)으로 잰다 — 사용자가 스크롤한 만큼 모든 줄이 움직이지 않게.
 // - 처음 그릴 때는 재기만 한다(등장은 .dc-row가 맡는다). 새로 생긴 줄은 건드리지 않는다.
 // - 움직임 줄이기면 재기만 한다.
-const EASE = 'cubic-bezier(.16, 1, .3, 1)';
+// - 곡선은 '옮기기' 곡선(--ease-move · M23 · PITFALLS 78-b)이다 — 등장(.dc-row의 quint)과 다른 곡선이라 들어온 줄과 자리를 옮긴 줄이 구별된다.
+
+// 자리를 옮기는 움직임의 곡선(index.css --ease-move) — 등장·퇴장은 --ease-out-quint 그대로. morph.js도 쓴다.
+const MOVE_FALLBACK = 'cubic-bezier(.65, 0, .35, 1)';
+export const easeMove = () =>
+  (typeof document !== 'undefined' && getComputedStyle(document.documentElement).getPropertyValue('--ease-move').trim()) || MOVE_FALLBACK;
+
 export function useFlip(boxRef, deps) {
   const last = useRef(null);
   useLayoutEffect(() => {
@@ -19,11 +25,12 @@ export function useFlip(boxRef, deps) {
     const prev = last.current;
     last.current = next;
     if (!prev || prefersReducedMotion()) return;
+    const ease = easeMove();
     for (const el of box.querySelectorAll('[data-flip]')) {
       const was = prev.get(el.dataset.flip);
       const dy = was == null ? 0 : was - next.get(el.dataset.flip);
       if (Math.abs(dy) < 1) continue;
-      el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 360, easing: EASE });
+      el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 360, easing: ease });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

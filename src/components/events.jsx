@@ -29,6 +29,7 @@ import {
 } from '../services/eventStore.js';
 import { feedDevice, feedButtons, feedHref } from '../services/calendarFeed.js';
 import { takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
+import { staggerMs } from '../hooks/stagger.js';
 
 // ============================================================================
 // 행사 일정(사용자 승인 시안 mock/b2 · 2026-10-18 · 0112) — '전체 일정'의 '행사' 칸
@@ -129,7 +130,7 @@ function EventDaySheet({ iso, list, birthdays = [], tight, onOpen }) {
       </div>
       {birthdays.map((p, i) => (
         <div key={p.id || p.name} className="dc-row flex items-center gap-2.5 py-2"
-          style={{ animationDelay: `${Math.min(i, 12) * 22}ms` }}>
+          style={{ animationDelay: `${staggerMs(i, 22)}ms` }}>
           <Avatar name={p.name} url={p.avatarUrl} className="flex w-7 h-7 text-xs" />
           <span className="text-[13px] text-fg min-w-0 truncate">
             <span className="font-semibold">{p.name}</span>님 생일이에요
@@ -144,7 +145,7 @@ function EventDaySheet({ iso, list, birthdays = [], tight, onOpen }) {
           return (
             <button key={ev.id} type="button" onClick={() => onOpen(ev)} data-event-row={ev.id}
               className="dc-row w-[calc(100%+16px)] flex items-start gap-2.5 py-2 text-left rounded-md px-2 -mx-2 border-t border-line/60 first-of-type:border-t-0 hover:bg-surface-hover transition-colors"
-              style={{ animationDelay: `${Math.min(birthdays.length + i, 12) * 22}ms` }}>
+              style={{ animationDelay: `${staggerMs(birthdays.length + i, 22)}ms` }}>
               <span className="shrink-0 w-[3px] self-stretch min-h-7 rounded-full" style={eventPaint(ev, true)} />
               <span className="flex-1 min-w-0">
                 <span className="flex items-center gap-1.5 min-w-0">

@@ -294,7 +294,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
     '첫 렌더에서만 true — 마운트 뒤에는 false다');
   const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
   assert.ok(/const stagger = useEnterStagger\(\);/.test(parts)
-    && /stagger \? `\$\{Math\.min\(seen\+\+, 12\) \* 22\}ms` : '0ms'/.test(parts),
+    && /stagger \? `\$\{staggerMs\(seen\+\+, 22\)\}ms` : '0ms'/.test(parts),
     '마감 목록은 첫 렌더에서만 순번 지연을 준다');
   const boards = readFileSync(new URL('../src/components/boards.jsx', import.meta.url), 'utf8');
   assert.ok(/const stagger = useEnterStagger\(\);/.test(boards) && /index=\{stagger \? i : 0\}/.test(boards),
@@ -310,11 +310,29 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
     '가입자 목록 줄이 첫 렌더에서만 순번 지연을 준다');
   const ros = readFileSync(new URL('../src/components/roster.jsx', import.meta.url), 'utf8');
   assert.ok(/const stagger = useEnterStagger\(\);/.test(ros)
-    && /export const rowDelay = \(i, stagger\) => \(stagger \? Math\.min\(i, 12\) \* 30 : 0\);/.test(ros)
+    && /export const rowDelay = \(i, stagger\) => \(stagger \? staggerMs\(i, 30\) : 0\);/.test(ros)
     && /delay=\{rowDelay\(i, stagger\)\}/.test(ros)
     && /className="dc-row py-2\.5"/.test(ros),
     '청년 명단 줄도 첫 렌더에서만 순번 지연을 준다');
   console.log('PASS  순차 등장 배선 5가지');
+
+  // M22 뒤로 갈수록 짧아지는 차례 간격(시안 값 — 첫 간격 그대로 · 0.78배씩 · 14ms 아래로 안 내려감 · 260ms 상한 · PITFALLS 78-a).
+  // 되돌리기 검사: staggerMs를 `Math.min(i, 12) * step`로 되돌리면 간격·상한 단정이 깨진다.
+  const { staggerMs } = await import(new URL('../src/hooks/stagger.js', import.meta.url).href);
+  const d30 = Array.from({ length: 20 }, (_, i) => staggerMs(i, 30));
+  const gaps = d30.slice(1).map((v, i) => v - d30[i]);
+  assert.strictEqual(d30[0], 0, '첫 줄은 바로');
+  assert.strictEqual(d30[1], 30, '첫 간격은 그 목록이 쓰던 값 그대로');
+  assert.ok(gaps[1] < gaps[0] && gaps[2] < gaps[1], `간격이 뒤로 갈수록 짧아진다 ${gaps.slice(0, 4)}`);
+  assert.ok(gaps.every((g, i) => g >= 13 || d30[i + 1] === 260), `간격은 14ms 아래로 안 내려간다(반올림 1 · 상한에 닿는 줄만 예외) ${gaps}`);
+  assert.ok(Math.max(...d30) <= 260 && staggerMs(400, 30) === 260, '출발 시각은 260ms를 넘지 않는다');
+  assert.ok(staggerMs(12, 22) < 12 * 22, `열세 번째 줄이 예전(같은 간격)보다 일찍 출발한다 ${staggerMs(12, 22)}`);
+  const users = ['src/components/taskTable.jsx', 'src/components/calendar.jsx', 'src/components/events.jsx', 'src/components/clubReportBoard.jsx', 'src/views/wikiView.jsx'];
+  for (const u of users) {
+    const src = readFileSync(new URL(`../${u}`, import.meta.url), 'utf8');
+    assert.ok(/staggerMs\(/.test(src) && !/Math\.min\([^)]*\) \* (22|30)\}ms/.test(src), `${u}의 줄 순번은 staggerMs 한 벌`);
+  }
+  console.log('PASS  M22 줄어드는 차례 간격(값 6 · 배선 5)');
 }
 
 

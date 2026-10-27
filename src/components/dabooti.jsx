@@ -390,7 +390,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
               {m.loading ? (
                 <div className="dab-bub-in justify-self-start rounded-[4px_14px_14px_14px] px-3 py-3" style={{ background: 'var(--app-hero)' }} aria-label="다붓이가 답을 찾는 중">
                   <WaitLine stage={m.stage} since={m.since} follow={m.follow} />
-                  <span className="dab-dots inline-flex gap-1 align-middle"><span /><span /><span /></span>
+                  <span className="dab-orbit" aria-hidden="true"><i /><i /></span>
                   {/* 찾은 근거 먼저(v5 2묶음) — 답보다 먼저 칩이 하나씩 선다 · 누르면 그 업무·장으로 */}
                   {m.evidence?.length > 0 && (
                     <div data-dab-evidence="" className="flex flex-wrap gap-1 mt-2">

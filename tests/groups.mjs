@@ -3472,7 +3472,7 @@ await send('Emulation.clearDeviceMetricsOverride');
     const bar = document.querySelector('[data-tab-bar]'); const bt = bar && bar.getBoundingClientRect().height ? bar.getBoundingClientRect().top : innerHeight;
     const vt = Math.max(m.top, 0), vb = Math.min(m.bottom, bt, innerHeight);
     return { veil: true, mid: Math.round(r.top + r.height / 2), want: Math.round((Math.max(b.top, vt) + Math.min(b.bottom, vb)) / 2),
-      text: v.innerText.trim(), face: !!v.querySelector('img.dab-face'), dots: v.querySelectorAll('.dab-dots span').length,
+      text: v.innerText.trim(), face: !!v.querySelector('img.dab-face'), dots: v.querySelectorAll('.dab-orbit i').length,
       radius: getComputedStyle(v).borderRadius, op: fade ? getComputedStyle(fade).opacity : '', trans: fade ? getComputedStyle(fade).transitionProperty + ' ' + getComputedStyle(fade).transitionDuration : '',
       sheet: !!document.querySelector('.sun-guide-sheet'), skel: !!document.querySelector('.sun-guide-loading') }; })()`;
   const hold = () => ev(`window.__guideHold = new Promise((res, rej) => { window.__guideRelease = res; window.__guideFail = rej; }); true`);
@@ -3483,7 +3483,7 @@ await send('Emulation.clearDeviceMetricsOverride');
   await ev(`document.querySelector('.sun-guide-regen').click()`); await sleep(700);
   const a = await ev(VEIL);
   check('다시 만드는 동안 종이는 그 자리에 .45로 남고 뼈대가 서지 않는다(B6)', a.veil && a.sheet && !a.skel && a.op === '0.45', JSON.stringify(a));
-  check('다붓이 얼굴 + 점 셋이 작은 바탕(16px)에 — 글자는 없다', a.face && a.dots === 3 && a.text === '' && a.radius === '16px', JSON.stringify(a));
+  check('다붓이 얼굴 + 두 점(M24)이 작은 바탕(16px)에 — 글자는 없다', a.face && a.dots === 2 && a.text === '' && a.radius === '16px', JSON.stringify(a));
   check('얼굴은 보이는 종이 부분의 세로 가운데에 선다(폰 393 · 탭바 위)', Math.abs(a.mid - a.want) <= 2, `${a.mid} / ${a.want}`);
   await ev(`document.querySelector('main').scrollTop += 260; true`); await sleep(250);
   const b = await ev(VEIL);

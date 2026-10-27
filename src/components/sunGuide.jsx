@@ -308,7 +308,7 @@ const SKELETON = (
 
 // ── 다시 만드는 동안 (시안 B6 · 사용자 승인 2026-10-15) ───────────────────────────
 // 지금 종이(편집 중이면 편집 칸)를 **걷지 않고** .45로 흐리게 둔다(.42s quint · 움직임 줄이기면 즉시).
-// 그 위에 다붓이 얼굴 + 기다림 점 셋(dab-dots)을 작은 바탕(surface · 16px 모서리 · 옅은 그림자)에 얹는다 — 글자는 없다.
+// 그 위에 다붓이 얼굴 + 기다림 두 점(dab-orbit · M24)을 작은 바탕(surface · 16px 모서리 · 옅은 그림자)에 얹는다 — 글자는 없다.
 // 얼굴은 **보는 화면의 가운데**에 선다: 종이 중 보이는 영역(main 스크롤 판 ∩ 하단 탭바 위)에 든 부분의 세로 가운데 —
 // 종이가 다 보이면 종이의 가운데, 화면보다 길면 보이는 부분의 가운데다. 스크롤하면 따라간다(main의 scroll은 거품이 안 올라와 capture로 듣는다).
 // 자리는 렌더가 아니라 style.top을 바로 고친다 — 스크롤마다 리렌더하지 않게. 실패하면 흐림만 걷힌다(부르는 쪽).
@@ -367,7 +367,7 @@ function RegenVeil({ on, children }) {
             <img src={DAB_CUT.src} srcSet={cutSet(DAB_CUT.src)} alt="" aria-hidden="true" draggable="false" width={44} height={44}
               className="dab-face block w-11 h-11 rounded-full object-cover" style={{ objectPosition: '50% 20%' }} />
           </span>
-          <span className="dab-dots inline-flex gap-1 align-middle"><span /><span /><span /></span>
+          <span className="dab-orbit" aria-hidden="true"><i /><i /></span>
         </div>
       )}
     </div>

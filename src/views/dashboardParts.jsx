@@ -7,6 +7,7 @@ import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { bucketOf, isOverdue, isStaleNoDue, STALE_NODUE_DAYS, personLoad, RECENT_DONE_DAYS } from '../services/taskCounts.js';
+import { staggerMs } from '../hooks/stagger.js';
 
 // ============================================================================
 // 리디자인 공용 조각 — 대시보드 / 내 업무 / 팀 보드가 같은 부품을 쓴다.
@@ -264,7 +265,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
             <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
           </div>
           {shown.map(t => {
-            const delay = stagger ? `${Math.min(seen++, 12) * 22}ms` : '0ms';
+            const delay = stagger ? `${staggerMs(seen++, 22)}ms` : '0ms';
             const done = t.status === '완료';
             const drawing = !done && pending.has(t.id);   // 방금 완료를 누른 줄(저장 전 340ms)
             // 빨강은 taskCounts.isOverdue 하나 — 보류 중인 업무의 지난 마감은 회색이다

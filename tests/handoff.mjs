@@ -96,6 +96,13 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
       /morphOpen\(document\.querySelector\('\[data-task-window\]'\), task\.id\)/.test(md) && /morphClose\(document\.querySelector\('\[data-task-window\]'\), id\)/.test(md)
       && (md.match(/data-task-window=""/g) || []).length === 2 && /translate\(\$\{from\.left - to\.left\}px[^`]*scale\(/.test(mo) && !/width:\s*`\$\{[^}]+\}px`\s*\}\s*,\s*\{\s*width/.test(mo)
       && /performance\.now\(\) - o\.at > 800/.test(mo) && /prefersReducedMotion\(\)/.test(mo) && /\.dc-was-open \{ animation: dc-was-open/.test(css), '');
+    // M23(2026-10-28 · PITFALLS 78-b) — 자리를 옮기는 것(FLIP · 유령이 자라고 줄어듦)만 --ease-move, 등장은 quint 그대로.
+    // **되돌리기**: useFlip.js의 easing을 quint 상수로, 또는 morph.js의 squeeze 애니메이션을 EASE로 되돌리면 깨진다.
+    check('다듬기 2차 M23: 옮기기는 --ease-move(천천히 출발) · 등장은 quint 그대로',
+      /:root \{ --ease-move: cubic-bezier\(\.65, 0, \.35, 1\); \}/.test(css)
+      && /getPropertyValue\('--ease-move'\)/.test(fl) && /\{ duration: 360, easing: ease \}/.test(fl) && /const ease = easeMove\(\);/.test(fl)
+      && (mo.match(/squeeze\([^)]*\) \}[^\n]*easing: easeMove\(\)/g) || []).length === 2 && !/cubic-bezier\(\.16, 1, \.3, 1\)/.test(mo + fl)
+      && /\.dc-row\s*\{ animation: dc-row-in \.3s var\(--ease-out-quint\) both; \}/.test(css), '');
     // ⑧ 읽기 화면도 같은 펜 자국이다 — 편집(.tiptap)만 바꾸고 업무 본문 읽기(RichText)·종이 읽기(paper)는 옛 네모로 남았었다(2026-10-27 사용자 확인)
     const rt = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
     const pp = readFileSync(new URL('../src/components/paper.jsx', import.meta.url), 'utf8');

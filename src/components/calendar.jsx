@@ -8,6 +8,7 @@ import { selectMembers } from '../store/selectors.js';
 import { birthdayMap, birthdaysOn, snapCols, localDate, mdDot } from '../utils.js';
 import { Avatar } from './Avatar.jsx';
 import { pageTurn } from '../hooks/pageTurn.js';
+import { staggerMs } from '../hooks/stagger.js';
 
 // ============================================================================
 // 프로젝트 캘린더 (보드와 나란히 놓이는 또 하나의 보기)
@@ -555,7 +556,7 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNew
           순번은 아래 업무 줄과 이어진다(생일 2건이면 업무 첫 줄은 3번째다). */}
       {birthdays.map((p, i) => (
         <div key={p.id || p.name} className="dc-row flex items-center gap-2.5 py-2"
-          style={{ animationDelay: `${Math.min(i, 12) * 22}ms` }}>
+          style={{ animationDelay: `${staggerMs(i, 22)}ms` }}>
           <Avatar name={p.name} url={p.avatarUrl} className="flex w-7 h-7 text-xs" />
           <span className="text-[13px] text-fg min-w-0 truncate">
             <span className="font-semibold">{p.name}</span>님 생일이에요
@@ -572,7 +573,7 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNew
             <button key={t.id} onClick={() => onTaskClick(t)}
               /* w-full+-mx-2는 왼쪽으로만 8px 밀린다(피드에서 잡은 함정 — §6-9-d) */
               className="dc-row w-[calc(100%+16px)] flex items-center gap-2.5 py-2 text-left hover:bg-surface-hover rounded-md px-2 -mx-2 transition-colors border-t border-line/60 first-of-type:border-t-0"
-              style={{ animationDelay: `${Math.min(birthdays.length + i, 12) * 22}ms` }}>
+              style={{ animationDelay: `${staggerMs(birthdays.length + i, 22)}ms` }}>
               <span className="shrink-0 w-[3px] h-7 rounded-full" style={teamPaint(t.teams, true)} />
               <span className="flex-1 min-w-0">
                 <span className="block text-[13px] font-semibold text-fg truncate">{t.title}</span>

@@ -7,6 +7,7 @@ import { failText, errorReason } from '../services/errorText.js';
 import { SlideSeg } from './segmented.jsx';
 import { REPORT_STATUS } from './meetingReport.jsx';
 import { fetchReportBoard, setSupportPaid } from '../services/clubReport.js';
+import { staggerMs } from '../hooks/stagger.js';
 
 // ============================================================================
 // 동아리 보고서 제출 현황 + 지원비 지급 체크(v5 3묶음 · 사용자 승인 시안 mock/b4 · 문구 확정 2026-10-21 · 0117)
@@ -115,7 +116,7 @@ export function ClubReportBoard({ year, me = '', people = [], onOpenClub, onBack
           return (
             <div key={r.meeting.id} data-board-row={r.status}
               className="dc-row grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[9rem_minmax(0,1fr)_3.5rem_5.5rem_5rem_6.5rem] items-center gap-x-3 gap-y-1 px-4 py-2.5"
-              style={{ animationDelay: `${Math.min(i, 12) * 22}ms`, ...(i ? { borderTop: '1px solid var(--app-line)' } : {}) }}>
+              style={{ animationDelay: `${staggerMs(i, 22)}ms`, ...(i ? { borderTop: '1px solid var(--app-line)' } : {}) }}>
               <button type="button" onClick={() => onOpenClub?.(r.club)} className={`min-w-0 text-left md:contents ${canPay ? 'row-span-2 self-center' : ''}`}>
                 <span className="block md:inline text-[13px] font-semibold text-fg truncate">{r.club.name}</span>
                 <span className="block md:inline text-[12px] text-fg-muted truncate md:text-fg">

@@ -1642,7 +1642,17 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
     c0?.text === '보류 중' && c0.haspopup === 'menu' && pop && pop.portal && pop.w === 150 && pop.left === 0 && pop.below >= 0 && pop.below <= 12
       && pop.items.join(',') === '시작 전,진행 중,보류 중,완료,상시', JSON.stringify({ c0, pop }));
   const pos0 = (await live('v2')).position;
-  await ev(`[...document.querySelectorAll('.dc-pop button')].find(b => b.textContent.trim() === '완료')?.click()`); await sleep(500);
+  await ev(`[...document.querySelectorAll('.dc-pop button')].find(b => b.textContent.trim() === '완료')?.click()`); await sleep(80);
+  // M25(2026-10-28 · PITFALLS 78-c) — 상태가 바뀌는 순간 옛 글자는 2px 흐려지며 빠지고 새 글자는 흐림에서 선다(300ms · 겹침 · 옛 것은 자리 없음 · 읽기 프로그램에는 새 것만).
+  // **되돌리기**: modals.jsx 상태 칩에서 BlurSwap을 걷거나 index.css의 dc-swap-* filter를 지우면 깨진다.
+  const sw = await ev(`(() => { const w = ${chip}?.querySelector('[data-blur-swap]'); if (!w) return null; const o = w.querySelector('.dc-swap-out'), n = w.querySelector('.dc-swap-in');
+    const kf = (el) => el ? el.getAnimations().map(a => a.effect.getKeyframes().map(k => k.filter).join('>') + ' ' + a.effect.getTiming().duration + ' ' + a.effect.getKeyframes()[0].easing).join('|') : '';
+    return { old: o?.textContent.trim(), oldHidden: o?.getAttribute('aria-hidden'), oldPos: o ? getComputedStyle(o).position : '', now: n?.textContent.trim(), outKf: kf(o), inKf: kf(n) }; })()`);
+  check('③ M25 상태가 바뀌는 순간 옛 글자는 흐려지며 빠지고 새 글자는 흐림에서 선다(2px · 300ms · ease-in-out)',
+    !!sw && sw.old === '보류 중' && sw.oldHidden === 'true' && sw.oldPos === 'absolute' && sw.now === '완료'
+      && sw.outKf === 'blur(0px)>blur(2px) 300 ease-in-out' && sw.inKf === 'blur(2px)>blur(0px) 300 ease-in-out', JSON.stringify(sw));
+  await sleep(420);
+  check('③ M25 다 바뀐 뒤에는 옛 글자가 남지 않는다', await ev(`!${chip}?.querySelector('.dc-swap-out')`));
   const m1 = await ev(`(() => { const t = document.querySelector('[data-toast="action"]'); return { chip: ${chip}?.textContent.trim(), toast: t?.innerText.replace(/\\s+/g, ' ').trim() || null,
     pop: !!document.querySelector('.dc-pop') }; })()`);
   const v2a = await live('v2');

@@ -28,6 +28,7 @@ import { errorReason } from '../services/errorText.js';
 import { FailTail } from '../components/groupsParts.jsx';
 import { useScrollMemory } from '../hooks/useScrollMemory.js';
 import { glideTo } from '../hooks/scrollGlide.js';
+import { staggerMs } from '../hooks/stagger.js';
 
 const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
 
@@ -848,7 +849,7 @@ function Block({ b, i, ctx, noTitle = false, no = '' }) {
   const added = (ctx.added || []).filter(a => a.block_key === b.key);
   const setAdded = ctx.setAdded;
   const canEdit = editing && EDITABLE_TYPES.has(b.type);
-  const anim = { animationDelay: `${Math.min(i, 10) * 30}ms` };
+  const anim = { animationDelay: `${staggerMs(i, 30)}ms` };
   const val = (it) => (it.key in drafts ? drafts[it.key] : it.text);
   const setVal = (it, v) => setDrafts(d => ({ ...d, [it.key]: v }));
   const visible = (b.items || []).filter(it => !(it.key in drafts && drafts[it.key] === '' && it.text !== ''));

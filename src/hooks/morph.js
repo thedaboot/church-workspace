@@ -1,4 +1,5 @@
 import { prefersReducedMotion } from './useReducedMotion.js';
+import { easeMove } from './useFlip.js';
 
 // 업무 창이 누른 줄에서 자라고, 닫으면 그 줄로 돌아가 앉는다(UI 다듬기 2차 M1 · PITFALLS 71-f) + 돌아간 줄이 잠깐 연한 파랑(C1).
 // **창 자체를 키우지 않는다** — 글이 든 큰 창을 scale하면 움직이는 동안 글자가 눌려 보이고, 편집기·댓글을 그리는 첫 프레임이
@@ -7,7 +8,8 @@ import { prefersReducedMotion } from './useReducedMotion.js';
 // - 출발점은 업무 줄에 단 `data-flip="<업무 id>"`(표 · 대시보드 · 보드)에서 누른 순간 잰다. 0.8초 안에 열린 창만 그 자리를 쓴다
 //   (검색·알림·주소로 연 창은 출발점이 없어 예전처럼 열린다).
 // - 움직임 줄이기면 유령 없이 예전 그대로.
-const EASE = 'cubic-bezier(.16, 1, .3, 1)';
+// - 유령이 자라고 줄어드는 것은 '옮기기'라 --ease-move(천천히 출발 · M23 · PITFALLS 78-b)다. quint는 40%에 이미 9할을 갔지만
+//   이 곡선은 70%에야 9할이라, 유령과 창이 엇갈리는 박자를 그만큼 뒤로 민다(열 때 창은 60%부터 · 유령은 65%부터 · 닫을 때 유령은 75%부터 걷힘).
 const OPEN_MS = 360;
 const CLOSE_MS = 300;
 let origin = null;   // { id, rect, at }
@@ -46,9 +48,9 @@ export function morphOpen(win, taskId) {
   const g = ghost(to);
   // 자라기(quint)와 엇갈려 사라지기(직선)를 따로 돌린다 — 한 애니메이션의 구간으로 두면 quint가 앞 구간을 120ms에 끝내고
   // 창이 뜨기 전 100ms 동안 빈 판이 멈춰 서 있었다.
-  g.animate([{ transform: squeeze(o.rect, to) }, { transform: 'none' }], { duration: OPEN_MS, easing: EASE });
-  g.animate([{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }], { duration: OPEN_MS, easing: 'linear' }).onfinish = () => g.remove();
-  win.animate([{ opacity: 0 }, { opacity: 0, offset: 0.4 }, { opacity: 1 }], { duration: OPEN_MS, easing: 'linear' });
+  g.animate([{ transform: squeeze(o.rect, to) }, { transform: 'none' }], { duration: OPEN_MS, easing: easeMove() });
+  g.animate([{ opacity: 1 }, { opacity: 1, offset: 0.65 }, { opacity: 0 }], { duration: OPEN_MS, easing: 'linear' }).onfinish = () => g.remove();
+  win.animate([{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], { duration: OPEN_MS, easing: 'linear' });
 }
 
 // 닫기를 누른 순간(창이 걷히기 전) 부른다. 돌아갈 줄이 화면에 있으면 그 줄로 줄어들고, 줄은 잠깐 연한 파랑으로 남는다.
@@ -61,7 +63,7 @@ export function morphClose(win, taskId) {
   const from = win?.getBoundingClientRect();
   if (prefersReducedMotion() || !from?.width || !visible(to)) { flash(); return; }
   const g = ghost(from);
-  g.animate([{ transform: 'none' }, { transform: squeeze(to, from) }], { duration: CLOSE_MS, easing: EASE });
-  g.animate([{ opacity: 0.9 }, { opacity: 0.9, offset: 0.6 }, { opacity: 0 }], { duration: CLOSE_MS, easing: 'linear' }).onfinish = () => g.remove();
-  setTimeout(flash, CLOSE_MS * 0.7);
+  g.animate([{ transform: 'none' }, { transform: squeeze(to, from) }], { duration: CLOSE_MS, easing: easeMove() });
+  g.animate([{ opacity: 0.9 }, { opacity: 0.9, offset: 0.75 }, { opacity: 0 }], { duration: CLOSE_MS, easing: 'linear' }).onfinish = () => g.remove();
+  setTimeout(flash, CLOSE_MS * 0.8);
 }

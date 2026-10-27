@@ -49,6 +49,7 @@ import { useSheetDrag, SHEET } from '../hooks/useSheetDrag.js';
 import { showToast } from '../components/Toast.jsx';
 import { trackEditing } from '../services/presence.js';
 import { LeaderChip } from '../components/leaderOnly.jsx';
+import { BlurSwap } from '../components/BlurSwap.jsx';
 
 // ============================================================================
 // 업무 창 — 보기(TaskView · 기본) / 수정(TaskLive · 칸마다 저절로 저장) / 만들기 폼(TaskEditor · 새 업무) /
@@ -998,7 +999,8 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
             <button ref={chipRef} type="button" data-status-chip="" aria-label="상태 바꾸기" aria-haspopup="menu" aria-expanded={statusOpen}
               onClick={() => setStatusOpen(o => !o)}
               className="inline-flex items-center gap-1.5 pl-2 pr-1.5 py-[3px] rounded-full border border-line text-fg-muted hover:bg-surface-hover transition active:scale-95">
-              {dot}{task.status}<ChevronDown size={11} strokeWidth={2.5} className="text-fg-faint" aria-hidden />
+              <BlurSwap value={task.status} inner="inline-flex items-center gap-1.5">{dot}{task.status}</BlurSwap>
+              <ChevronDown size={11} strokeWidth={2.5} className="text-fg-faint" aria-hidden />
             </button>
             <StatusMenu anchorRef={chipRef} rootRef={chipRoot} open={statusOpen} onClose={closeStatus} current={task.status} align="start"
               onPick={(s) => moveStatus(task.id, s, commit, cloudMode)} />

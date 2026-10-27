@@ -244,6 +244,27 @@ try {
     await ev(`JSON.stringify(window.__tellCalls)`));
   await ev(`window.__dabootiAnswer=${JSON.stringify(ANSWER)}`);
 
+  // M24(2026-10-28 · PITFALLS 78-d) — 답을 기다리는 동안 파랑·분홍 두 점이 서로 돈다(1.1초 · 둘째 점은 반 바퀴 앞) · 색은 바탕 빛 그라데이션 양 끝 ·
+  // 움직임 줄이기면 양옆으로 벌어진 채 멈춘다. 게스트 시연(수련회 질문 · 3.6초)으로 기다림을 띄운다.
+  // **되돌리기**: dabooti.jsx의 기다림을 옛 점 셋(.dab-dots)으로 되돌리거나 .dab-orbit의 색을 고정값으로 바꾸면 깨진다.
+  {
+    await ev(`delete window.__dabootiAnswer; true`);
+    await askIn('수련회 준비는 언제부터 해요?');
+    await until(`!!document.querySelector('[aria-label="다붓이가 답을 찾는 중"] .dab-orbit')`, 3000);
+    const ORB = `(()=>{const o=document.querySelector('[aria-label="다붓이가 답을 찾는 중"] .dab-orbit');if(!o)return null;const d=[...o.querySelectorAll('i')].map(i=>getComputedStyle(i));
+      return {n:d.length, three:document.querySelectorAll('[aria-label="다붓이가 답을 찾는 중"] .dab-dots').length, anim:d.map(c=>c.animationName+' '+c.animationDuration+' '+c.animationDelay), grad:d.map(c=>c.backgroundImage.startsWith('linear-gradient')), pos:d.map(c=>c.backgroundPositionX), tf:d.map(c=>c.transform), w:d[0]?.width}})()`;
+    const o = await ev(ORB);
+    check('다붓이 기다림: 두 점이 서로 돈다(1.1초 · 반 바퀴 어긋남 · 8px) · 옛 점 셋 없음',
+      !!o && o.n === 2 && o.three === 0 && o.anim[0] === 'dab-orb 1.1s 0s' && o.anim[1] === 'dab-orb 1.1s -0.55s' && o.w === '8px', JSON.stringify(o));
+    check('다붓이 기다림: 점 색은 바탕 빛 그라데이션의 왼끝(파랑)·오른끝(분홍)', !!o && o.grad.every(Boolean) && o.pos[0] === '0%' && o.pos[1] === '100%', JSON.stringify(o));
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    const r = await ev(ORB);
+    check('다붓이 기다림: 움직임 줄이기면 양옆으로 벌어진 두 점에 멈춘다', !!r && r.anim.every(a => a.startsWith('none')) && r.tf[0] === 'matrix(1, 0, 0, 1, -6, 0)' && r.tf[1] === 'matrix(1, 0, 0, 1, 6, 0)', JSON.stringify(r));
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+    await until(`!document.querySelector('[aria-label="다붓이가 답을 찾는 중"]')`, 6000);
+    await ev(`window.__dabootiAnswer=${JSON.stringify(ANSWER)}`);
+  }
+
   // ── ③ 장 ──────────────────────────────────────────────────────────────────
   await click('.wiki-item', '월례회');
   check('장: 출처 표시 · 기록 수 · 수정한 곳', await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`)
