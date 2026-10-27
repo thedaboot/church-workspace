@@ -16,36 +16,52 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 //   흰 칸(.ops-seg-thumb)은 고른 버튼의 offset·모서리를 재서 그 뒤에 깔린다 · 첫 자리에는 전이가 없다(.ops-seg-live는 잰 뒤에).
 //   통이 보이지 않아 잴 수 없을 때(hidden lg:flex)는 버튼이 스스로 흰 바탕을 칠한다 — 보이는 순간 ResizeObserver가 다시 잰다.
 //   흰 칸 색은 --app-seg-on(다크에서는 통보다 한 단 밝다 — 예전처럼 surface면 고른 칸이 통보다 어두워 꺼진 칸으로 읽혔다).
+// **글자색은 흰 칸이 지나가는 만큼만 진해진다**(UI 다듬기 2차 M17 · PITFALLS 76-a) — 글이 문자열인 칸은 글을 .dc-seg-l로 싸고,
+//   그 위 진한 겹(::after · data-l)을 흰 칸 자리로 자른다(segClip). 버튼의 color(segStyle)는 그대로 두되 잴 수 있으면 글 칸이 흐린 색을 쓴다.
+//   글이 아이콘·요소면(ShareToggle·인수인계 단계) 예전처럼 버튼 색이 누르는 순간 바뀐다.
 // ============================================================================
 export const segStyle = (on) => ({
   background: on ? 'var(--app-seg-on)' : 'transparent',
   color: on ? 'var(--app-ink)' : 'var(--app-ink-muted)',
 });
 
+// 흰 칸 자리를 글 칸 기준의 inset으로 — 두 값 모두 px라 흰 칸의 translate·width와 같은 곡선이면 가장자리가 같이 간다.
+// 흰 칸이 그 글 칸에 안 걸치면 inset 합이 칸보다 커서 빈 모양(아무것도 안 그린다)이다.
+export const segClip = (t, l) => (t && l
+  ? { '--seg-clip': `inset(${t.y - l.y}px ${l.x + l.w - (t.x + t.w)}px ${l.y + l.h - (t.y + t.h)}px ${t.x - l.x}px round ${t.r || 0})` }
+  : undefined);
+
 export function Segmented({ items, value, onPick, as: Box = 'span', className = '', btnClassName = '', tabs = false, disabled, style, ...boxProps }) {
   const box = useRef(null);
   const [thumb, setThumb] = useState(null);
   const [live, setLive] = useState(false);
+  // 글 칸(.dc-seg-l)의 자리도 같이 잰다 — 흰 칸 자리를 그 칸 기준으로 옮긴 것이 진한 겹의 clip-path다(M17 · 아래 segClip)
+  const labelsKey = items.map(it => (typeof it[1] === 'string' ? it[1] : '')).join('\u0001');
   useLayoutEffect(() => {
     const el = box.current?.querySelector('[data-seg-on="true"]');
     if (!el) { setThumb(null); return undefined; }
-    const read = () => setThumb(el.offsetWidth
-      ? { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight, r: getComputedStyle(el).borderRadius }
-      : null);
+    const read = () => {
+      if (!el.offsetWidth) { setThumb(null); return; }
+      const labels = [...box.current.querySelectorAll(':scope > button')].map((b) => {
+        const s = b.querySelector(':scope > .dc-seg-l');
+        return s ? { x: b.offsetLeft + s.offsetLeft, y: b.offsetTop + s.offsetTop, w: s.offsetWidth, h: s.offsetHeight } : null;
+      });
+      setThumb({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight, r: getComputedStyle(el).borderRadius, labels });
+    };
     read();
     const ro = new ResizeObserver(read);
     ro.observe(box.current);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [value, items.length]);
+  }, [value, items.length, labelsKey]);
   useEffect(() => { if (thumb && !live) { const t = requestAnimationFrame(() => setLive(true)); return () => cancelAnimationFrame(t); } return undefined; }, [thumb, live]);
   return (
-    <Box ref={box} className={`relative ${className}`} style={{ background: 'var(--app-surface-hover)', ...style }} {...boxProps}>
+    <Box ref={box} className={`relative ${className}${thumb ? ' dc-seg-clip' : ''}${live ? ' dc-seg-live' : ''}`} style={{ background: 'var(--app-surface-hover)', ...style }} {...boxProps}>
       {thumb && (
         <span aria-hidden="true" className={`ops-seg-thumb absolute${live ? ' ops-seg-live' : ''}`}
           style={{ width: thumb.w, height: thumb.h, borderRadius: thumb.r, transform: `translate(${thumb.x}px, ${thumb.y}px)` }} />
       )}
-      {items.map(([v, label, extra]) => {
+      {items.map(([v, label, extra], i) => {
         const on = value === v;
         return (
           <button
@@ -55,7 +71,9 @@ export function Segmented({ items, value, onPick, as: Box = 'span', className = 
             {...extra}
             style={{ color: segStyle(on).color, background: thumb ? 'transparent' : segStyle(on).background, ...extra?.style }}
           >
-            {label}
+            {typeof label === 'string'
+              ? <span className="dc-seg-l" data-l={label} style={segClip(thumb, thumb?.labels?.[i])}>{label}</span>
+              : label}
           </button>
         );
       })}

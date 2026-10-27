@@ -422,7 +422,7 @@ const doneLine = await ev(`(() => {
 check('지난 7일 줄이 끝낸 날로 센다(수정한 날이 아니다)', doneLine === '지난 7일 간 1건 끝냈어요', String(doneLine));
 
 // ── 19차 리팩토링(2026-10-07)에서 한 벌로 모은 부품 — 회색 토글 · 혼자 선 KPI 칸 · 프로젝트 화면 훅 순서 ──
-// 회색 토글(components/segmented.jsx): 고른 칸만 흰 칸(미끄러지는 .ops-seg-thumb — UI 다듬기 2026-10-26)·진한 글자이고 칸 클래스는 자리마다 그대로다(앞에 relative만).
+// 회색 토글(components/segmented.jsx): 고른 칸만 흰 칸(미끄러지는 .ops-seg-thumb — UI 다듬기 2026-10-26)·진한 글자이고 칸 클래스는 자리마다 그대로다(앞에 relative만 · 통에는 잰 뒤 M17의 dc-seg-clip·dc-seg-live).
 // 되돌리기 검사: segStyle의 on/off 글자색을 맞바꾸거나 흰 칸을 고른 칸이 아닌 곳에 두면 첫 단정과 폰 탭 단정이, 폰 탭의 `tabs`를 빼면 폰 탭 단정이 깨진다.
 await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
 const seg = await ev(`(() => {
@@ -437,11 +437,47 @@ const seg = await ev(`(() => {
   };
 })()`);
 check('프로젝트 보기 토글: 고른 칸(보드)만 흰 바탕 · 진한 글자 · 칸 클래스 그대로',
-  !!seg && seg.same && seg.boxCls === 'relative flex p-[3px] rounded-md shrink-0' && seg.boxBg === 'var(--app-surface-hover)'
+  !!seg && seg.same && seg.boxCls.replace(' dc-seg-clip', '').replace(' dc-seg-live', '') === 'relative flex p-[3px] rounded-md shrink-0' && seg.boxBg === 'var(--app-surface-hover)'
     && seg.cls.every(c => c === 'relative px-2.5 md:px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors')
     && seg.bg.join() === 'transparent,transparent,transparent' && seg.thumbOnPick
     && seg.fg.join() === 'var(--app-ink),var(--app-ink-muted),var(--app-ink-muted)',
   JSON.stringify(seg));
+
+// M17(UI 다듬기 2차 · PITFALLS 76-a): 글자색은 흰 칸이 지나가는 만큼만 진해진다 — 글 칸(.dc-seg-l)의 진한 겹(::after)을 흰 칸 자리로 자른다.
+// 끝에서 끝(보드 → 표)으로 누른 직후, 움직이는 흰 칸의 왼쪽 끝과 진한 겹의 왼쪽 끝이 같은 자리에 있다(누르는 순간 글자색이 먼저 바뀌지 않는다).
+// **되돌리기**: segmented.jsx에서 글을 .dc-seg-l로 싸지 않거나, index.css의 `.dc-seg-live .dc-seg-l::after` 전이를 지우면 깨진다.
+const segRead = `(() => {
+  const btns = ['보드', '캘린더', '그래프', '표'].map(t => [...document.querySelectorAll('main button')].find(b => b.textContent.trim() === t));
+  if (btns.some(b => !b)) return null;
+  const box = btns[0].parentElement, th = box.querySelector('.ops-seg-thumb')?.getBoundingClientRect();
+  // inset()은 줄인 꼴로 읽힌다(inset(0px -12px round 4px)) — margin처럼 1~4값을 넷으로 편다
+  const px = s => { const v = (s.split(' round')[0].match(/-?[0-9.]+(px|%)?/g) || []).map(parseFloat);
+    return v.length ? [v[0], v[1] ?? v[0], v[2] ?? v[0], v[3] ?? v[1] ?? v[0]] : []; };
+  // 진한 겹이 보이는 가로 구간이 흰 칸과 그 글 칸이 겹친 구간과 같은지(1.5px) — 안 겹치면 겹도 비어 있어야 한다
+  const ls = btns.map(b => { const s = b.querySelector('.dc-seg-l'); if (!s || !th) return null;
+    const r = s.getBoundingClientRect(), [, rt, , l] = px(getComputedStyle(s, '::after').clipPath);
+    const a = r.left + Math.max(0, l ?? r.width), z = r.right - Math.max(0, rt ?? r.width), shown = z - a > 0.5;
+    const ea = Math.max(r.left, th.left), ez = Math.min(r.right, th.right), want = ez - ea > 0.5;
+    return { data: s.dataset.l, color: getComputedStyle(s).color, after: getComputedStyle(s, '::after').color, shown,
+      match: shown === want && (!shown || (Math.abs(a - ea) < 1.5 && Math.abs(z - ez) < 1.5)) }; });
+  return { clipBox: box.classList.contains('dc-seg-clip'), thumbLeft: th ? Math.round(th.left) : null, b0: Math.round(btns[0].getBoundingClientRect().left), b3: Math.round(btns[3].getBoundingClientRect().left), ls };
+})()`;
+const segRest = await ev(segRead);
+check('M17 회색 토글 글: 진한 겹은 고른 칸(보드)에만 · 글은 흐린 색 · 겹은 진한 색',
+  !!segRest && segRest.clipBox && segRest.ls.every(l => l && l.color !== l.after)
+    && segRest.ls.map(l => l.shown).join() === 'true,false,false,false' && segRest.ls.every(l => l.match) && segRest.ls.map(l => l.data).join() === '보드,캘린더,그래프,표',
+  JSON.stringify(segRest));
+await ev(`[...document.querySelectorAll('main button')].find(b => b.textContent.trim() === '표').click()`);
+await sleep(70);
+const segMid = await ev(segRead);
+check('M17 끝에서 끝으로 누른 직후: 흰 칸이 가는 중이고 진한 겹은 흰 칸이 걸친 만큼만이다(표 글자가 먼저 진해지지 않는다)',
+  !!segMid && segMid.thumbLeft > segMid.b0 + 2 && segMid.thumbLeft < segMid.b3 - 2 && segMid.ls.every(l => l?.match),
+  JSON.stringify(segMid));
+await sleep(500);
+const segEnd = await ev(segRead);
+check('M17 다 간 뒤: 진한 겹은 표에만', !!segEnd && segEnd.ls.map(l => l.shown).join() === 'false,false,false,true', JSON.stringify(segEnd));
+await ev(`[...document.querySelectorAll('main button')].find(b => b.textContent.trim() === '보드').click()`);
+await sleep(500);
 
 // 훅 순서(★ 사용자 승인): 보던 프로젝트가 **다른 곳에서** 지워지면(실시간 삭제 · 잘못된 딥링크) 대시보드로
 // 돌아가야 한다. 가드가 훅 위에 있던 때는 'Rendered fewer hooks'로 ErrorBoundary가 떴다.
