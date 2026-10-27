@@ -368,7 +368,7 @@ export function HandoverSheet({ m, item, onClose }) {
     <div className={`hv-sheet-back fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--app-vh,100dvh)] z-[95] flex items-end md:items-center justify-center md:p-4 bg-black/50 dc-scrim${out}`}
       role="dialog" aria-modal="true" aria-label="인계 내용"
       onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div ref={boxRef} className={`hv-sheet w-full md:max-w-[34rem] max-h-[92%] overflow-y-auto p-4 rounded-t-2xl md:rounded-xl shadow-elevated dc-sheet-dialog${out}`}
+      <div ref={boxRef} className={`hv-sheet w-full md:max-w-[34rem] max-h-[92%] overflow-y-auto p-4 rounded-t-2xl md:rounded-lg shadow-elevated dc-sheet-dialog${out}`}
         style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         <div className="flex items-center gap-2">
           <b className="flex-1 text-[14px] font-extrabold tracking-[-0.2px] text-fg">인계 내용</b>
@@ -525,7 +525,7 @@ export function HandoverHomeCards({ onTaskClick }) {
   return (
     <div className="hv-home mb-3 md:mb-3.5 space-y-3">
       {viewing && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-fg-muted" style={CARD_STYLE}>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] text-fg-muted" style={CARD_STYLE}>
           <Eye size={13} className="shrink-0 text-fg-faint" />
           <span className="flex-1 min-w-0 truncate">{`${me}님 화면으로 보는 중`}</span>
           <button type="button" onClick={viewBack} className="shrink-0 px-2 py-1 rounded-md text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover">돌아가기</button>

@@ -245,8 +245,8 @@ function NoteRow({ note, service, onShare }) {
 // 서 있어야 방금 누른 연도 고르개가 사라졌다 돌아오지 않는다.
 const ADMIN_SKELETON = (
   <div className="sun-admin-loading space-y-2.5">
-    <Skeleton className="w-full h-[152px] rounded-[10px]" />
-    <Skeleton className="w-full h-[152px] rounded-[10px]" />
+    <Skeleton className="w-full h-[152px] rounded-lg" />
+    <Skeleton className="w-full h-[152px] rounded-lg" />
   </div>
 );
 

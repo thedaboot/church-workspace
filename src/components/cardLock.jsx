@@ -140,7 +140,7 @@ export function CardLockButton({ locked, onLock, onUnlock }) {
           <LockGlyph size={15} strokeWidth={2.2} className={stir ? `dc-lock-${stir}` : ''} data-lock-stir={stir || undefined} />
         </button>
       </span>
-      {pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated px-3.5 py-3', (
+      {pop.panel('z-[90] bg-surface border border-line rounded-lg shadow-elevated px-3.5 py-3', (
         <LockForm open={pop.open} title="업무 잠그기" submitLabel="잠그기" onSubmit={onLock} onCancel={pop.close} onDone={() => done('shut')} busy={busy}
           extra={locked && (
             <button type="button" onClick={release} disabled={busy} data-lock-release=""
@@ -163,7 +163,7 @@ function ResetLockButton({ onReset }) {
       <span ref={pop.btnRef} className="inline-flex">
         <button type="button" onClick={pop.toggle} aria-expanded={pop.open} data-lock-reset-open="" className={`${BTN} whitespace-nowrap`}>{RESET_LABEL}</button>
       </span>
-      {pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated px-3.5 py-3', (
+      {pop.panel('z-[90] bg-surface border border-line rounded-lg shadow-elevated px-3.5 py-3', (
         <LockForm open={pop.open} title={RESET_LABEL} submitLabel="설정" onSubmit={onReset} onCancel={pop.close} onDone={pop.close} />
       ))}
     </span>

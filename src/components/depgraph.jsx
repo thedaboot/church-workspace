@@ -157,7 +157,7 @@ export function DepGraph({ tasks, onTaskClick }) {
           ))}
         </span>
       </div>
-      <div className="rounded-[10px] shadow-soft select-none"
+      <div className="rounded-lg shadow-soft select-none"
         style={{ border: '1px solid var(--app-line)', background: 'var(--app-surface)' }}>
         {/* 판 높이는 업무 수를 따라간다 — 바뀔 때 툭 늘지 않게 높이도 같은 곡선으로(움직임 줄이기면 즉시) */}
         <div ref={wrapRef} className="relative"

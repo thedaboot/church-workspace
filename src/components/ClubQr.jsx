@@ -211,7 +211,7 @@ export function QrCardModal({ name, label, url, short, copied, header = null, on
     <div className="club-qr-back fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/50 dc-scrim"
       role="dialog" aria-modal="true" aria-label={`${name} ${label}`}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="club-qr w-full max-w-[21rem] p-4 rounded-[14px] shadow-elevated dc-dialog"
+      <div className="club-qr w-full max-w-[21rem] p-4 rounded-lg shadow-elevated dc-dialog"
         style={CARD_STYLE} onMouseDown={e => e.stopPropagation()}>
         {header}
         {failed ? (

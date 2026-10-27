@@ -299,16 +299,16 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       {/* KPI — 데스크톱은 좌 3칸(1px 격자) + 우 진척도로 아래 본문 2열과 경계가 맞고,
           모바일은 네 칸이 2×2로 접힌다(핸드오프 규격) */}
       <div className="hidden lg:grid gap-x-8 gap-y-3 items-stretch dash-grid">
-        <div className="grid grid-cols-3 rounded-[10px] overflow-hidden shadow-soft"
+        <div className="grid grid-cols-3 rounded-lg overflow-hidden shadow-soft"
           style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
           {kpiCells}
         </div>
         {/* 진척도도 KPI 칸이다 — .dc-kpi와 순번 지연(앞 3칸 0·40·80 다음)을 같이 준다.
             예전에는 이 칸만 애니메이션이 없어서, 왼쪽 세 칸이 차례로 들어오는 동안
             네 번째 칸은 이미 자리에 있었다(순서가 어긋나 보인 자리 중 하나). */}
-        {progressCell(`rounded-[10px] shadow-soft ${KPI_SOLO}`, { border: '1px solid var(--app-line)' })}
+        {progressCell(`rounded-lg shadow-soft ${KPI_SOLO}`, { border: '1px solid var(--app-line)' })}
       </div>
-      <div className={`${tab === '업무' ? 'grid' : 'hidden'} lg:hidden kpi-grid rounded-[10px] overflow-hidden shadow-soft`}
+      <div className={`${tab === '업무' ? 'grid' : 'hidden'} lg:hidden kpi-grid rounded-lg overflow-hidden shadow-soft`}
         style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
         {kpiCells}
         {progressCell(KPI_SOLO)}

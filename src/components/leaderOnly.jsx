@@ -142,7 +142,7 @@ function useLeaderSwitch(project, onSet) {
         리더만 보기<ShareSwitch on={on} />
       </button>
     ));
-    if (!sheet) return pop.panel('z-[90] flex flex-col overflow-hidden bg-surface border border-line rounded-[10px] shadow-elevated',
+    if (!sheet) return pop.panel('z-[90] flex flex-col overflow-hidden bg-surface border border-line rounded-lg shadow-elevated',
       <ViewersPicker project={project} onSet={onSet} />,
       isCustomOnly(project) && pop.pos.maxHeight ? { height: Math.min(PICK_MAX_H, pop.pos.maxHeight) } : null);
     if (!sheetShown) return null;

@@ -243,7 +243,7 @@ function CommentMore({ c, isOwner, canMark, canPinIt, onMark, onEdit, onDelete, 
           </button>
         </span>
       </ConfirmPopover>
-      {pop.panel('z-[90] bg-surface border border-line rounded-[10px] shadow-elevated p-1', (
+      {pop.panel('z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1', (
         <div role="menu" aria-label="댓글 더 보기">
           {canMark && canPinIt && (
             <button type="button" role="menuitem" onClick={choose(() => onMark(c.id, { pinned: !c.pinnedAt }))} className={`${item} text-fg-secondary`}>

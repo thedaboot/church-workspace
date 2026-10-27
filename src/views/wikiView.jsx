@@ -391,7 +391,7 @@ function WikiPage({ page, pages = [], live = {}, mobile = false, isMaster = fals
     glideTo(main, main.scrollTop + el.getBoundingClientRect().top - main.getBoundingClientRect().top - 12);
   };
   const toc = !single && (
-    <nav className="wiki-toc self-start justify-self-start min-w-[240px] max-w-full rounded-[10px] border border-line bg-surface px-[18px] py-3.5 grid gap-1.5 text-[13px]" aria-label="목차">
+    <nav className="wiki-toc self-start justify-self-start min-w-[240px] max-w-full rounded-lg border border-line bg-surface px-[18px] py-3.5 grid gap-1.5 text-[13px]" aria-label="목차">
       <b className="text-[13px] font-extrabold text-fg mb-0.5">목차</b>
       {outline.toc.map(t => (
         <button key={t.id} type="button" onClick={() => tocJump(`${page.id}:${t.id}`)}
@@ -528,7 +528,7 @@ function LiveMembers({ ctx }) {
       {rows.length > 0 && (
         <ul className={`wiki-members m-0 p-0 list-none grid gap-2 ${ctx.mobile ? 'grid-cols-2' : 'grid-cols-[repeat(auto-fill,minmax(150px,1fr))]'}`}>
           {rows.map(m => (
-            <li key={m.id} className="min-w-0 min-h-[44px] rounded-[10px] border border-line bg-surface px-3 py-2.5 grid gap-0.5">
+            <li key={m.id} className="min-w-0 min-h-[44px] rounded-lg border border-line bg-surface px-3 py-2.5 grid gap-0.5">
               <b className="text-[14px] font-bold text-fg truncate">{m.name}</b>
               <span className={`text-[12px] leading-snug ${m.role ? 'text-fg-muted' : 'text-fg-faint'}`}>{m.role || '맡은 일 기록 전'}</span>
             </li>
@@ -552,7 +552,7 @@ function LiveWork({ ctx, sub }) {
       <div className="wiki-sub grid gap-2 min-w-0" id={`${ctx.page.id}:${sub?.id}`}>
         <SubHead no={sub?.no} title={sub?.title || '최근에 끝낸 일'} />
         {w.done.length ? (
-          <div className="wiki-done rounded-[10px] border border-line bg-surface overflow-hidden">
+          <div className="wiki-done rounded-lg border border-line bg-surface overflow-hidden">
             {!ctx.mobile && <div className={`grid ${cols} gap-3 px-3.5 py-2 bg-surface-hover text-[11px] font-bold text-fg-muted`}><span>업무</span><span>함께한 팀</span><span>끝낸 날</span><span>하위 업무</span></div>}
             {w.done.map((d, k) => (
               <button key={d.id} type="button" onClick={() => open(d.id)}
@@ -582,7 +582,7 @@ function StatusPill({ status }) {
 function LivePrep({ ctx }) {
   if (!ctx.prep.length) return null;
   return (
-    <ul className="wiki-prep m-0 p-0 list-none rounded-[10px] border border-line bg-surface overflow-hidden">
+    <ul className="wiki-prep m-0 p-0 list-none rounded-lg border border-line bg-surface overflow-hidden">
       {ctx.prep.map((r, k) => (
         <li key={r.id} className={k ? 'border-t border-line' : ''}>
           <button type="button" onClick={() => ctx.onOpenCite?.({ t: 'card', id: r.id })} className="w-full min-h-[44px] text-left grid gap-1.5 px-4 py-3 transition-colors hover:bg-surface-hover">
@@ -880,7 +880,7 @@ function Block({ b, i, ctx, noTitle = false, no = '' }) {
   if (b.type === 'hero') {
     const it = b.items[0];
     return (
-      <div className="dc-row flex items-center gap-4 rounded-[10px] px-4 py-4" style={{ ...anim, background: 'var(--app-hero)' }}>
+      <div className="dc-row flex items-center gap-4 rounded-lg px-4 py-4" style={{ ...anim, background: 'var(--app-hero)' }}>
         <img src="/chars/umbrella.webp" srcSet={cutSet('/chars/umbrella.webp')} width={95} height={98} alt="" aria-hidden="true" draggable="false" className="shrink-0 w-[84px] sm:w-[95px] h-auto" />
         <p className="min-w-0 flex-1 m-0 text-[14px] leading-[1.75] text-fg"><b className={`text-[15px] block ${editing && isMaster ? 'mb-1.5' : ''}`}>{titleNode}</b>{it ? line(it) : null}</p>
       </div>

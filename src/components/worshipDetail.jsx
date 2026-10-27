@@ -100,7 +100,7 @@ function CueSheetView({ cue, files = [], onOpen }) {
   const [open, setOpen] = useState(false);
   if (!cue && !files.length) return null;
   return (
-    <section className="worship-cue mt-5 p-3 rounded-[10px]" style={CARD_BOX}>
+    <section className="worship-cue mt-5 p-3 rounded-lg" style={CARD_BOX}>
       <p className="worship-cue-label text-xs font-semibold text-fg-muted">큐시트</p>
       <ul className={`worship-cue-list ${LIST} mt-1`}>
         {cue && (
@@ -328,7 +328,7 @@ function NoticeCard({ notice, index, serviceDate = '', onCalendar, held = false 
     return () => ro.disconnect();
   }, [notice.body, open]);
   return (
-    <li className="worship-notice-card p-3 md:p-4 rounded-[10px]" style={CARD_BOX}>
+    <li className="worship-notice-card p-3 md:p-4 rounded-lg" style={CARD_BOX}>
       <div className="flex items-start gap-2">
         <span className={`${NUM} pt-0.5`}>{index + 1}</span>
         <p className="worship-notice-title min-w-0 flex-1 text-[13.5px] font-bold text-fg break-words">{notice.title || '제목 없는 광고'}</p>
@@ -756,7 +756,7 @@ export function ServiceDetail({
       {/* 교회력 물 한 겹(2026-09-25) — 왼쪽에서 오른쪽으로 옅어진다. 특별 절기는 그 색, 연중은
           우리 기본 톤(index.css `.season-wash`). 인라인 background 줄임말은 물을 덮으므로 색만 준다. */}
       {/* 표지 사진(0081)이 있으면 사진이 이긴다 — 폰 76px · 넓은 폭 92px, 글자는 아래에 앉는다(index.css `.has-cover`) */}
-      <header className={`worship-head season-wash relative flex items-center gap-2 mb-4 p-3 rounded-[10px]${photo.shown ? ' has-cover' : ''}`}
+      <header className={`worship-head season-wash relative flex items-center gap-2 mb-4 p-3 rounded-lg${photo.shown ? ' has-cover' : ''}`}
         data-season={churchSeason(service.service_date)?.color || 'plain'}
         style={{ backgroundColor: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
         {photo.shown && <CoverImg cover={cover} focus={service.cover_focus_y} onFail={photo.onFail} />}

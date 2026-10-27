@@ -162,7 +162,7 @@ export function useSheetShare({ refs, key, background, kind = 'png', fileName, w
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-6 flex flex-col items-center gap-4">
         {shown.map(p => (
           <img key={p.url} src={p.url} alt={p.name}
-            className="block w-full max-w-[560px] rounded-[10px] shadow-elevated"
+            className="block w-full max-w-[560px] rounded-lg shadow-elevated"
             onClick={(e) => e.stopPropagation()} />
         ))}
       </div>

@@ -469,7 +469,7 @@ export function SectionHead({ children, right, wrapRight = false }) {
 // ── 카드 껍데기 ───────────────────────────────────────────────────────────
 export function Card({ className = '', children, style }) {
   return (
-    <div className={`rounded-[10px] shadow-soft ${className}`}
+    <div className={`rounded-lg shadow-soft ${className}`}
       style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)', ...style }}>
       {children}
     </div>

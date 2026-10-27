@@ -183,7 +183,7 @@ function MemberMenu({ name, canMerge, busy = false, onMerge, farewellMessage, on
           </button>
         </span>
       </ConfirmPopover>
-      {pop.panel('members-menu z-[90] bg-surface border border-line rounded-[10px] shadow-elevated p-1', (
+      {pop.panel('members-menu z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1', (
         <div ref={listRef} role="menu" aria-label={`${name} 더 보기`} onKeyDown={onKey}>
           {canMerge && (
             <button type="button" role="menuitem" tabIndex={-1} onClick={choose(() => { onMerge(); back(); })}

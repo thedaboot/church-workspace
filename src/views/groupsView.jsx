@@ -103,8 +103,8 @@ const entryOf = (key) => {
 const LOADING = (
   <div className="groups-loading dc-screen pb-8 space-y-2">
     <Skeleton className="h-8 w-40 rounded-md mb-4" />
-    <Skeleton className="h-[120px] w-full rounded-[10px]" />
-    <Skeleton className="h-[86px] w-full rounded-[10px]" />
+    <Skeleton className="h-[120px] w-full rounded-lg" />
+    <Skeleton className="h-[86px] w-full rounded-lg" />
   </div>
 );
 
@@ -114,7 +114,7 @@ const LOADING = (
 const MINE_SKELETON = (
   <div className="mine-skeleton mt-6 space-y-3">
     <Skeleton className="h-4 w-40 rounded-md" />
-    <Skeleton className="w-full h-[86px] rounded-[10px]" />
+    <Skeleton className="w-full h-[86px] rounded-lg" />
     {/* 가이드 종이의 모서리와 같다(sunGuide의 rounded-[14px]) — 자리가 바뀔 때 모서리가 튀지 않게 */}
     <Skeleton className="w-full h-[120px] rounded-[14px]" />
   </div>
@@ -939,7 +939,7 @@ export function GroupsView() {
       {/* 폰의 '보고서 현황'은 목록 위 한 줄 — 머리줄에 두면 탭·'새 동아리'와 함께 글자가 두 줄로 꺾였다(375 · 2026-10-21) */}
       {active === 'club' && !baseFailed && !openClub && !board && !creating && canCheckSupport(perms) && (
         <button type="button" onClick={() => setBoard(true)} data-report-board-open-m=""
-          className="md:hidden w-full mb-3 flex items-center gap-2 px-4 py-3 rounded-[10px] bg-surface shadow-soft text-left transition active:scale-[.99]">
+          className="md:hidden w-full mb-3 flex items-center gap-2 px-4 py-3 rounded-lg bg-surface shadow-soft text-left transition active:scale-[.99]">
           <ClipboardList size={15} className="shrink-0 text-fg-muted" />
           <span className="flex-1 text-[13px] font-semibold text-fg">보고서 현황</span>
           <ChevronRight size={15} className="shrink-0 text-fg-faint" />

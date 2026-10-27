@@ -320,7 +320,7 @@ export function MyNote({ note, serviceId = '', serviceDate = '', passageRef = ''
 // 쓰기`(날짜 글자는 utils.formatDay 한 벌). 버튼이 가리키는 주보(writeTarget)는 발행본 중 service_date ≤ 오늘(KST)인 가장 최근 것이다 —
 // 아직 드리지 않은 예배의 노트를 권하지 않는다. 누르면 그 주보 상세의 내 예배 노트 칸까지 내려가
 // 편집 상태로 연다. 노트가 한 건이라도 있으면 이 버튼은 없다.
-const NOTE_CARD = 'worship-mynote-card w-full text-left px-4 py-3.5 rounded-[10px] shadow-soft transition active:scale-[.995]';
+const NOTE_CARD = 'worship-mynote-card w-full text-left px-4 py-3.5 rounded-lg shadow-soft transition active:scale-[.995]';
 export function MyNotesScreen({ rows = null, failed = null, onBack, onOpenService, writeTarget = null, onWrite }) {
   const [picked, setPicked] = useState(null);      // 폰에서 누른 노트(주보 id) — 없으면 목록
   const list = rows || [];
@@ -361,7 +361,7 @@ export function MyNotesScreen({ rows = null, failed = null, onBack, onOpenServic
         </WorshipEmpty>
       ) : rows === null ? (
         <div className="worship-mynotes-loading grid gap-2.5 md:w-[340px]" aria-hidden="true">
-          {[0, 1, 2].map(k => <div key={k} className="h-[76px] rounded-[10px] dc-skeleton" />)}
+          {[0, 1, 2].map(k => <div key={k} className="h-[76px] rounded-lg dc-skeleton" />)}
         </div>
       ) : !list.length ? (
         <WorshipEmpty className="worship-mynotes-empty" text="예배 노트가 아직 없어요" mark={<NoteMark />} alert={false}>

@@ -692,7 +692,7 @@ function EventFeedButton({ view, events }) {
       {open && !isMobile && createPortal(
         <div ref={popRef} role="dialog" aria-label="내 달력에 연결" data-event-feed-panel=""
           style={{ position: 'fixed', left: pos.left, top: pos.top, width: POP_W, ...popMotion(pos) }}
-          className="z-[90] flex flex-col gap-3 px-4 pt-4 pb-3.5 rounded-xl bg-surface border border-line shadow-elevated transition-none dc-pop">
+          className="z-[90] flex flex-col gap-3 px-4 pt-4 pb-3.5 rounded-lg bg-surface border border-line shadow-elevated transition-none dc-pop">
           {body}
         </div>, document.body)}
       {open && isMobile && createPortal(

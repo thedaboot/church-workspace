@@ -63,7 +63,7 @@ export function TeamFilterBar({ teams, counts, total, shownCount, selected, onTo
       </button>
       {open && (
         <span className="block relative h-0 z-20">
-          <span className="dc-pop block absolute left-0 right-0 p-1.5 rounded-[10px]" style={{
+          <span className="dc-pop block absolute left-0 right-0 p-1.5 rounded-lg" style={{
             top: -4, transformOrigin: 'top center',
             background: 'var(--app-surface)', border: '1px solid var(--app-line)',
             boxShadow: '0 10px 28px rgba(0,0,0,.14)',

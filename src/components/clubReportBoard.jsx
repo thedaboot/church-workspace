@@ -51,9 +51,9 @@ export function ClubReportBoard({ year, me = '', people = [], onOpenClub, onBack
     return (
       <div className="club-report-board" data-report-board="" aria-busy="true">
         <Skeleton className="w-40 h-5 mb-4" />
-        <div className="grid grid-cols-3 gap-2 mb-3">{[0, 1, 2].map(i => <Skeleton key={i} className="h-[74px] rounded-[10px]" />)}</div>
-        <Skeleton className="h-[66px] rounded-[10px] mb-3" />
-        {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-14 mb-2 rounded-[10px]" />)}
+        <div className="grid grid-cols-3 gap-2 mb-3">{[0, 1, 2].map(i => <Skeleton key={i} className="h-[74px] rounded-lg" />)}</div>
+        <Skeleton className="h-[66px] rounded-lg mb-3" />
+        {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-14 mb-2 rounded-lg" />)}
       </div>
     );
   }

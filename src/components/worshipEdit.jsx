@@ -577,7 +577,7 @@ export function NoticesEdit({ rows, onChange }) {
     <div className={LIST}>
       <ul className="space-y-2">
         {rows.map((n, i) => (
-          <li key={list.keys[i]} className="worship-notice-row group p-3 md:p-4 rounded-[10px]" style={CARD_BOX}>
+          <li key={list.keys[i]} className="worship-notice-row group p-3 md:p-4 rounded-lg" style={CARD_BOX}>
             <div className="flex items-center gap-1.5 pb-1.5">
               <span className="text-[11.5px] font-bold text-fg-muted tabular-nums">광고 {i + 1}</span>
               <span className={`${ROW} shrink-0 ml-auto ${TOOLS}`}>

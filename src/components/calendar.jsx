@@ -273,7 +273,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
         <div className="flex-1 min-h-0 flex gap-5">
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
         {weekdayHeader}
-        <div ref={gridRef} className="flex-1 min-h-0 flex flex-col rounded-[10px] overflow-hidden shadow-soft"
+        <div ref={gridRef} className="flex-1 min-h-0 flex flex-col rounded-lg overflow-hidden shadow-soft"
           style={{ border: '1px solid var(--app-line)', background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))' }}>
           {weeks.map(({ ws, lanes, overflowByCol, overflowTasks }, wi) => (
             <div key={ws} className="relative flex-1 min-h-0 overflow-hidden flex flex-col"
@@ -479,7 +479,7 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
   // 데스크톱이 달력 왼쪽·목록 오른쪽으로 갈라 둔 것과 같은 판단이다.
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div ref={gridRef} className="shrink-0 grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
+      <div ref={gridRef} className="shrink-0 grid grid-cols-7 rounded-lg overflow-hidden shadow-soft"
         style={{ gap: 1, background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))', border: '1px solid var(--app-line)', gridAutoRows: '52px', ...colStyle }}>
         {weekStarts.flatMap(ws => Array.from({ length: 7 }, (_, i) => {
           const iso = addDays(ws, i);

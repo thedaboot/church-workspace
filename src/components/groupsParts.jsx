@@ -55,7 +55,7 @@ export function useSettled(key, loading) {
   return !loading && at === key;
 }
 
-export const CARD = 'rounded-[10px] shadow-soft';
+export const CARD = 'rounded-lg shadow-soft';
 export const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
 
 // 사람 칸 격자 — 순 편성의 순원 칸 · 동아리 상세의 구성원 칸(이름 + 그 사람의 조작이 한 칸 안에 붙는 자리).

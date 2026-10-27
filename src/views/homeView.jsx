@@ -511,7 +511,7 @@ function YearAgoPill({ pick, onOpenProject, onOpenTask }) {
         <ChevronRight size={14} className={`shrink-0 text-fg-faint transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
       {open && (
-        <div data-year-ago-panel="" className="mx-auto mt-2.5 max-w-[340px] text-left p-2 rounded-xl border border-line bg-surface shadow-elevated">
+        <div data-year-ago-panel="" className="mx-auto mt-2.5 max-w-[340px] text-left p-2 rounded-lg border border-line bg-surface shadow-elevated">
           <button type="button" data-year-ago-project="" onClick={() => onOpenProject(project)}
             className="w-full flex items-center justify-between gap-2 px-1.5 pt-0.5 pb-1.5 text-[11px] font-bold text-fg-muted text-left hover:text-fg transition-colors">
             <span className="min-w-0 truncate">{`${win.year} · ${project.title}`}</span>

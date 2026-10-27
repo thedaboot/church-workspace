@@ -115,7 +115,7 @@ export function CoverDialog({ src, focus = 0.5, title = '', dateLabel = '', kind
     <div className="worship-cover-back fixed inset-0 z-[95] flex items-end md:items-center justify-center md:p-4 bg-black/50 dc-scrim"
       role="dialog" aria-modal="true" aria-label="표지 위치"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div className="worship-cover-dialog w-full md:max-w-[35rem] max-h-[92dvh] overflow-y-auto p-3.5 md:p-4 rounded-t-2xl md:rounded-xl shadow-elevated dc-sheet-dialog"
+      <div className="worship-cover-dialog w-full md:max-w-[35rem] max-h-[92dvh] overflow-y-auto p-3.5 md:p-4 rounded-t-2xl md:rounded-lg shadow-elevated dc-sheet-dialog"
         style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         <div className="flex items-center gap-2 mb-2.5">
           <b className="flex-1 text-[14px] font-extrabold tracking-[-0.2px] text-fg">표지 위치</b>
@@ -150,12 +150,12 @@ export function CoverDialog({ src, focus = 0.5, title = '', dateLabel = '', kind
 
         {/* 미리보기 — 목록 카드(실선 틀) · 상세 머리. 같은 값 하나로 둘 다 맞는다 */}
         <div className="grid gap-2.5 mt-3 md:grid-cols-2">
-          <div className="worship-cover-preview-card has-cover relative rounded-[10px] px-3.5 py-3" style={{ aspectRatio: `${1 / COVER_RATIO}` }}>
+          <div className="worship-cover-preview-card has-cover relative rounded-lg px-3.5 py-3" style={{ aspectRatio: `${1 / COVER_RATIO}` }}>
             <CoverImg cover={cover} focus={y} />
             <p className="text-[14px] font-bold tracking-[-0.2px] truncate" style={{ color: '#fff' }}>{title || '설교 제목 미정'}</p>
             <p className="mt-1 text-[12.5px] truncate" style={{ color: 'rgba(255,255,255,.88)' }}>{dateLabel}</p>
           </div>
-          <div className="worship-cover-preview-head has-cover has-cover-head relative hidden md:flex items-end rounded-[10px] p-3" style={{ aspectRatio: '343 / 92' }}>
+          <div className="worship-cover-preview-head has-cover has-cover-head relative hidden md:flex items-end rounded-lg p-3" style={{ aspectRatio: '343 / 92' }}>
             <CoverImg cover={cover} focus={y} />
             <span className="flex flex-wrap items-baseline gap-1.5 min-w-0">
               <span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold" style={{ background: 'rgba(255,255,255,.2)', color: '#fff' }}>{kindLabel}</span>
