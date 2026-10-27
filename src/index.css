@@ -1240,3 +1240,7 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
 }
 .dc-sheet-grab { touch-action: none; }
 .dc-rise.dc-out[data-flung] { animation: none; }
+/* M14 성경 장 쓸기 칸 — 세로 굴리기·확대만 브라우저 몫(가로는 본문이 손가락을 따라온다 · wordBible useSwipe).
+   .dc-turn-clip은 카드를 옮기는 동안만 가로를 자른다(clip — 스크롤 통을 만들지 않아 안의 sticky 화살표가 그대로다). */
+[data-chap-swipe] { touch-action: pan-y pinch-zoom; }
+.dc-turn-clip { overflow-x: clip; }

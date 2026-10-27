@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { ChevronLeft, ChevronRight, Bookmark, Search, X } from 'lucide-react';
 import { loadBibleIndex, loadBook, forEachPool, warmBooks, POOL } from '../services/bible.js';
 import { parseRef } from '../services/bibleRef.js';
@@ -311,12 +311,47 @@ function useRecentPanel({ typed, recent, moodsOn, rowRef, formRef, panelRef }) {
 // 위아래로 훑는 손짓과 갈라야 한다. 쓸고 난 뒤의 click은 절 선택으로 세지 않는다
 // (터치 기기는 손을 떼는 자리에 click을 한 번 더 보낸다 — justSwiped).
 // onSwipe(1 | -1): 다음 장 · 이전 장
-function useSwipe(onSwipe) {
+//
+// **끄는 동안 본문이 손가락을 따라온다**(UI 다듬기 2차 M14 · 시안 값 그대로 · PITFALLS 75-c). 10px을 넘게 움직인 순간 가로/세로를
+// 한 번 정하고, 가로면 본문 카드(cardRef)를 transform으로 옮긴다(더 갈 장이 없는 쪽은 무거워진다 — rub 40px).
+// 놓을 때 폭의 30%(60px 아래로는 안 내려간다)를 넘었거나 0.35px/ms로 튕겼으면 넘기고, **마지막 순간 반대로 되돌리고 있었으면(0.05px/ms) 취소**한다.
+// 넘길 때는 카드가 그 쪽으로 마저 빠지고(320ms quint) 장이 바뀐다 — 새 장은 예전 그대로 Swap이 들인다. 취소면 제자리로(300ms quint).
+// move가 없는 쓸기(합성 이벤트·아주 빠른 손)는 예전처럼 놓은 자리로만 판단한다. 움직임 줄이기면 따라오지 않는다.
+const TURN = { ratio: 0.3, flick: 0.35, back: 0.05, axis: 10, rubber: 40, go: 320, home: 300, window: 120 };
+export const turnDir = (dx, v, w) => {
+  let dir = 0;
+  if (Math.abs(dx) >= Math.max(SWIPE_MIN, w * TURN.ratio) || (Math.abs(v) > TURN.flick && Math.abs(dx) > TURN.axis)) dir = dx < 0 ? 1 : -1;
+  if (dir === 1 && v > TURN.back) dir = 0;     // 도중에 되돌림
+  if (dir === -1 && v < -TURN.back) dir = 0;
+  return dir;
+};
+const rubTurn = (d) => TURN.rubber * (1 - 1 / (d / TURN.rubber + 1));
+function useSwipe(onSwipe, cardRef, can) {
   const touchAt = useRef(null);
   const swipedAt = useRef(0);   // 마지막 스와이프 시각(onTouchEnd가 적는다)
+  const busy = useRef(false);
+  // 옮기는 동안만 쓸기 칸을 가로로 자른다(.dc-turn-clip) — 오른쪽으로 민 카드가 화면 가로 스크롤을 늘리지 않게(늘 자르면 카드 옆 그림자가 잘린다)
+  const slide = (x, ms, clip = !!x) => {
+    const c = cardRef.current;
+    if (!c) return;
+    c.style.transition = ms ? `transform ${ms}ms var(--ease-out-quint)` : '';
+    c.style.transform = x ? `translate3d(${x}px, 0, 0)` : '';
+    c.parentElement?.classList.toggle('dc-turn-clip', clip);
+  };
   const onTouchStart = (e) => {
     const t = e.touches && e.touches[0];
-    touchAt.current = t ? { x: t.clientX, y: t.clientY } : null;
+    touchAt.current = t && !busy.current ? { x: t.clientX, y: t.clientY, axis: null, pts: [] } : null;
+  };
+  const onTouchMove = (e) => {
+    const from = touchAt.current;
+    const t = e.touches && e.touches[0];
+    if (!from || !t || prefersReducedMotion()) return;
+    const dx = t.clientX - from.x, dy = t.clientY - from.y;
+    if (!from.axis && Math.max(Math.abs(dx), Math.abs(dy)) > TURN.axis) from.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    if (from.axis !== 'x') return;
+    const now = performance.now();
+    from.pts.push({ x: t.clientX, t: now }); from.pts = from.pts.filter(p => now - p.t < TURN.window);
+    slide(can(dx < 0 ? 1 : -1) ? dx : Math.sign(dx) * rubTurn(Math.abs(dx)), 0);
   };
   const onTouchEnd = (e) => {
     const from = touchAt.current;
@@ -325,11 +360,24 @@ function useSwipe(onSwipe) {
     if (!from || !t) return;
     const dx = t.clientX - from.x, dy = t.clientY - from.y;
     if (Math.abs(dx) > 10) swipedAt.current = Date.now();
-    if (Math.abs(dx) < SWIPE_MIN || Math.abs(dy) > Math.abs(dx)) return;   // 세로로 더 움직였으면 스크롤이다
-    onSwipe(dx < 0 ? 1 : -1);
+    const followed = from.axis === 'x';
+    if (from.axis === 'y' || (!followed && Math.abs(dy) > Math.abs(dx))) return;   // 세로로 더 움직였으면 스크롤이다
+    const now = performance.now(), p = from.pts.filter(q => now - q.t < TURN.window);
+    const v = p.length < 2 ? 0 : (p[p.length - 1].x - p[0].x) / Math.max(1, p[p.length - 1].t - p[0].t);
+    const w = cardRef.current?.offsetWidth || window.innerWidth;
+    let dir = turnDir(dx, v, w);
+    if (dir && !can(dir)) dir = 0;
+    if (!followed) { if (dir) onSwipe(dir); return; }
+    if (!dir) { home(); return; }
+    busy.current = true;
+    slide(-dir * w, TURN.go);
+    // 장을 바꾼 렌더(Swap이 새 장을 시작 자리에 세운다)를 곧바로 그리고 나서 카드를 되돌린다 — 한 프레임이라도 옛 장이 가운데로 튀지 않게
+    setTimeout(() => { flushSync(() => onSwipe(dir)); slide(0, 0); busy.current = false; }, TURN.go);
   };
+  const home = () => { slide(0, TURN.home, true); setTimeout(() => { if (!touchAt.current && !busy.current) slide(0, 0); }, TURN.home); };
+  const onTouchCancel = () => { const from = touchAt.current; touchAt.current = null; if (from?.axis === 'x') home(); };
   const justSwiped = () => Date.now() - swipedAt.current < 400;
-  return { onTouchStart, onTouchEnd, justSwiped };
+  return { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, justSwiped };
 }
 
 // ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
@@ -591,7 +639,7 @@ export function BibleTab({ initialRef = '' }) {
   const canPrev = !!place && bookIdx >= 0 && !(bookIdx === 0 && place.chapter === 1);
   const canNext = !!place && bookIdx >= 0
     && !(bookIdx === books.length - 1 && place.chapter === (books[bookIdx]?.chapters || 1));
-  const swipe = useSwipe((d) => { if (d > 0 ? canNext : canPrev) move(d); });
+  const swipe = useSwipe((d) => { if (d > 0 ? canNext : canPrev) move(d); }, cardRef, (d) => (d > 0 ? canNext : canPrev));
 
   // 검색을 시작한다 — 결과는 본문 열의 자리에 그린다
   const runSearch = (raw, recentAs = '') => {
@@ -797,7 +845,7 @@ export function BibleTab({ initialRef = '' }) {
                 sticky가 스크롤마다 미끄러진다(§6-17-b).
                 본문과의 간격도 6px 더 벌렸다(gap-1.5 → gap-3). */}
             <div data-chap-swipe="" className="flex items-stretch gap-3"
-              onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd}>
+              onTouchStart={swipe.onTouchStart} onTouchMove={swipe.onTouchMove} onTouchEnd={swipe.onTouchEnd} onTouchCancel={swipe.onTouchCancel}>
               <div className="hidden md:flex w-11 shrink-0 justify-center">
                 {canPrev && (
                   <button data-chap-nav="prev" onClick={() => move(-1)} aria-label="이전 장" title="이전 장"

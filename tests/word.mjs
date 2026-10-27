@@ -2873,6 +2873,37 @@ check('쓸어 넘긴 뒤에도 본문 맨 위로 돌아온다',
 const swipedBack = await swipeAt(200, -10);
 check('오른쪽으로 쓸면 이전 장으로 돌아온다', !!swipedBack && swipedBack.head === swipeFrom,
   JSON.stringify({ swipeFrom, swipedBack }));
+// ── 끄는 동안 본문이 손가락을 따라오고, 도중에 되돌리면 취소(UI 다듬기 2차 M14 · 시안 값 · PITFALLS 75-c) ──
+// **되돌리기**: wordBible의 turnDir에서 '도중에 되돌림' 두 줄을 지우면 '취소'가, onTouchMove의 slide를 지우면 '따라온다'가 깨진다.
+const follow = (steps) => ev(`(async () => {
+  const area = document.querySelector('[data-chap-swipe]'); const card = area && area.querySelector(':scope > div:nth-child(2)');
+  if (!area || !card) return null;
+  const r = area.getBoundingClientRect();
+  const x0 = Math.round(r.left + r.width - 30), y0 = Math.round(Math.max(r.top + 40, 80));
+  const pt = (x) => [new Touch({ identifier: 8, target: area, clientX: x, clientY: y0 })];
+  const send = (type, list) => area.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+    touches: type === 'touchend' ? [] : list, targetTouches: type === 'touchend' ? [] : list, changedTouches: list }));
+  send('touchstart', pt(x0));
+  const seen = [];
+  for (const [dx, wait] of ${JSON.stringify(steps)}) { await new Promise(r2 => setTimeout(r2, wait)); send('touchmove', pt(x0 + dx));
+    seen.push({ t: card.style.transform, clip: area.classList.contains('dc-turn-clip') }); }
+  send('touchend', pt(x0 + ${JSON.stringify(steps)}.at(-1)[0]));
+  const after = card.style.transform;
+  await new Promise(r2 => setTimeout(r2, 1300));
+  return { seen, after, end: card.style.transform, clip: area.classList.contains('dc-turn-clip'),
+           head: (document.querySelector('h3') || {}).textContent || '', sw: document.documentElement.scrollWidth, vw: innerWidth };
+})()`, true);
+const fFrom = await headNow();
+const cancelled = await follow([[-40, 30], [-90, 30], [-150, 30], [-170, 60], [-140, 30], [-110, 30]]);
+check('M14 가로로 끄는 동안 본문 카드가 손가락을 따라온다(가로를 자른다)',
+  !!cancelled && cancelled.seen[2]?.t === 'translate3d(-150px, 0px, 0px)' && cancelled.seen[2].clip === true, JSON.stringify(cancelled?.seen));
+check('M14 끌다가 되돌리면 넘어가지 않고 제자리로', !!cancelled && cancelled.head === fFrom && cancelled.end === '' && cancelled.clip === false
+  && cancelled.sw <= cancelled.vw, JSON.stringify({ fFrom, cancelled }));
+const turned = await follow([[-40, 30], [-90, 30], [-150, 30]]);
+check('M14 따라온 채로 놓으면 그 쪽으로 마저 빠지고 다음 장', !!turned && turned.head !== fFrom && !!turned.head
+  && /translate3d\(-\d{3}px/.test(turned.after) && turned.end === '' && turned.clip === false, JSON.stringify({ fFrom, turned }));
+await swipeAt(200, 0);
+check('M14 되돌아온 장(합성 쓸기 · move 없음)', (await headNow()) === fFrom);
 // 화살표는 `hidden md:flex`라 좁은 폭에서도 DOM에는 남는다 — **보이는지**로 잰다
 // (있는지로 재면 display:none인 것을 '있다'고 세어 이 검사가 늘 실패한다)
 // 실제 터치 기기에서도 도는지: ① 핸들러가 **본문 칸**(카드를 감싼 [data-chap-swipe])에
