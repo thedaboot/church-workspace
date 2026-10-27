@@ -7,6 +7,7 @@ import { useStore } from '../store/workspaceStore.js';
 import { selectMembers } from '../store/selectors.js';
 import { birthdayMap, birthdaysOn, snapCols, localDate, mdDot } from '../utils.js';
 import { Avatar } from './Avatar.jsx';
+import { pageTurn } from '../hooks/pageTurn.js';
 
 // ============================================================================
 // 프로젝트 캘린더 (보드와 나란히 놓이는 또 하나의 보기)
@@ -189,7 +190,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
 
   const canPrev = monthIdx(view) > monthIdx(bounds.min);
   const canNext = monthIdx(view) < monthIdx(bounds.max);
-  const shift = (n) => () => setView(v => clampMonth({ y: v.y, m: v.m + n }, bounds));
+  // 다음 달은 오른쪽에서, 이전 달은 왼쪽에서 들어온다(UI 다듬기 2차 M13 · hooks/pageTurn.js · PITFALLS 75-d) — 격자([data-cal-grid])가 넘어간다
+  const calRef = React.useRef(null);
+  const shift = (n) => () => pageTurn(calRef.current?.querySelector('[data-cal-grid]'), n,
+    () => setView(v => clampMonth({ y: v.y, m: v.m + n }, bounds)));
 
   // 날짜 → 그 날 걸쳐 있는 업무. 한 번 만들어 두고 칸마다 꺼내 쓴다.
   // 예전에는 칸마다 목록 전체를 다시 filter해서, 모바일 달력(42칸)은 렌더마다
@@ -224,7 +228,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
   );
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div ref={calRef} className="flex flex-col h-full min-h-0">
       {/* 상단: 이전/다음 붙은 쌍 + 연월 + 건수 + 상태 범례 + (프로젝트만) 내 달력 */}
       <div className="flex items-center gap-2.5 pb-2 shrink-0 flex-wrap">
         <span className="flex rounded-md overflow-hidden shrink-0" style={{ border: '1px solid var(--app-line)' }}>
@@ -274,6 +278,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
         {weekdayHeader}
         <div ref={gridRef} className="flex-1 min-h-0 flex flex-col rounded-lg overflow-hidden shadow-soft"
+        <div ref={gridRef} data-cal-grid="" className="flex-1 min-h-0 flex flex-col rounded-[10px] overflow-hidden shadow-soft"
           style={{ border: '1px solid var(--app-line)', background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))' }}>
           {weeks.map(({ ws, lanes, overflowByCol, overflowTasks }, wi) => (
             <div key={ws} className="relative flex-1 min-h-0 overflow-hidden flex flex-col"
@@ -480,6 +485,7 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div ref={gridRef} className="shrink-0 grid grid-cols-7 rounded-lg overflow-hidden shadow-soft"
+      <div ref={gridRef} data-cal-grid="" className="shrink-0 grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
         style={{ gap: 1, background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))', border: '1px solid var(--app-line)', gridAutoRows: '52px', ...colStyle }}>
         {weekStarts.flatMap(ws => Array.from({ length: 7 }, (_, i) => {
           const iso = addDays(ws, i);

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPos, popMotion } from './ConfirmPopover.jsx';
+import { pageTurn } from '../hooks/pageTurn.js';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // 노션 톤 커스텀 데이트피커
@@ -109,13 +110,15 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
   // 연도가 없으면 달만 돈다(1월에서 이전을 누르면 12월). 막을 끝이 없다.
   const canPrev = yearless || !(view.y === MIN_YEAR && view.m === 0);
   const canNext = yearless || !(view.y === MAX_YEAR && view.m === 11);
+  // 넘김은 방향이 있다 — 다음 달은 오른쪽에서, 이전 달은 왼쪽에서(UI 다듬기 2차 M13 · hooks/pageTurn.js)
+  const daysRef = useRef(null);
   const goPrev = () => {
     if (!canPrev) return;
-    setView(v => (v.m === 0 ? { y: yearless ? v.y : v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }));
+    pageTurn(daysRef.current, -1, () => setView(v => (v.m === 0 ? { y: yearless ? v.y : v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 })));
   };
   const goNext = () => {
     if (!canNext) return;
-    setView(v => (v.m === 11 ? { y: yearless ? v.y : v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }));
+    pageTurn(daysRef.current, 1, () => setView(v => (v.m === 11 ? { y: yearless ? v.y : v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 })));
   };
 
   const firstDayIndex = yearless ? 0 : new Date(view.y, view.m, 1).getDay();
@@ -150,7 +153,7 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
               {WEEKDAYS.map(d => <div key={d} className="w-8 h-6 flex items-center justify-center text-[10px] text-fg-muted">{d}</div>)}
             </div>
           )}
-          <div className="grid grid-cols-7">
+          <div ref={daysRef} className="grid grid-cols-7">
             {cells.map((day, idx) => {
               if (!day) return <div key={`e-${idx}`} className="w-8 h-8" />;
               const isToday = view.m === today.getMonth() && day === today.getDate()

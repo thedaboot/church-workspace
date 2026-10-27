@@ -287,6 +287,42 @@ for (const dpr of [1, 1.25, 2]) {
   await send('Emulation.clearDeviceMetricsOverride');
 }
 
+// ── 앞뒤 방향이 있는 달 넘김(UI 다듬기 2차 M13 · 시안 값 · PITFALLS 75-d) ──────────────────────────────
+// 다음 달: 옛 판(복제)은 왼쪽으로 45% 밀리며 흐려지고 새 판은 오른쪽 45%에서 들어온다(300ms quint) · 이전 달은 거꾸로 ·
+// 복제는 누름·검사가 잡지 않는다(data-* 없음 · inert) · 끝나면 복제·가로 자름이 걷힌다 · 데스크톱·폰 둘 다.
+// **되돌리기**: calendar.jsx shift에서 pageTurn을 빼고 setView만 부르면 깨진다.
+{
+  for (const [w, h, mobile] of [[1440, 900, false], [375, 812, true]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile });
+    await openCal();
+    const turn = (title) => ev(`(async () => {
+      const g = document.querySelector('[data-cal-grid]'), b = document.querySelector('button[title="${title}"]');
+      if (!g || !b) return null;
+      const month = () => [...document.querySelectorAll('main h3')].find(x => x.textContent.includes('년 '))?.textContent;
+      const host = g.parentElement, before = month();
+      b.click();
+      const ghost = [...host.children].find(c => c.inert);
+      const kf = g.getAnimations()[0]?.effect.getKeyframes() || [];
+      const gk = ghost?.getAnimations()[0]?.effect.getKeyframes() || [];
+      const mid = { ghost: !!ghost, ghostData: ghost ? ghost.querySelectorAll('[data-cal-cell]').length : -1, clip: host.classList.contains('dc-turn-clip'),
+        inFrom: kf[0]?.transform, inOp: kf[0]?.opacity, outTo: gk[1]?.transform, ms: g.getAnimations()[0]?.effect.getTiming().duration,
+        ease: g.getAnimations()[0]?.effect.getTiming().easing, changed: month() !== before };
+      await new Promise(r => setTimeout(r, 450));
+      return { ...mid, after: { ghosts: [...host.children].filter(c => c.inert).length, clip: host.classList.contains('dc-turn-clip'), anims: g.getAnimations().length,
+        sw: document.documentElement.scrollWidth <= innerWidth } };
+    })()`, true);
+    const nx = await turn('다음 달');
+    check(`M13 다음 달은 오른쪽 45%에서 들어오고 옛 판은 왼쪽으로 (${mobile ? '폰' : '데스크톱'})`,
+      !!nx && nx.changed && nx.ghost && nx.ghostData === 0 && nx.clip && nx.inFrom === 'translateX(45%)' && String(nx.inOp) === '0'
+      && nx.outTo === 'translateX(-45%)' && nx.ms === 300 && /0\.16, 1, 0\.3, 1|\.16, ?1, ?\.3, ?1/.test(nx.ease)
+      && nx.after.ghosts === 0 && !nx.after.clip && nx.after.anims === 0 && nx.after.sw, JSON.stringify(nx));
+    const pv = await turn('이전 달');
+    check(`M13 이전 달은 왼쪽에서 들어온다 (${mobile ? '폰' : '데스크톱'})`,
+      !!pv && pv.changed && pv.inFrom === 'translateX(-45%)' && pv.outTo === 'translateX(45%)' && pv.after.ghosts === 0, JSON.stringify(pv));
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);
