@@ -68,8 +68,8 @@ export function presenceLabel(editors = []) {
 
 // 알약의 물과 글자색. 물은 그 사람 색 12%이고, 글자는 **그 물 위에서 4.5:1**이 될 때까지 라이트는 검정 쪽으로,
 // 다크는 흰색 쪽으로 섞는다(같은 색 계열로 읽히게 — 회색 글자로 바꾸지 않는다).
-// 표면 값은 index.css의 --app-surface(라이트 #fffdfc · 다크 #202020)와 한 쌍이다 — tests/coedit가 잰다.
-export const SURFACE = { light: '#fffdfc', dark: '#202020' };
+// 표면 값은 index.css의 --app-surface(라이트 #fffdfc · 다크 #21201d)와 한 쌍이다 — tests/coedit가 잰다.
+export const SURFACE = { light: '#fffdfc', dark: '#21201d' };
 export const PILL_ALPHA = 0.12;
 const rgbOf = (h) => [1, 3, 5].map(i => parseInt(String(h).slice(i, i + 2), 16));
 const hexOf = (c) => `#${c.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('')}`;

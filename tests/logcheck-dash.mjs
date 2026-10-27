@@ -1224,7 +1224,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => p - q); return (y + 0.05) / (x + 0.05); };
   const css = src('index.css');
   const dark = css.match(/--app-canvas: (#[0-9a-f]{6}); --app-surface: (#[0-9a-f]{6}); --app-surface-hover: (#[0-9a-f]{6});/);
-  const acc = css.match(/\n\s*--app-accent: (#[0-9a-f]{6}); --app-accent-strong/);
+  const acc = css.match(/\n\s*--app-accent: (#[0-9a-f]{6}); --app-accent-text/);
   assert.ok(dark && acc, '다크 토큰을 읽는다');
   assert.ok(ratio('#ffffff', acc[1]) >= 4.5, `다크 accent 위 흰 글씨 ${ratio('#ffffff', acc[1]).toFixed(2)}`);
   for (const bg of dark.slice(1)) assert.ok(ratio(acc[1], bg) >= 3, `다크 accent 테두리 · ${bg} 위 ${ratio(acc[1], bg).toFixed(2)}`);

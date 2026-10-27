@@ -31,7 +31,7 @@ const fillOf = (bg) => {
   if (!bg || !/^#[0-9a-fA-F]{6}$/.test(bg)) return null;
   const l = lum(bg);
   if (l > PAPER_L) return null;
-  return { background: bg, color: l > 0.45 ? '#191720' : '#f7f6f4' };
+  return { background: bg, color: l > 0.45 ? '#1a1815' : '#f7f6f4' };
 };
 // 원본 글자색 → 화면 글자색. 검정·흰색은 원본의 기본값이라 우리 토큰에 맡긴다.
 const inkOf = (hex) => {

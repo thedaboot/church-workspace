@@ -247,11 +247,11 @@ const tok = await ev(`(() => {
            ease:g('--ease-out-quint') };
 })()`);
 check('진행 바 파스텔 토큰 9개 모두 정의', Object.entries(tok).filter(([k])=>k!=='ease').every(([,v])=>/^#|rgb/.test(v)), JSON.stringify(tok));
-check('라이트 파스텔 값이 스펙과 같다', tok.blue==='#93b4e4' && tok.red==='#e5a29b' && tok.track==='#e6e3e8', `${tok.blue}/${tok.red}/${tok.track}`);
+check('라이트 파스텔 값이 스펙과 같다', tok.blue==='#93b4e4' && tok.red==='#e5a29b' && tok.track==='#e7e4de', `${tok.blue}/${tok.red}/${tok.track}`);
 check('이징이 cubic-bezier(.16,1,.3,1)', /cubic-bezier\(\s*\.?0?\.16/.test(tok.ease), tok.ease);
 const dark = await ev(`(() => { document.documentElement.dataset.theme='dark';
   const cs=getComputedStyle(document.documentElement); return cs.getPropertyValue('--p-track').trim(); })()`);
-check('다크 파스텔도 따로 정의', dark === '#2d2d2c', dark);
+check('다크 파스텔도 따로 정의', dark === '#2f2d28', dark);
 await ev(`document.documentElement.dataset.theme='light'`);
 // UI 다듬기 2차 D6·D11(PITFALLS 72-b·72-d) — 빌드가 @supports·:where를 지나서도 살아 있나를 실제 계산값으로 본다.
 // D6 스위치 손잡이는 linear() 스프링 0.7초(지원 브라우저) · D11 제목은 balance · 본문은 pretty · 쓰는 칸 안은 둘 다 아님.
@@ -1201,7 +1201,7 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
     const r = { in: getComputedStyle(document.getElementById('__s6in')).boxShadow, out: getComputedStyle(document.getElementById('__s6out')).boxShadow };
     box.remove(); return r;
   })()`);
-  check('S6: 영역 색을 바꾸면 안의 카드 그림자가 그 색으로 물든다', /70, 50, 140/.test(tint.in) && /46, 36, 80/.test(tint.out) && !/46, 36, 80/.test(tint.in), JSON.stringify(tint));
+  check('S6: 영역 색을 바꾸면 안의 카드 그림자가 그 색으로 물든다', /70, 50, 140/.test(tint.in) && /55, 42, 28/.test(tint.out) && !/55, 42, 28/.test(tint.in), JSON.stringify(tint));
   // S7 — sticky 머리는 붙기 전엔 선이 없고(::after 0) 붙으면 선 + 그림자(::after 1)
   const stuck = await ev(`(async () => {
     const box = document.createElement('div');
@@ -1240,6 +1240,31 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   })()`, true);
   st.projects = keepP;
   check('S8: 넘치는 줄은 더 있는 쪽 끝만 흐리다', !!fade && fade.start.over && fade.start.mask && !fade.start.l && fade.start.r && fade.end.l && !fade.end.r, JSON.stringify(fade));
+}
+
+// ── 색 C (UI 다듬기 2차 2026-10-27 · PITFALLS 77) ──────────────────────────
+// C4 hover·눌림은 accent에서 계산 — accent를 바꾸면 따라오고(라이트·다크), 한 단(12%)·두 단(24%) 진하다.
+// **되돌리기**: index.css의 --app-accent-strong을 손으로 적은 색(#33589c)으로 두면 깨진다.
+{
+  await load(DESK);
+  const c4 = await ev(`(() => {
+    const el = document.createElement('div'); document.body.appendChild(el);
+    const num = (s) => (s.match(/[\\d.]+/g) || []).slice(0, 3).map(Number).map(v => v <= 1 && s.startsWith('color(') ? v * 255 : v);
+    const read = (cls) => { el.className = cls; return num(getComputedStyle(el).backgroundColor); };
+    const out = {};
+    for (const th of ['light', 'dark']) {
+      document.documentElement.dataset.theme = th;
+      out[th] = { base: read('bg-accent'), hover: read('bg-accent-strong'), press: read('bg-accent-press') };
+    }
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.style.setProperty('--app-accent', '#c0392b');
+    out.swapped = read('bg-accent-strong');
+    document.documentElement.style.removeProperty('--app-accent');
+    el.remove(); return out;
+  })()`);
+  const near = (a, b, k) => a.every((v, i) => Math.abs(v - b[i] * (1 - k)) <= 1.5);
+  check('C4: hover·눌림이 accent의 한 단(12%)·두 단(24%) — 라이트·다크 · accent를 바꾸면 따라온다',
+    ['light', 'dark'].every(t => near(c4[t].hover, c4[t].base, .12) && near(c4[t].press, c4[t].base, .24)) && near(c4.swapped, [192, 57, 43], .12), JSON.stringify(c4));
 }
 
 console.log(results.join('\n'));

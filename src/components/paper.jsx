@@ -43,13 +43,13 @@ import { isNextWeekNotice } from '../services/serviceView.js';
 // ============================================================================
 
 export const PAPER = {
-  canvas: '#f6f5f7',
+  canvas: '#f6f5f2',
   surface: '#fffdfc',
-  line: '#dcd8dc',
-  ink: '#191720',
-  ink2: '#2b2833',
-  muted: '#6b6675',
-  faint: '#a29daa',
+  line: '#dcd8d0',
+  ink: '#1a1815',
+  ink2: '#2c2a25',
+  muted: '#6c665c',
+  faint: '#a39f98',
   accent: '#3f6fc4',
   night: '#213183',
   // 형광펜 바탕과 체크 상자 채움. 앱의 라이트 토큰(--app-tag-yellow · --app-tag-green-fg)과

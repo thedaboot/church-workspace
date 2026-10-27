@@ -1255,7 +1255,7 @@ const gHeart = await ev(`(async () => {
   URL.revokeObjectURL(url);
   const real = toCanvas(await load('data:image/png;base64,' + ${JSON.stringify(gShot.data)}));
   // 그 요소의 칸 안에서 잉크가 걸린 첫 행·끝 행의 가운데. 하트는 파랑(ACCENT #3f6fc4),
-  // 제목은 먹색(INK #191720)이라 채널로 갈린다.
+  // 제목은 먹색(INK #1a1815)이라 채널로 갈린다.
   const mid = (canvas, k, x0, y0, w, h, hit) => {
     const W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
     const d = canvas.getContext('2d').getImageData(Math.round(x0 * k), Math.round(y0 * k), W, H).data;

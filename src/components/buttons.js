@@ -25,5 +25,5 @@ export const BTN = 'px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] fo
 export const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
 
 const CONFIRM_BASE = 'inline-flex items-center justify-center gap-1.5 min-h-10 px-4 py-2.5 rounded-md text-[13px] font-semibold transition active:scale-95 disabled:opacity-40';
-export const BTN_CONFIRM = `${CONFIRM_BASE} bg-accent enabled:hover:bg-accent-strong text-white`;
+export const BTN_CONFIRM = `${CONFIRM_BASE} bg-accent enabled:hover:bg-accent-strong enabled:active:bg-accent-press text-white`;   // hover·눌림은 accent에서 계산(C4)
 export const BTN_CONFIRM_QUIET = `${CONFIRM_BASE} bg-surface-hover enabled:hover:bg-line text-fg-muted`;

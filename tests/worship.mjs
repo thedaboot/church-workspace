@@ -852,7 +852,7 @@ await ev(`window.__inkY = (canvas, x0, y0, w, h) => {
   for (let y = 0; y < Math.round(h); y++) {
     for (let x = 0; x < W; x++) {
       const p = (y * W + x) * 4;
-      // 종이 바탕은 #fffdfc, 라벨 글자는 #a29daa — 어느 채널이든 24 넘게 벌어지면 글자다
+      // 종이 바탕은 #fffdfc, 라벨 글자는 #a39f98 — 어느 채널이든 24 넘게 벌어지면 글자다
       if (Math.abs(d[p] - 255) > 24 || Math.abs(d[p + 1] - 253) > 24 || Math.abs(d[p + 2] - 252) > 24) return y;
     }
   }

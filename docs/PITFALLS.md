@@ -1580,3 +1580,8 @@ className으로 걸면 React가 줄의 className을 다시 쓰는 순간(펼침�
 **75-g.** **뒤 화면 물러남(M11)은 하지 않았다** — 업무 창(TaskModalShell)이 앱 뿌리 **안**에서 그려져 뿌리를 scale하면 창까지 줄고, 뿌리는 바탕을 칠하지 않는다(뒤의 -z-10 글로우를 가리지 않으려고)라
 물러나는 '한 장'을 그릴 바탕이 없으며, 하단 탭바(`fixed`)가 뿌리 안에 있어 기준 박스가 바뀐다. 게다가 폰 업무 창은 불투명 전면 창이고 투명도가 45ms에 다 차서(57-f) 물러남은 끌어 내릴 때만 보인다.
 하려면 창을 body 포털로 빼고 뿌리에 바탕·글로우 층을 다시 짜야 한다.
+
+### 색 (UI 다듬기 2차 C2~C11 · 2026-10-27)
+**77-a.** **중립 회색은 따뜻한 회색이다(C3) — 자색 기운(#f6f5f7 계열 · 로그인 글로우에 맞춘 옛 결정)은 사용자가 2026-10-27에 뒤집었다.** canvas·surface-hover·line·muted는 시안 값, ink·secondary·faint·태그 회색·진행 바 회색·다크 surface는 제 밝기(OKLCH L)를 지키고 색조만 그 가족(h≈80~90)으로 옮겼다. 그림자 색조 `--app-shadow-tint`도 55 42 28(다크 8 6 3)로 맞췄다. 절기 그림자(`--season-*-sh`)는 절기 색이라 그대로다.
+같은 값을 손으로 옮겨 적은 곳이 있다 — `paper.jsx PAPER`·`sunGuide.jsx`·`ClubQr.jsx`(늘 밝은 종이) · `index.html`(첫 그림 바탕 · theme-color) · `coedit/view.js SURFACE`. 토큰을 바꾸면 여기도 같이. **라이트 surface #fffdfc는 그대로**(이미 따뜻한 흰색 · 주보 종이·공동 편집 표면·worship 굽기 비교가 그 값을 쓴다). 로그인·새가족 카드(`LoginScreen`·`newcomerCard`)는 자기 글로우와 한 벌인 공개 화면이라 옛 값 그대로 뒀다.
+**77-b.** **hover·눌림은 accent에서 계산한다(C4)** — `--app-accent-strong` = accent + 검정 12%(hover), `--app-accent-press` = 24%(눌림 · `bg-accent-press`). 식은 `:root`에만 적는다: 다크도 `:root` 요소라 `--app-accent`만 바꾸면 그 자리에서 다시 풀린다(다크 블록에 다시 적지 않는다 — 적으면 손으로 적은 색으로 돌아간다). logcheck-dash 대비 검사는 다크 줄을 `--app-accent: #…; --app-accent-text`로 찾는다.

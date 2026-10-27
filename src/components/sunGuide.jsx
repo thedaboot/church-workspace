@@ -53,13 +53,13 @@ import {
 // ============================================================================
 
 // 라이트 토큰 값 그대로다(index.css :root) — 위 머리말의 '종이는 늘 밝다'.
-const PAPER = '#eeecef';   // --app-surface-hover — 종이 바탕(카드가 떠 보이게 canvas보다 한 단 깊다)
+const PAPER = '#eeece7';   // --app-surface-hover — 종이 바탕(카드가 떠 보이게 canvas보다 한 단 깊다)
 const CARD = '#fffdfc';    // --app-surface
-const LINE = '#dcd8dc';    // --app-line
-const INK = '#191720';     // --app-ink
-const INK_2 = '#2b2833';   // --app-ink-secondary
-const INK_M = '#6b6675';   // --app-ink-muted
-const INK_F = '#a29daa';   // --app-ink-faint
+const LINE = '#dcd8d0';    // --app-line
+const INK = '#1a1815';     // --app-ink
+const INK_2 = '#2c2a25';   // --app-ink-secondary
+const INK_M = '#6c665c';   // --app-ink-muted
+const INK_F = '#a39f98';   // --app-ink-faint
 const ACCENT = '#3f6fc4';  // --app-accent
 const RED = '#993731';     // --app-tag-red-fg
 

@@ -148,7 +148,7 @@ function extPaint(name, mime) {
   if (EXT_PAINT[ext]) return EXT_PAINT[ext];
   if (/^image\//.test(mime || '')) return ['IMG', '#7a5a1e'];
   if (/google-apps\.document/.test(mime || '')) return ['W', '#2b579a'];
-  return [ext.slice(0, 3).toUpperCase() || '파일', '#6b6675'];
+  return [ext.slice(0, 3).toUpperCase() || '파일', '#6c665c'];
 }
 
 export function FileCard({ file, onOpen }) {

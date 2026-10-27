@@ -843,7 +843,7 @@ await send('Emulation.clearDeviceMetricsOverride');
       const img = [...s.querySelectorAll('img')].find(i => i.getBoundingClientRect().height > 0); const r = img?.getBoundingClientRect();
       return { imgs: s.querySelectorAll('img').length, which: img?.className, h: r && Math.round(r.height), cx: r && Math.round(r.left + r.width / 2), cy: r && Math.round(r.top + r.height / 2),
         vw: innerWidth, vh: innerHeight, bg: getComputedStyle(s).backgroundColor, pulse: img && getComputedStyle(img).animationName, loaded: !!img?.complete && img.naturalWidth > 0 }; })()`);
-    const bg = theme === 'dark' ? 'rgb(25, 25, 25)' : 'rgb(246, 245, 247)';
+    const bg = theme === 'dark' ? 'rgb(27, 26, 23)' : 'rgb(246, 245, 242)';
     check(`첫 페인트(${theme}): 번들 전부터 로고 하나 — 3rem · 화면 가운데 · 바탕 = canvas · 숨쉬기`,
       !!b && b.imgs === 2 && b.which === `boot-${theme}` && b.h === 48 && Math.abs(b.cx - b.vw / 2) <= 1 && Math.abs(b.cy - b.vh / 2) <= 1 && b.bg === bg && b.pulse === 'boot-pulse' && b.loaded, JSON.stringify(b));
   }

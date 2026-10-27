@@ -34,8 +34,8 @@ const QUIET = 4;      // 여백 모듈 수 — QR 규격의 최소값이고, 이
 
 // 라이트 토큰 값 그대로다(index.css :root) — 위 머리말의 '카드는 언제나 밝다'.
 const PAPER = '#ffffff';
-const INK = '#191720';
-const INK_MUTED = '#6b6675';
+const INK = '#1a1815';
+const INK_MUTED = '#6c665c';
 const MODULE_FALLBACK = '#213183';   // --app-night
 
 // 그림으로 구운 뒤에는 우리 폰트(SUIT)가 따라가지 않는다 — <img>로 그리는 SVG는
