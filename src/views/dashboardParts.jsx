@@ -96,19 +96,33 @@ export const STATUS_DOT_VAR = {
 // 들어오는 동안 바만 이미 꽉 차 있어서 순서가 어긋나 보였다.
 // 값이 바뀔 때(상태를 옮기거나 필터를 바꿀 때)는 지연 없이 바로 이어진다.
 const BAR_MOUNT_DELAY = 160;   // KPI 칸 등장(320ms)의 중간쯤 — 숫자가 먼저 읽힌다
+// **다 찬 순간 빛이 한 번 지나간다**(UI 다듬기 2차 C11 · PITFALLS 77-f) — 끝낸 몫 막대(brand-grad)만, 보고 있는 동안
+// 100% 아래에서 100%가 되는 순간에만. 처음부터 100%로 뜬 막대는 지나가지 않는다(자주 보는 것은 덜 움직인다 · D4).
+const SWEEP_COLOR = 'var(--app-brand-grad)';
 export function Bar({ ratio, color, height = 4 }) {
   const target = Math.max(0, Math.min(1, ratio || 0));
   const grown = useRef(false);
   const [shown, setShown] = useState(() => (prefersReducedMotion() ? target : 0));
+  const prev = useRef(target);
+  const [sweep, setSweep] = useState(0);
   useEffect(() => {
+    if (color === SWEEP_COLOR && prev.current < 1 && target >= 1 && !prefersReducedMotion()) setSweep(n => n + 1);
+    prev.current = target;
     if (grown.current || prefersReducedMotion()) { setShown(target); return; }
     const id = setTimeout(() => { grown.current = true; setShown(target); }, BAR_MOUNT_DELAY);
     return () => clearTimeout(id);
-  }, [target]);
+  }, [target, color]);
+  // 숨은 칸(폰/데스크톱 중 안 보이는 쪽)에서는 애니메이션이 돌지 않아 animationend가 안 온다 — 시간으로도 걷는다(1.1s + .35s 뒤)
+  useEffect(() => {
+    if (!sweep) return undefined;
+    const id = setTimeout(() => setSweep(0), 1600);
+    return () => clearTimeout(id);
+  }, [sweep]);
   return (
-    <span className="block rounded-full overflow-hidden" style={{ height, background: 'var(--p-track)' }}>
+    <span className="relative block rounded-full overflow-hidden" style={{ height, background: 'var(--p-track)' }}>
       <span className="dc-bar-fill block h-full rounded-full"
         style={{ background: color, transform: `scaleX(${shown.toFixed(3)})` }} />
+      {sweep > 0 && <span key={sweep} className="dc-bar-sweep" aria-hidden="true" onAnimationEnd={() => setSweep(0)} />}
     </span>
   );
 }

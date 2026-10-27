@@ -1330,6 +1330,25 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
     }
     check('C9: 화면 className에 원색(hex·Tailwind 팔레트)이 없다 — 역할 토큰만', raw.length === 0, raw.join(' · '));
   }
+
+  // C11 — 대시보드 '전체 진척도'(끝낸 몫 막대)가 보는 동안 100%가 되는 순간 빛이 한 번 지나간다(transform만 · 끝나면 걷힘).
+  // 처음 뜰 때는 없다. **되돌리기**: dashboardParts Bar의 setSweep 줄을 지우면 깨진다.
+  await load(DESK);
+  const c11 = await ev(`(async () => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    await sleep(900);
+    const atMount = document.querySelectorAll('.dc-bar-sweep').length;
+    const s = window.__store; const st = s.getState();
+    for (const id of st.tasks.allIds) { const t = st.tasks.byId[id]; if (t.status !== '완료') s.dispatch({ type: 'UPSERT_TASK', payload: { ...t, status: '완료' } }); }
+    await sleep(250);
+    const sw = [...document.querySelectorAll('.dc-bar-sweep')];
+    const fill = sw[0]?.parentElement.querySelector('.dc-bar-fill');
+    const kf = sw[0]?.getAnimations().map(a => Object.keys(a.effect.getKeyframes()[0]).filter(k => !['offset', 'easing', 'composite', 'computedOffset'].includes(k)));
+    const r = { atMount, n: sw.length, grad: fill ? /gradient/.test(getComputedStyle(fill).backgroundImage) : null, props: kf, dur: sw[0] && getComputedStyle(sw[0]).animationDuration };
+    await sleep(1800); r.after = document.querySelectorAll('.dc-bar-sweep').length; return r;
+  })()`, true);
+  check('C11: 진척도가 100%가 되는 순간에만 빛이 한 번(transform) — 처음엔 없고 끝나면 걷힌다',
+    c11.atMount === 0 && c11.n >= 1 && c11.grad && JSON.stringify(c11.props) === '[["transform"]]' && c11.dur === '1.1s' && c11.after === 0, JSON.stringify(c11));
 }
 
 console.log(results.join('\n'));
