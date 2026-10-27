@@ -620,6 +620,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   // 화면이 서 있는 동안 날짜가 흔들리지 않게 한 번만 잡는다(자정을 넘겨도 홈을 다시
   // 열면 새 날짜다 — App이 화면을 바꿀 때마다 이 뷰를 다시 마운트한다).
   const [day] = useState(kstToday);
+  const [squish, setSquish] = useState(false);   // 다붓이를 누른 순간(K2)
   // 인사말이 보는 시각. 날짜와 같이 **한 번만** 잡는다 — 렌더마다 다시 재면
   // 구간 경계(heroSlot의 6·10·18·23시)를 넘는 순간 리렌더 하나 때문에 인사말이 바뀐다.
   const [hour] = useState(kstHour);
@@ -1017,8 +1018,13 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
             카드가 밀리지 않는다. eager + fetchpriority=high: 첫 화면에 바로 보이는
             그림이라 미루면 홈이 한 번 비어 보인다. decoding=async: 디코딩이 첫 페인트를
             붙잡지 않게. 등장 연출은 **그림이 도착한 뒤에** 걸린다(showcase.jsx의 Cut). */}
-        <Cut src={HERO_CUT.src} w={HERO_CUT.w} h={HERO_CUT.h} eager
-          className="home-cut block mx-auto mt-4 md:mt-5 w-auto h-[112px] md:h-[140px] select-none pointer-events-none" />
+        {/* 다붓이가 숨 쉬고(4초에 1.5%) 누르면 말랑하게 눌린다(UI 다듬기 2차 K2) — 그림에는 등장 연출(.dc-card)이
+            이미 걸려 있어 감싸는 칸에 건다. 장식이라 탭 순서에 넣지 않는다(aria-hidden · 기능 없음). */}
+        <span aria-hidden="true" onClick={() => setSquish(true)} onAnimationEnd={(e) => { if (e.animationName === 'dc-squish') setSquish(false); }}
+          className={`home-cut-wrap block w-fit mx-auto mt-4 md:mt-5 cursor-pointer select-none ${squish ? 'dc-squish' : 'dc-breathe'}`}>
+          <Cut src={HERO_CUT.src} w={HERO_CUT.w} h={HERO_CUT.h} eager
+            className="home-cut block w-auto h-[112px] md:h-[140px] select-none pointer-events-none" />
+        </span>
       </section>
 
       {/* **`grid-cols-1`을 빼지 말 것.** 없으면 모바일의 한 칸이 `auto` 트랙이라 폭을

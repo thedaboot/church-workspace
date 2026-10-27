@@ -951,6 +951,10 @@ svg.lucide { stroke-width: 1.4px; }
    그 밖의 메뉴는 가만히 있다. `prefers-reduced-motion`이면 전부 멈춘다(맨 아래).
    --app-hero는 다붓이 바탕(옅은 남색) — 목업 값 그대로. */
 :root { --app-hero: #eef1fb; }
+/* 바탕 빛(.app-glow)의 하늘 · 라벤더 · 분홍을 한 줄로(UI 다듬기 2차 D1 · 사용자 결정 2026-10-27) — 진행 막대(끝낸 몫)와
+   다붓이 입구 테두리에만 쓴다. 바탕 빛 값(#62aef0 · #d6b6f6 · #ffb6dd)보다 가운데·끝을 한 단 진하게 — 그대로면 밝은 트랙 위에서 분홍 끝이 묻혔다. */
+:root { --app-brand-grad: linear-gradient(90deg, #62aef0, #c3a2f2 55%, #f59fcd); }
+:root[data-theme='dark'] { --app-brand-grad: linear-gradient(90deg, #5a9ad6, #a586d6 55%, #d58bb4); }
 :root[data-theme='dark'] { --app-hero: #1f2433; }
 @keyframes dab-tilt { 0%, 78%, 100% { transform: rotate(0); } 84% { transform: rotate(-12deg); } 90% { transform: rotate(8deg); } 95% { transform: rotate(-3deg); } }
 .dab-tilt .dab-face { transform-origin: 50% 80%; animation: dab-tilt 5s ease-in-out infinite; }
@@ -1076,3 +1080,35 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
   .ops-ease, .ops-fold, .ops-seg-thumb.ops-seg-live, .bell-smooth-h, .ops-chev, .ops-shot { transition: none !important; }
   .ops-pop { animation: none !important; }
 }
+
+/* ── UI 다듬기 2차 모션(2026-10-27 · PITFALLS 71-d) ─────────────────────────────
+   transform·opacity만 움직이고, 움직임 줄이기면 끈다. 값은 index.css 모션 토큰(quint)과 같은 결이다.
+   - .dc-spring  : 켬/끔 스위치 손잡이 — 몇 px 지나쳤다 제자리(D3)
+   - .dc-react-pop : 반응을 켠 순간 아이콘이 눌렸다 튄다(M4)
+   - .dc-num-roll : 바뀐 숫자만 아래에서 굴러 올라온다(M3) — 처음 그릴 때는 붙이지 않는다
+   - .dc-breathe / .dc-squish : 홈 다붓이 숨쉬기 · 누르면 말랑(K2)
+   창 뒤 흐림(M5)은 뺐다 — 막이 opacity로 떠오르는 동안 브라우저가 backdrop-filter를 끊어(backdrop root) 끝에 흐림이 툭 켜진다. */
+.dc-spring { transition: transform .42s cubic-bezier(.34, 1.56, .64, 1); }
+@keyframes dc-react-pop { 0% { transform: scale(1); } 30% { transform: scale(.72); } 65% { transform: scale(1.22); } 100% { transform: scale(1); } }
+.dc-react-pop { animation: dc-react-pop .42s var(--ease-out-quint); }
+@keyframes dc-num-roll { from { transform: translateY(70%); opacity: 0; } }
+.dc-num-roll { display: inline-block; animation: dc-num-roll .32s var(--ease-out-quint) both; }
+@keyframes dc-breathe { 50% { transform: scale(1.015) translateY(-1px); } }
+.dc-breathe { transform-origin: 50% 100%; animation: dc-breathe 4s ease-in-out infinite; }
+@keyframes dc-squish { 0% { transform: scale(1); } 25% { transform: scale(1.08, .9); } 55% { transform: scale(.97, 1.04); } 100% { transform: scale(1); } }
+.dc-squish { transform-origin: 50% 100%; animation: dc-squish .5s var(--ease-out-quint); }
+@media (prefers-reduced-motion: reduce) {
+  .dc-spring { transition: none; }
+  .dc-react-pop, .dc-num-roll, .dc-breathe, .dc-squish { animation: none !important; }
+}
+/* 눌러서 여는 카드(동아리 · 예배)는 마우스를 올리면 한 겹 떠오른다(UI 다듬기 2차 S1 · 홈 카드와 같은 값).
+   마우스가 있는 기기만 — 폰에서는 누른 뒤 떠 있는 채로 남는다. 업무 보드 줄은 상자가 아니라 줄이라 걸지 않는다. */
+@media (hover: hover) {
+  .dc-lift { transition: translate .2s var(--ease-out-quint), box-shadow .2s var(--ease-out-quint); }
+  .dc-lift:hover { translate: 0 -2px; box-shadow: var(--app-shadow-elevated); }
+}
+@media (prefers-reduced-motion: reduce) { .dc-lift:hover { translate: none; } }
+/* 방금 닫은 업무 줄이 잠깐 연한 파랑으로 남는다(UI 다듬기 2차 C1 · hooks/morph.js) — 창에서 돌아왔을 때 눈이 어디로 돌아왔는지 안다 */
+@keyframes dc-was-open { from { background-color: var(--app-accent-weak); } }
+.dc-was-open { animation: dc-was-open 1.4s ease-out; }
+@media (prefers-reduced-motion: reduce) { .dc-was-open { animation-duration: .6s; } }

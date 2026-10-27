@@ -226,7 +226,7 @@ function DraggableCard({ task, index, projectsMap, showProjectBadge, onTaskClick
     [task, onStatusChange]);
   return (
     <div
-      ref={setRefs} {...attributes} {...listeners}
+      ref={setRefs} {...attributes} {...listeners} data-flip={task.id}
       onClick={() => onTaskClick(task)}
       // 카드를 흰 상자로 세우지 않고 목록의 한 줄로 둔다 — 얇은 구분선만.
       // 상자 + 그림자 + 라운드를 카드마다 반복하면 화면이 자동 생성된 것처럼 읽힌다.

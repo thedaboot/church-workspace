@@ -75,6 +75,27 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
     check('다듬기: 폰 업무 창은 투명도를 먼저 채우고 떠오른다(dc-rise-in 12%)', /@keyframes dc-rise-in\s*\{[^}]*\}\s*12%\s*\{\s*opacity:\s*1;?\s*\}/.test(css));
     const bp = readFileSync(new URL('../src/components/bibleParts.jsx', import.meta.url), 'utf8');
     check('다듬기: 형광펜은 글자색을 바꾸지 않는다(펜 자국)', /color:\s*'inherit'/.test(bp) && !/tag-(red|blue|yellow|green)-fg/.test(bp.slice(bp.indexOf('const HL_TOKEN'), bp.indexOf('export const hlColor'))), '');
+    // ⑨ 2차(2026-10-27): 스위치 손잡이는 transform + 탄성 곡선(D3) · 대시보드 숫자는 바뀔 때만 굴러옴(M3) · 진행 막대·다붓이 입구는
+    //    바탕 빛 그라데이션(D1) · 동아리·예배 카드는 마우스가 있는 기기에서만 떠오름(S1). **되돌리기**: ShareSwitch를 left 전환으로 되돌리면 깨진다.
+    const bpx = readFileSync(new URL('../src/components/bibleParts.jsx', import.meta.url), 'utf8');
+    const dp = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+    check('다듬기 2차: 스위치 손잡이는 transform으로 · 탄성 곡선', /dc-spring/.test(bpx) && !/transition-\[left\]/.test(bpx) && /\.dc-spring\s*\{\s*transition: transform [^;]*cubic-bezier\(\.34, 1\.56/.test(css), '');
+    check('다듬기 2차: 숫자는 처음엔 가만히 · 바뀔 때만 굴러옴', /export function RollNum/.test(dp) && /<RollNum value=\{value\} \/>/.test(dp) && /rolled\.current \? 'dc-num-roll' : undefined/.test(dp), '');
+    check('다듬기 2차: 바탕 빛 그라데이션 토큰이 두 테마에', /:root \{ --app-brand-grad: linear-gradient/.test(css) && /:root\[data-theme='dark'\] \{ --app-brand-grad:/.test(css), '');
+    check('다듬기 2차: 카드 떠오름은 hover 있는 기기만', /@media \(hover: hover\) \{\s*\.dc-lift/.test(css), '');
+    const tt = readFileSync(new URL('../src/components/taskTable.jsx', import.meta.url), 'utf8');
+    const fl = readFileSync(new URL('../src/hooks/useFlip.js', import.meta.url), 'utf8');
+    check('다듬기 2차: 표·대시보드 줄은 새 자리로 미끄러진다(FLIP · 처음엔 재기만 · 움직임 줄이기면 재기만)',
+      /useFlip\(flipRef, \[rows\]\)/.test(tt) && (tt.match(/data-flip=\{t\.id\}/g) || []).length === 2 && /useFlip\(flipRef, \[groups, expanded\]\)/.test(dp) && /data-flip=\{t\.id\}/.test(dp)
+      && /if \(!prev \|\| prefersReducedMotion\(\)\) return;/.test(fl) && /box\.scrollTop/.test(fl), '');
+    // M1·C1 — 창 자체를 키우지 않고 빈 판(유령)을 transform으로 키운다 · 출발점은 0.8초 안에 누른 data-flip 줄만 · 움직임 줄이기면 유령 없음
+    // **되돌리기**: morph.js의 squeeze를 width·height 애니메이션으로 바꾸거나 modals.jsx에서 morphOpen을 지우면 깨진다.
+    const mo = readFileSync(new URL('../src/hooks/morph.js', import.meta.url), 'utf8');
+    const md = readFileSync(new URL('../src/modals/modals.jsx', import.meta.url), 'utf8');
+    check('다듬기 2차: 업무 창은 누른 줄에서 자라고 그 줄로 돌아간다(유령 판 · transform만)',
+      /morphOpen\(document\.querySelector\('\[data-task-window\]'\), task\.id\)/.test(md) && /morphClose\(document\.querySelector\('\[data-task-window\]'\), id\)/.test(md)
+      && (md.match(/data-task-window=""/g) || []).length === 2 && /translate\(\$\{from\.left - to\.left\}px[^`]*scale\(/.test(mo) && !/width:\s*`\$\{[^}]+\}px`\s*\}\s*,\s*\{\s*width/.test(mo)
+      && /performance\.now\(\) - o\.at > 800/.test(mo) && /prefersReducedMotion\(\)/.test(mo) && /\.dc-was-open \{ animation: dc-was-open/.test(css), '');
     // ⑧ 읽기 화면도 같은 펜 자국이다 — 편집(.tiptap)만 바꾸고 업무 본문 읽기(RichText)·종이 읽기(paper)는 옛 네모로 남았었다(2026-10-27 사용자 확인)
     const rt = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
     const pp = readFileSync(new URL('../src/components/paper.jsx', import.meta.url), 'utf8');

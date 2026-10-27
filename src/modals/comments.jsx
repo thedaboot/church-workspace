@@ -88,7 +88,10 @@ const cardOfComment = (commentId) => {
 // 아무도 누르지 않은 반응은 테두리 없이 흐린 아이콘만(UI 다듬기 2026-10-26) — 댓글마다 원 셋이 서 있어
 // 댓글 네 개면 원이 열둘이라 글보다 버튼이 먼저 보였다. 버튼은 그 자리에 그대로 있다(숨기지 않는다 · §8).
 // 누가 누르면 테두리·얼굴이 붙어 그 칩만 선다.
-const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
+// 켠 순간만 아이콘이 눌렸다 튄다(.dc-react-pop · UI 다듬기 2차 M4) — 끌 때·남이 누를 때는 가만히.
+const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => {
+  const [popKind, setPopKind] = useState(null);
+  return (
   // 줄바꿈하지 않는다 — 좁은 사이드바에서 확인 칩만 둘째 줄로 떨어져 어색했다
   // (사용자 지적 2026-08-30). 같은 종류가 이어지는 줄이라 가로 스크롤이 §8에
   // 걸리지 않는다(프로젝트 탭·상태 칩과 같은 결). 스크롤바는 숨긴다.
@@ -101,11 +104,13 @@ const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
         <span key={kind}
           className={`inline-flex items-center shrink-0 rounded-full border transition-colors ${mine ? on : count > 0 ? 'border-line text-fg-faint' : 'border-transparent text-fg-faint'}`}>
           <button
-            type="button" onClick={() => onToggle(kind)} aria-pressed={mine}
+            type="button" onClick={() => { if (!mine) setPopKind(kind); onToggle(kind); }} aria-pressed={mine}
             title={mine ? `${label} 취소` : label} aria-label={mine ? `${label} 취소` : label}
             className="flex items-center justify-center w-6 h-6 rounded-full transition active:scale-95 hover:bg-surface-hover"
           >
-            <Icon size={12} {...(mine && fill ? { fill: 'currentColor' } : {})} />
+            <Icon size={12} {...(mine && fill ? { fill: 'currentColor' } : {})}
+              className={popKind === kind ? 'dc-react-pop' : undefined}
+              onAnimationEnd={() => setPopKind(null)} />
           </button>
           {count > 0 && (
             <span className={`flex items-center pl-0.5 ${extra > 0 ? 'pr-1' : 'pr-2'}`}>
@@ -129,7 +134,8 @@ const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
       );
     })}
   </div>
-);
+  );
+};
 
 // 누가 눌렀는지 — 대시보드의 '가입한 사람'(MembersModal)과 같은 결이다.
 // **+N을 눌렀을 때만 연다.** 세 명 이하는 칩에 얼굴이 다 서 있어서 창을 띄울 이유가 없다.

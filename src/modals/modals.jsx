@@ -44,6 +44,7 @@ import { CardLockButton, LockedPanel, LockGate, LockResetNotice } from '../compo
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useLeave } from '../hooks/useExit.js';
+import { morphOpen, morphClose } from '../hooks/morph.js';
 import { showToast } from '../components/Toast.jsx';
 import { trackEditing } from '../services/presence.js';
 import { LeaderChip } from '../components/leaderOnly.jsx';
@@ -296,7 +297,13 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   const [leaving, leave] = useLeave();
   const idRef = useRef(task.id);
   idRef.current = task.id;
-  const shut = useCallback(() => { const id = idRef.current; leave(() => { if (idRef.current === id) onClose(); }); }, [leave, onClose]);
+  // 누른 줄에서 자라고 그 줄로 돌아가 앉는다(UI 다듬기 2차 M1 · hooks/morph.js) — 처음 설 때 한 번 · 닫기를 누른 순간 한 번
+  useLayoutEffect(() => { morphOpen(document.querySelector('[data-task-window]'), task.id); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  const shut = useCallback(() => {
+    const id = idRef.current;
+    morphClose(document.querySelector('[data-task-window]'), id);
+    leave(() => { if (idRef.current === id) onClose(); });
+  }, [leave, onClose]);
   const close = useCallback(() => { flushAll(); shut(); }, [flushAll, shut]);
   const out = leaving ? ' dc-out' : '';
 
@@ -668,7 +675,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
          `fixed`는 **레이아웃 뷰포트**에 붙으므로, 키보드가 올라와 앱 뿌리가 줄어도
          이 창의 바닥은 그대로 화면 밖(키보드 밑)에 남는다. 뿌리와 같은 높이를 쓰면
          댓글 입력칸과 아래 도구 줄이 키보드 바로 위에 선다(App.jsx의 --app-vh 주석). */
-      <div className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-50 bg-surface flex flex-col dc-rise${out}`}>
+      <div data-task-window="" className={`fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-50 bg-surface flex flex-col dc-rise${out}`}>
         <div className="shrink-0 px-4 py-3 border-b border-line flex justify-between items-center gap-2 bg-surface">{headerInner}</div>
         {!isNew && !closed && (
           <div className="flex border-b border-line bg-surface shrink-0">
@@ -721,7 +728,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
     >
       {/* 전체 화면이면 창이 뷰포트를 다 쓴다 — 딤·모서리·최대 폭이 전부 사라져야
           "확대된 창"이 아니라 "전체 화면"으로 읽힌다. 복귀 버튼은 헤더의 같은 자리. */}
-      <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden dc-dialog${out} duration-150 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[min(85dvh,calc(var(--app-vh,100dvh)-2rem))] rounded-lg'}`}>
+      <div data-task-window="" className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden dc-dialog${out} duration-150 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[min(85dvh,calc(var(--app-vh,100dvh)-2rem))] rounded-lg'}`}>
         {/* 머리줄·바닥 줄은 구르는 칸 **밖**이다(시안 2차 2026-10-16) — 예전에는 셋이 한 구르는 통 안(sticky)이었고 그 통에
             `scrollbar-gutter: stable`이 걸려, 막대가 없을 때도 비워 둔 막대 자리만큼 머리줄·바닥 줄이 창 오른쪽 테두리에
             못 닿아 빈 띠가 섰다. 막대 자리는 본문 통에만 잡아 둔다 — 보기(짧다)와 수정(길다)을 오갈 때 본문이 옆으로 뛰지 않게.

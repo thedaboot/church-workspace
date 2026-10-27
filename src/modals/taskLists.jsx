@@ -235,7 +235,7 @@ export function SubtaskList({ value = [], onChange, members = [], live = false, 
         {total > 0 && (
           <span className="text-[11px] font-semibold text-fg-muted tabular-nums">{done}/{total}</span>
         )}
-        <span className="flex-1 min-w-[40px]"><Bar ratio={total ? done / total : 0} color="var(--p-blue)" height={3} /></span>
+        <span className="flex-1 min-w-[40px]"><Bar ratio={total ? done / total : 0} color="var(--app-brand-grad)" height={3} /></span>
       </div>
       <div className="divide-y divide-line/60 border-y border-line">
         {value.map(s => {

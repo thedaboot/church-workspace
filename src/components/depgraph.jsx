@@ -139,9 +139,9 @@ export function DepGraph({ tasks, onTaskClick }) {
     return <GraphEmpty />;
   }
   // 폰 아래 여백 = main의 아래 여백(탭바 + safe-area + 틈) — 프로젝트 화면은 h-full이라 판이 그 상자를 넘쳐 흐르고,
-  // 넘친 부분에는 main의 padding-bottom이 붙지 않아 맨 아래 알약이 탭바 밑에 깔린 채 더 내려가지 않았다(PITFALLS 68-a).
+  // 넘친 부분에는 main의 padding-bottom이 붙지 않아 맨 아래 알약이 탭바 밑에 깔린 채 더 내려가지 않았다(PITFALLS 68-a). 데스크톱도 같은 이유로 판이 창 바닥에 붙어 끝났다 — md:pb-4(사용자 지적 2026-10-27).
   return (
-    <div className="flex-1 min-h-0 flex flex-col pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0" data-graph-root="">
+    <div className="flex-1 min-h-0 flex flex-col pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-4" data-graph-root="">
       <div className="pb-2 shrink-0 flex items-center gap-2.5 flex-wrap">
         {/* 안내 줄은 빈 상태(연결이 하나도 없을 때)에만 — 그 외에는 붙이지 않는다
             (사용자 결정 2026-08-27). */}

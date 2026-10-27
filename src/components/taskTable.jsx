@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState, useCallback } from 'react';
+import { useFlip } from '../hooks/useFlip.js';
 import { createPortal } from 'react-dom';
 import { ArrowUp, ChevronDown, SlidersHorizontal, Check } from 'lucide-react';
 import { CONFIG, teamColor, teamPaint } from '../config.js';
@@ -106,7 +107,7 @@ function SubCell({ list = [] }) {
   const done = list.filter(s => s.done).length;
   return (
     <span className="inline-flex items-center gap-2 min-w-0 w-full">
-      <span className="flex-1 min-w-[28px] max-w-[64px]"><Bar ratio={done / list.length} color="var(--p-blue)" height={3} /></span>
+      <span className="flex-1 min-w-[28px] max-w-[64px]"><Bar ratio={done / list.length} color="var(--app-brand-grad)" height={3} /></span>
       <span className="text-[11.5px] text-fg-muted tabular-nums shrink-0">{done}/{list.length}</span>
     </span>
   );
@@ -279,10 +280,13 @@ export const TaskTable = React.memo(function TaskTable({ tasks, onTaskClick, onS
   });
 
   const names = useMemo(() => assigneesOf(tasks), [tasks]);
+  // 상태·정렬이 바뀌어 줄이 자리를 옮기면 미끄러져 간다(M2 · hooks/useFlip) — 폰·데스크톱 둘 중 그려진 쪽 하나에 붙는다
+  const flipRef = useRef(null);
   const rows = useMemo(() => {
     const shown = filterTasks(tasks, { statuses, assignees });
     return sort ? sortTasks(shown, sort.key, sort.dir) : shown;
   }, [tasks, statuses, assignees, sort]);
+  useFlip(flipRef, [rows]);
   const onSort = (k) => setSort(cur => nextSort(cur, k));
   const filtered = statuses.length + assignees.length + (sort ? 1 : 0);
 
@@ -302,13 +306,13 @@ export const TaskTable = React.memo(function TaskTable({ tasks, onTaskClick, onS
             <SlidersHorizontal size={14} />정렬·필터{filtered > 0 && <span className="tabular-nums"> · {filtered}</span>}
           </button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-[10px] border border-line bg-surface">
+        <div ref={flipRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-[10px] border border-line bg-surface">
           <div className="grid items-center gap-x-2 px-3 h-9 border-b border-line sticky top-0 bg-surface z-[1]" style={grid}>
             <HeadCell k="title" sort={sort} onSort={onSort} />
             {cols.map(k => <HeadCell key={k} k={k} sort={sort} onSort={onSort} />)}
           </div>
           {rows.length === 0 ? empty : rows.map((t, i) => (
-            <button key={t.id} type="button" onClick={() => onTaskClick(t)} data-table-row=""
+            <button key={t.id} type="button" onClick={() => onTaskClick(t)} data-table-row="" data-flip={t.id}
               className="dc-row w-full grid items-center gap-x-2 px-3 py-2.5 text-left border-b border-line/60 last:border-b-0 active:bg-surface-hover"
               style={{ ...grid, animationDelay: `${Math.min(i, 12) * 22}ms` }}>
               <span className="flex items-center gap-2 min-w-0">
@@ -343,12 +347,12 @@ export const TaskTable = React.memo(function TaskTable({ tasks, onTaskClick, onS
         <span className="flex-1" />
         <span className="text-[11.5px] text-fg-muted tabular-nums">{rows.length}건</span>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto rounded-[10px] border border-line bg-surface shadow-soft">
+      <div ref={flipRef} className="flex-1 min-h-0 overflow-y-auto rounded-[10px] border border-line bg-surface shadow-soft">
         <div role="row" className="grid items-center gap-x-3 px-4 h-9 border-b border-line sticky top-0 bg-surface z-[1]" style={grid}>
           {TABLE_COLS.map(([k]) => <HeadCell key={k} k={k} sort={sort} onSort={onSort} />)}
         </div>
         {rows.length === 0 ? empty : rows.map((t, i) => (
-          <div key={t.id} role="row" tabIndex={0} onClick={() => onTaskClick(t)} data-table-row=""
+          <div key={t.id} role="row" tabIndex={0} onClick={() => onTaskClick(t)} data-table-row="" data-flip={t.id}
             onKeyDown={(e) => { if (imeComposing(e)) return; if (e.key === 'Enter' && e.target === e.currentTarget) onTaskClick(t); }}
             className="dc-row grid items-center gap-x-3 px-4 min-h-[44px] py-1.5 cursor-pointer border-b border-line/60 last:border-b-0 hover:bg-surface-hover transition-colors outline-none focus-visible:bg-surface-hover"
             style={{ ...grid, animationDelay: `${Math.min(i, 12) * 22}ms` }}>

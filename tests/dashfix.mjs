@@ -597,6 +597,15 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
     return { n: btns.length, inside: R.every(r => r.top >= C.top && r.bottom <= C.bottom), lastBottom: Math.round(Math.max(...R.map(r => r.bottom))), navTop: Math.round(nav.top) };
   })()`);
   check('그래프 폰 393: 판이 알약을 다 담고 끝까지 내리면 마지막 알약이 하단 바 위', !!reach && reach.n === 25 && reach.inside && reach.lastBottom <= reach.navTop, JSON.stringify(reach));
+  // ①-c 데스크톱도 끝까지 내리면 판 아래에 틈이 남는다(사용자 지적 2026-10-27 — 판이 창 바닥에 붙어 끝났다 · md:pb-0이었다).
+  // **되돌리기**: depgraph.jsx 뿌리의 md:pb-4를 md:pb-0으로 되돌리면 gap < 12로 깨진다.
+  await openGraph(1280); await sleep(2600);
+  const deskGap = await ev(`(() => {
+    const m = document.querySelector('main'); m.scrollTop = m.scrollHeight;
+    const panel = document.querySelector('[data-graph-root] > .rounded-\\\\[10px\\\\]'); if (!panel) return null;
+    return { gap: Math.round(m.getBoundingClientRect().bottom - panel.getBoundingClientRect().bottom) };
+  })()`);
+  check('그래프 데스크톱 1280: 끝까지 내리면 판 아래에 12px 넘는 틈', !!deskGap && deskGap.gap >= 12, JSON.stringify(deskGap));
   // ② 업무가 늘어 판이 길어져도 툭 튀지 않는다 — 한 프레임에 움직인 거리 · 판 높이가 같은 곡선으로 늘어나는지
   await openGraph(393); await sleep(3000);
   await ev(`(() => {

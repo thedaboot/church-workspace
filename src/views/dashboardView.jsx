@@ -261,7 +261,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     <KpiCell
       className={shell} style={style} delay={120} phoneNote
       label="전체 진척도" value={`${progress}%`} unit={null} note={`${doneAll}/${progressTotal}건`}
-      dot="var(--app-accent)" bar="var(--p-blue)" ratio={progressTotal ? doneAll / progressTotal : 0}
+      dot="var(--app-accent)" bar="var(--app-brand-grad)" ratio={progressTotal ? doneAll / progressTotal : 0}
     />
   );
 

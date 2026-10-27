@@ -93,7 +93,7 @@ function Face({ size = 26, className = '' }) {
   );
 }
 
-// 데스크톱 상단 바 — 두 묶음 밖, 찾기 바로 앞(사용자 결정 2026-10-02)
+// 데스크톱 상단 바 — 두 묶음 밖, 찾기 바로 앞(사용자 결정 2026-10-02) · 테두리는 바탕 빛 그라데이션(--app-brand-grad · UI 다듬기 2차 D1)
 // 위키 코드는 늦게 싣는다(App.jsx lazy) — 입구에 손이 가면 미리 받아, 누를 때 받기와 프로젝트 줄 접힘 모션이 겹치지 않게 한다
 export const prefetchWiki = () => { import('../views/wikiView.jsx').catch(() => {}); };
 
@@ -101,7 +101,7 @@ export function DaboutiPill({ active, onClick }) {
   return (
     <button type="button" onClick={onClick} onPointerEnter={prefetchWiki} onFocus={prefetchWiki} aria-current={active ? 'page' : undefined}
       className="dab-tilt dab-pill shrink-0 inline-flex items-center gap-[7px] h-8 pl-[3px] pr-3 rounded-full border text-[12.5px] font-semibold text-accent-text whitespace-nowrap transition active:scale-95"
-      style={{ background: 'var(--app-hero)', borderColor: 'color-mix(in srgb, var(--app-accent) 25%, transparent)', boxShadow: `0 0 0 3px color-mix(in srgb, var(--app-accent) ${active ? 22 : 12}%, transparent)` }}>
+      style={{ background: 'linear-gradient(var(--app-hero), var(--app-hero)) padding-box, var(--app-brand-grad) border-box', borderColor: 'transparent', boxShadow: `0 0 0 3px color-mix(in srgb, var(--app-accent) ${active ? 22 : 12}%, transparent)` }}>
       <Face size={26} />
       다붓이에게 물어보기
     </button>

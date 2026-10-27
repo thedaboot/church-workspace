@@ -435,8 +435,9 @@ export function ShareSwitch({ on }) {
   return (
     <span aria-hidden="true" className="relative shrink-0 w-[30px] h-[18px] rounded-full transition-colors"
       style={{ background: on ? 'var(--app-accent)' : 'var(--app-line)' }}>
-      <span className="absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-[left] duration-150"
-        style={{ left: on ? 14 : 2 }} />
+      {/* 손잡이는 transform으로 옮기고 몇 px 지나쳤다 돌아온다(.dc-spring · UI 다듬기 2차 D3) — 예전에는 left를 150ms로 옮겼다 */}
+      <span className="absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white dc-spring"
+        style={{ transform: on ? 'translateX(12px)' : 'none' }} />
     </span>
   );
 }

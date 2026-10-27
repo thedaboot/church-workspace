@@ -152,7 +152,7 @@ function ServiceCard({ service, onOpen, attended = 0, cover = null }) {
   const photo = useCoverShown(cover);
   return (
     <button type="button" onClick={() => onOpen(service)} data-season={season?.color || 'plain'}
-      className={`worship-card season-wash dc-card relative w-full text-left px-4 py-3.5 ${CARD}${photo.shown ? ' has-cover' : ''}`} style={CARD_SEASON_STYLE}>
+      className={`worship-card season-wash dc-card dc-lift relative w-full text-left px-4 py-3.5 ${CARD}${photo.shown ? ' has-cover' : ''}`} style={CARD_SEASON_STYLE}>
       {photo.shown && <CoverImg cover={cover} focus={service.cover_focus_y} onFail={photo.onFail} sizes="(min-width: 640px) 520px, 100vw" />}
       <div className="flex items-start gap-2">
         <p className="worship-card-title flex-1 min-w-0 text-[15px] font-bold text-fg tracking-[-0.2px] break-words">

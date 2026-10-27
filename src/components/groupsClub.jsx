@@ -234,7 +234,7 @@ function ClubCard({ club, people, members, joined, pending, next = '', onOpen })
   const setRefs = useCallback((el) => { setNodeRef(el); setDropRef(el); }, [setNodeRef, setDropRef]);
   return (
     <button ref={setRefs} {...attributes} {...listeners} type="button" onClick={() => onOpen(club)}
-      className={`club-card dc-card w-full text-left p-3.5 cursor-grab active:cursor-grabbing transition ${CARD} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'shadow-[inset_0_2px_0_0_var(--app-accent)]' : ''}`}
+      className={`club-card dc-card w-full text-left p-3.5 cursor-grab active:cursor-grabbing transition ${CARD} ${isDragging ? 'opacity-40' : 'dc-lift'} ${isOver && !isDragging ? 'shadow-[inset_0_2px_0_0_var(--app-accent)]' : ''}`}
       style={CARD_STYLE}>
       <ClubCardInner club={club} people={people} members={members} joined={joined} pending={pending} next={next} />
     </button>

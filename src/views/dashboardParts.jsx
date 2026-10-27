@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
+import { useFlip } from '../hooks/useFlip.js';
 import { teamsLabel, byCompleted, completedTime, localDate, mdDot } from '../utils.js';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
@@ -138,6 +139,15 @@ const KPI_TONE = {
   alert: { bg: 'var(--app-tag-red)', fg: 'var(--app-tag-red-fg)', label: 'var(--app-tag-red-fg)' },
   plain: { bg: 'var(--app-surface)', fg: 'var(--app-ink)', label: 'var(--app-ink-muted)' },
 };
+// 바뀐 숫자만 아래에서 굴러 올라온다(.dc-num-roll · UI 다듬기 2차 M3). 처음 그릴 때는 가만히 —
+// 값이 한 번 바뀐 뒤부터 열쇠(value)가 바뀔 때마다 새로 서며 굴러온다. 같은 값으로 다시 그리면 그대로다.
+export function RollNum({ value }) {
+  const last = useRef(value);
+  const rolled = useRef(false);
+  if (last.current !== value) { last.current = value; rolled.current = true; }
+  return <span key={value} className={rolled.current ? 'dc-num-roll' : undefined}>{value}</span>;
+}
+
 export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, alert, delay = 0, tone, phoneNote = false, className = KPI_CELL, style }) {
   const t = KPI_TONE[tone || (alert ? 'alert' : 'plain')];
   return (
@@ -150,7 +160,7 @@ export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, ale
         <span className="text-[11.5px] font-semibold whitespace-nowrap" style={{ color: t.label }}>{label}</span>
       </div>
       <div className="flex items-baseline gap-[5px]">
-        <span className="text-[34px] font-extrabold leading-none tabular-nums" style={{ letterSpacing: '-1.8px', color: t.fg }}>{value}</span>
+        <span className="text-[34px] font-extrabold leading-none tabular-nums" style={{ letterSpacing: '-1.8px', color: t.fg }}><RollNum value={value} /></span>
         {unit && <span className="text-xs font-semibold" style={{ color: t.label }}>{unit}</span>}
         <span className="flex-1" />
         {note && (tone === 'green'
@@ -194,6 +204,9 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
   const [pending, setPending] = useState(() => new Set());
   const pendTimers = useRef([]);
   useEffect(() => () => pendTimers.current.forEach(clearTimeout), []);
+  // 끝낸 줄이 빠지거나 다른 구간으로 갈 때 남은 줄이 미끄러져 자리를 메운다(M2 · hooks/useFlip)
+  const flipRef = useRef(null);
+  useFlip(flipRef, [groups, expanded]);
   const complete = (t, next) => {
     if (next !== '완료' || prefersReducedMotion()) { onComplete(t, next); return; }
     setPending(p => new Set(p).add(t.id));
@@ -215,7 +228,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
   }
   let seen = 0;
   return (
-    <div className="min-w-0">
+    <div ref={flipRef} className="min-w-0">
       {groups.map(g => {
         // 구간마다 앞의 GROUP_LIMIT건만 먼저 그린다 — 업무가 쌓이면 이 목록이 화면에서
         // 가장 긴 DOM이 되고(줄마다 확인 팝오버가 둘), 재조회 때마다 전부 다시 만들어진다.
@@ -249,7 +262,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
             const ask = DONE_ASK[done ? 'undo' : 'done'];
             return (
               <div
-                key={t.id}
+                key={t.id} data-flip={t.id}
                 className="dc-row flex items-center gap-3 p-2.5 -mx-2.5 rounded-md hover:bg-surface-hover transition-colors"
                 style={{ animationDelay: delay, transitionDuration: '120ms' }}
               >
