@@ -1290,6 +1290,19 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   }
   check('C5: 칩 아홉 색 글자 대비 4.5:1 이상(라이트·다크)', c5.length === 0 && pal.light.tags.every(t => /^#/.test(t[1])), c5.join(' · ') || JSON.stringify(pal.light.tags[0]));
   check('C6: 칩 바탕은 서로·카드와 갈린다(한 단 위)', c6.length === 0, c6.join(' · '));
+
+  // C8 — 넓은 색 영역(P3) 화면에서만 바탕 빛 · brand-grad(라이트·다크) · 다붓이 고리가 display-p3 값으로. sRGB 화면은 그대로.
+  // **되돌리기**: P3 .dab-ring 묶음을 원래 .dab-ring보다 앞에 두면(뒤의 sRGB 규칙이 이긴다) 깨진다.
+  const gamut = async (v) => { await send('Emulation.setEmulatedMedia', { features: [{ name: 'color-gamut', value: v }] }); return ev(`(() => {
+    const box = document.createElement('div'); box.innerHTML = '<div class="app-glow"></div><div class="app-glow-tall"></div><div class="dab-ring"></div>'; document.body.appendChild(box);
+    const [g, t, r] = [...box.children].map(n => getComputedStyle(n).backgroundImage);
+    const root = document.documentElement; const light = getComputedStyle(root).getPropertyValue('--app-brand-grad');
+    root.dataset.theme = 'dark'; const dark = getComputedStyle(root).getPropertyValue('--app-brand-grad'); root.dataset.theme = 'light';
+    box.remove(); return [g, t, r, light, dark].map(s => /display-p3/.test(s));
+  })()`); };
+  const p3 = await gamut('p3'), srgb = await gamut('srgb');
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  check('C8: P3 화면에서만 바탕 빛·brand-grad·다붓이 고리가 display-p3', p3.every(Boolean) && srgb.every(x => !x), JSON.stringify({ p3, srgb }));
 }
 
 console.log(results.join('\n'));
