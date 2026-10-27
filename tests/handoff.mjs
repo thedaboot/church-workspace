@@ -1233,10 +1233,9 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
 
 // ── 면 S2~S11 (UI 다듬기 2차 2026-10-27 · PITFALLS 73) ──────────────────────────
 // S2 높이마다 모서리 · S3 상단 바 물러남 · S4 묶음 사이 선만 · S5 빛 한 방향 · S6 영역 색 그림자 · S7 붙을 때만 머리 선 ·
-// S8 더 있을 때만 끝 흐림 · S10 종이 결(굽는 길에서는 뺀다) · S11 쓰는 칸 바탕/고르는 칸 테두리.
+// S8 더 있을 때만 끝 흐림 · S11 쓰는 칸 바탕/고르는 칸 테두리.
 // **되돌리기**: index.css 그림자 식의 `:root, .shadow-tint`에서 `.shadow-tint`를 빼면 S6이, `.stuck-edge::after`의
-// 컨테이너 질의를 지우면 S7이, mobileNav의 FadeRow를 div로 되돌리면 S8이, shareImage의 `filter: (el) => !isGrain(el)`을
-// 지우면 S10이 깨진다.
+// 컨테이너 질의를 지우면 S7이, mobileNav의 FadeRow를 div로 되돌리면 S8이 깨진다.
 {
   const { readFileSync } = await import('node:fs');
   const rd = (f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
@@ -1259,10 +1258,6 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   check('S4: 업무 창 칸은 줄마다 선이 아니라 묶음 사이 한 줄', !/divide-y/.test(props.slice(0, 600)) && /data-prop-group/.test(props));
   // S11 — 담당자 찾기 칸(쓰는 칸)은 바탕, 선행 업무 select(고르는 칸)는 테두리
   check('S11: 쓰는 칸은 바탕 · 고르는 칸은 테두리', /border-transparent rounded-xs bg-surface-hover/.test(tf) && /appearance-none w-full[^\"]*bg-transparent border border-line/.test(tf));
-  // S10 — 종이 결은 굽는 두 길에서 빠진다
-  const si = rd('services/shareImage.js');
-  check('S10: 종이 결 판이 있고 그림·PDF로 굽는 두 길이 뺀다', /data-paper-grain/.test(rd('components/paper.jsx'))
-    && /filter:\s*\(el\)\s*=>\s*!isGrain\(el\)/.test(si) && /\|\|\s*isGrain\(el\)/.test(si));
 
   await load(DESK);
   // S5 — 모든 그림자 층이 x 0 · y > 0(위에서 오는 빛 하나) — 라이트·다크

@@ -875,13 +875,10 @@ const geom = await ev(`(() => {
 // 굽는 배율은 shareImage가 정하는 그 식이다(EXPORT_W와 화소 상한 중 작은 쪽).
 const SCALE = Math.max(1, Math.min(1080 / geom.w, Math.sqrt(4_000_000 / (geom.w * geom.h))));
 // 같은 자리·같은 배율로 **화면을 그대로 찍는다** — 이것이 정답지다.
-// 종이 결(S10 · PITFALLS 73-f)은 화면에만 있고 굽는 길이 뺀다 — 찍는 동안만 걷는다(잡음이 글자 찾기의 문턱 24를 넘는다).
-await ev(`document.querySelectorAll('[data-paper-grain]').forEach(g => { g.style.display = 'none'; })`);
 const shot = await send('Page.captureScreenshot', {
   format: 'png',
   clip: { x: geom.px, y: geom.py, width: geom.w, height: geom.h, scale: SCALE },
 });
-await ev(`document.querySelectorAll('[data-paper-grain]').forEach(g => { g.style.display = ''; })`);
 const fidel = await ev(`(async () => {
   const m = await import('/src/services/shareImage.js');
   const node = document.querySelector('.paper-service-2');

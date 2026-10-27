@@ -1553,8 +1553,7 @@ S2 모서리: 떠 있는 판(팝오버·메뉴·창) 12px(`rounded-lg`) · 폰 �
 넘칠 때만 마스크(50-d와 같은 까닭) · 칩이 늘고 줄면 MutationObserver가 다시 잰다. 보드 네 칸의 `.x-fade-edge`(오른쪽만 32px)는 그대로다. 마스크는 줄의 테두리까지 흐린다 — 주보 탭 줄(아래 선이 탭 표시의 바닥)에는 걸지 않았고, 폰 프로젝트 탭 줄은 위 선이 넘칠 때 끝에서 같이 옅어진다(받아들였다).
 **73-e.** **붙었을 때만 머리 선(`.stuck-edge`)은 CSS 스크롤 상태 질의다** — 머리 자신이 `container-type: scroll-state`이고 선·그림자는 그 머리의 `::after`가 갖는다(컨테이너는 자기 자신이 아니라 자식·가상 요소만 질의로 칠할 수 있다).
 `::after`의 opacity만 움직인다(box-shadow를 전이하지 않는다). 모르는 브라우저(사파리)는 @supports 밖의 `inset 0 -1px` 늘 선 — 지금과 같다. 머리에 `border-b`를 다시 달지 않는다(두 줄이 된다).
-**73-f.** **종이 결(`.paper-grain` · `data-paper-grain`)은 화면에만 깐다 — 그림·PDF로 굽는 두 길(modern-screenshot `filter` · html2canvas `ignoreElements`)이 이 판을 뺀다**(services/shareImage.js `isGrain`).
-잡음 무늬는 PNG·PDF에서 압축이 안 돼 파일이 커지고, 주보는 인쇄되는 공식 문서다. 판은 종이의 맨 뒤(z -1)라 종이가 `isolation: isolate`로 층을 가둔다 — 띠·사진·글자 위에는 앉지 않는다.
+**73-f.** (걷음 2026-10-28 — 사용자 결정 '노트·주보 종이 결은 기존처럼'. 종이 결 판 `.paper-grain`과 굽는 길의 `isGrain` 거르기를 함께 걷었다. 번호는 비워 둔다.)
 ### 시트 · 넘김 · 스크롤 (UI 다듬기 2차 M10~M16 · 2026-10-27)
 **75-a.** **폰 업무 창을 끌어 내려 닫는 손잡이는 머리줄 하나다**(`hooks/useSheetDrag.js` · `modals.jsx` `[data-sheet-grab]`). 창 전체에 걸면 본문 스크롤·편집기 끌기·댓글 칸과 다툰다.
 손가락만 받고(마우스는 ✕·닫기), 머리줄 안의 버튼·글 칸에서 시작한 누름은 끌기가 아니다. 닫을 때 **`useLeave`의 걷는 모양(.dc-rise.dc-out — 20px 아래로 가며 흐려짐)을 그대로 두면

@@ -126,11 +126,7 @@ async function html2canvas() {
 // 가는 길이 끊긴다) · 노드의 **자손**(`node.contains(el)`) · 그리고 **`<head>`**.
 // **head는 남긴다 — 빼면 스타일이 통째로 사라져 맨 HTML 모양이 된다**(실제로 겪음.
 // `<style>`·`<link>`가 head 안에 있고, 복제본은 그것으로 칠해진다).
-const pruneTo = (node) => (el) => !(el.contains(node) || node.contains(el) || document.head.contains(el)) || isGrain(el);
-
-// 종이 결(paper.jsx `data-paper-grain`)은 화면에만 깐다 — 굽는 두 길 모두 이 판을 뺀다(PITFALLS 73-f).
-// 잡음 무늬는 PNG·PDF에서 압축이 안 돼 파일이 커지고, 주보는 인쇄되는 공식 문서다.
-export const isGrain = (el) => el?.nodeType === 1 && el.hasAttribute?.('data-paper-grain');
+const pruneTo = (node) => (el) => !(el.contains(node) || node.contains(el) || document.head.contains(el));
 
 // **빈 그림인가.** 사파리에서 foreignObject가 아무것도 안 그린 캔버스를 주는 보고가
 // 있어서, 구운 뒤 이것으로 걸러 html2canvas 길로 떨어진다. 가로·세로 16칸 격자
@@ -258,7 +254,7 @@ async function bakeCanvas(node, background, pages) {
   // 길뿐이라 쪽마다 바탕을 다시 깐다(`bakeAndSlice`).
   try {
     const bake = await modernScreenshot();
-    const canvas = await bake(node, { scale, width, height, backgroundColor: background, filter: (el) => !isGrain(el) });
+    const canvas = await bake(node, { scale, width, height, backgroundColor: background });
     if (canvas && !isBlankCanvas(canvas)) return canvas;
     // console.error가 아니라 warn이다 — 다음 갈래로 가는 단계이고, '콘솔 오류 0' 검사가
     // 이것을 회귀로 잡으면 안 된다(shareOrSave의 같은 자리와 같은 이유).

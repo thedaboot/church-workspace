@@ -307,9 +307,6 @@ export function PaperSheet({ sheetRef, date, kind, children, className = '', sty
       }}>
       <PaperMast date={date} kind={kind} season={season} />
       <div className="paper-body px-[18px] pt-[20px] pb-[18px]">{children}</div>
-      {/* 종이 결(S10 · UI 다듬기 2차 2026-10-27) — 화면에서만. 그림·PDF로 굽는 길(services/shareImage.js)은
-          `data-paper-grain`을 빼고 굽는다: 잡음은 압축이 안 돼 파일이 커지고 인쇄물에 얼룩이 앉는다(PITFALLS 73-f). */}
-      <span aria-hidden="true" data-paper-grain="" className="paper-grain" />
     </div>
   );
 }

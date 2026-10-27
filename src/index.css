@@ -780,16 +780,6 @@ svg.lucide { stroke-width: 1.4px; }
   float: left; height: 0; pointer-events: none;
 }
 
-/* ── 종이 결 (S10 · UI 다듬기 2차 2026-10-27 · paper.jsx `PaperSheet`) ──────────
-   주보·노트 종이에 아주 옅은 잡음 결 — 종이 화면이 앱 화면과 다른 물성을 갖게. 종이는 다크를 따라가지 않으므로
-   (paper.jsx 머리말) 시안의 라이트 값(.6) 한 벌이다. 판은 종이의 맨 뒤(z -1 · 종이가 isolation으로 층을 가둔다)라
-   띠·사진·글자 위에는 앉지 않고 흰 바탕에만 보인다. 그림·PDF로 구울 때는 빠진다(PITFALLS 73-f). */
-.paper-sheet { position: relative; isolation: isolate; }
-.paper-grain {
-  position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit; opacity: .6;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .32 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
 /* ── 종이 안에서 쓰는 노트 (`.note-paper`) ──────────────────────────────────
    사용자 요청 2026-09-10: 예배 노트·묵상 노트의 편집 화면이 **저장된 종이와 같은
    모양**이어야 한다("UI/UX적으로 괜찮은가? 세련되고 기쁘게 자발적으로 작성할 수 있는
