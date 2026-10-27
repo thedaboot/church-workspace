@@ -960,7 +960,7 @@ check('묵상 제목 칸을 누르면 그 칸에 커서가 간다',
   JSON.stringify([titleAt, titleFocus]));
 // 커서·글자가 종이 잉크 색이라야 '쓸 수 있는 칸'으로 보인다(종이는 다크를 안 따라간다)
 check('제목 칸의 커서·글자가 종이 잉크 색이다',
-  !!titleAt && titleAt.caret === 'rgb(25, 23, 32)' && titleAt.color === 'rgb(25, 23, 32)',
+  !!titleAt && titleAt.caret === 'rgb(26, 24, 21)' && titleAt.color === 'rgb(26, 24, 21)',
   JSON.stringify(titleAt));
 
 // 서식 바에 **제목·구분선·링크가 없다** — 제목은 2026-09-10, 구분선·링크는 2026-09-11의
