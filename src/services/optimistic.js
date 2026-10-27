@@ -159,3 +159,85 @@ export function createFailedComments() {
   };
 }
 export const failedComments = createFailedComments();
+
+// ── 내 쓰기가 아직 안 끝난 칸 (UX 감사 2026-10-27 · PITFALLS 70-a) ─────────────────────────────────────────
+// 화면은 먼저 바뀌고 쓰기는 뒤따른다. 그런데 실시간 재조회(App.syncCard · 전체 재조회)는 **내 쓰기가 아직 서버에 안 닿은 칸**을 옛 값으로
+// 읽어 온다 — 보드에서 카드를 끌어 놓으면 상태 저장의 에코가 옛 자리(position)를 들고 와 카드가 옛 칸으로 튀었다가 순서 저장이 끝나면
+// 돌아왔다. 업무 창에서 칸을 빨리 두 번 바꾸면 앞 쓰기의 에코가 중간 값을 한 번 그렸다.
+// 그래서 컨트롤러가 쓰기를 보낼 때 그 카드의 칸을 begin으로 적고, 쓰기가 끝나면(성공·실패) 끝내기를 부른다. 재조회는 읽기를 시작할 때
+// now()를 받아 두었다가, 읽어 온 조각에서 **지금 쓰는 중이거나 읽기가 시작된 뒤에 끝난** 칸을 걷는다(mask) — 그 칸은 스토어(내가 그린 값)가
+// 맞다. 읽기 도중에 끝난 쓰기는 그 읽기에 실렸는지 알 수 없어서 같이 걷는다(곧 그 쓰기의 에코가 온다).
+// 걷는 것은 화면을 지키는 것뿐이다 — 실패한 쓰기는 끝내기 뒤에 부르는 쪽이 되돌린다(rollbackPatch).
+export function createPendingFields() {
+  let clock = 0;
+  const open = new Map();   // 카드 id → Map(칸 → 쓰는 중인 수)
+  const ended = new Map();  // 카드 id → Map(칸 → 마지막으로 끝난 시각(clock))
+  const masked = (id, k, since) => !!open.get(id)?.get(k) || (ended.get(id)?.get(k) ?? -1) > since;
+  return {
+    now: () => clock,
+    // 끝내기를 돌려준다 — 두 번 불러도 한 번
+    begin(id, keys) {
+      if (!id || !keys?.length) return () => {};
+      if (!open.has(id)) open.set(id, new Map());
+      const m = open.get(id);
+      for (const k of keys) m.set(k, (m.get(k) || 0) + 1);
+      let done = false;
+      return () => {
+        if (done) return;
+        done = true;
+        clock++;
+        if (!ended.has(id)) ended.set(id, new Map());
+        for (const k of keys) {
+          const n = (m.get(k) || 1) - 1;
+          if (n > 0) m.set(k, n); else m.delete(k);
+          ended.get(id).set(k, clock);
+        }
+        if (!m.size && open.get(id) === m) open.delete(id);
+      };
+    },
+    // 서버에서 읽은 카드 조각 → 걷을 칸을 뺀 조각. local을 주면 빼는 대신 그 값을 넣는다(전체 재조회가 카드를 통째로 갈아 끼울 때).
+    mask(patch, since, local = null) {
+      if (!patch?.id || (!open.has(patch.id) && !ended.has(patch.id))) return patch;
+      let out = null;
+      for (const k of Object.keys(patch)) {
+        if (k === 'id' || !masked(patch.id, k, since)) continue;
+        out = out || { ...patch };
+        if (local) out[k] = local[k]; else delete out[k];
+      }
+      return out || patch;
+    },
+    busy: (id) => open.has(id),
+  };
+}
+export const pendingCardFields = createPendingFields();
+
+// ── 목록 하나를 통째로 쓰는 토글을 줄 세우기 (UX 감사 2026-10-27 · PITFALLS 70-b) ─────────────────────────
+// 동아리 모임 출석은 칩 하나를 눌러도 출석 배열 **전체**를 쓴다(groups.saveMeetingAttendance). 빨리 여러 번 누르면 쓰기가 겹쳐
+// 늦게 닿은 옛 배열이 새 배열을 덮었고, 앞 쓰기가 실패하면 그 '이전 배열'로 되돌려서 뒤에 누른 것까지 지웠다.
+// 열쇠(모임)마다 쓰기를 한 줄로 세우고, 쓰기는 **보낼 때의 지금 배열**(get)을 보낸다. 실패하면 **그 한 번 누른 것만** 되돌린다 —
+// 그 사람의 칸이 아직 내가 누른 값일 때만(그 사이 다시 눌렀으면 둔다). 되돌린 배열은 줄의 다음 쓰기가 실어 간다.
+// get(key) → 지금 배열 · set(key, arr) → 화면에 반영 · save(key, arr) → Promise · onFail(e, { key, item, on })
+export function createSerialToggles({ get, set, save, onFail }) {
+  const chains = new Map();
+  const flip = (arr, item, on) => (on ? (arr.includes(item) ? arr : [...arr, item]) : arr.filter(x => x !== item));
+  return {
+    toggle(key, item) {
+      const cur = get(key) || [];
+      const on = !cur.includes(item);
+      set(key, flip(cur, item, on));
+      const run = async () => {
+        try {
+          await save(key, get(key) || []);
+        } catch (e) {
+          const now = get(key) || [];
+          if (now.includes(item) === on) set(key, flip(now, item, !on));
+          onFail?.(e, { key, item, on });
+        }
+      };
+      const p = (chains.get(key) || Promise.resolve()).then(run);
+      chains.set(key, p);
+      return p.then(() => { if (chains.get(key) === p) chains.delete(key); });
+    },
+    busy: (key) => chains.has(key),
+  };
+}

@@ -20,11 +20,12 @@ import {
   meetingQueueKey, ensureMeetingDriveFolder, uploadMeetingReport, removeMeetingReport, grantReportEditors,
   notifyClubApply, notifyClubAccepted, notifyMeetingNew,
   groupPerms, mySun, myGroupIds, groupPeople, latestSunday, attendanceSunday,
-  toggleAttendance, yearOptions,
+  yearOptions,
   leaderPlan, dupReason, duplicateName, dupNameText, nameReceipts, receiptPlan,
 } from '../services/groups.js';
 import { runUploads, stagedRow, failedRow, uploadingByCard } from '../modals/uploadQueue.js';
 import { cancelledError } from '../services/transfer.js';
+import { createSerialToggles } from '../services/optimistic.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 import { Segmented } from '../components/segmented.jsx';
@@ -501,18 +502,29 @@ export function GroupsView() {
   }, [baseQ.refresh]);
 
   // 출석은 먼저 화면에 반영하고 실패하면 되돌린다(예배 출석과 같은 방식).
-  const toggleMeeting = useCallback(async (meeting, personId) => {
-    const before = Array.isArray(meeting.attendance) ? meeting.attendance : [];
-    const next = toggleAttendance(before, personId);
-    setMeetings(rows => rows.map(m => (m.id === meeting.id ? { ...m, attendance: next } : m)));
-    try {
-      await saveMeetingAttendance(meeting.id, next);
-    } catch (e) {
+  // 쓰기는 배열 **전체**라 모임마다 한 줄로 세우고, 실패하면 그 한 번 누른 것만 되돌린다(services/optimistic.createSerialToggles · PITFALLS 70-b) —
+  // 빨리 여러 번 누르면 늦게 닿은 옛 배열이 새 배열을 덮었고, 앞 쓰기의 실패가 뒤에 누른 것까지 지웠다.
+  // 지금 배열은 렌더를 기다리지 않고 attNow가 들고 있다(줄이 비면 놓는다 — 그 뒤로는 모임 목록이 원본).
+  const meetingsRef = useRef(meetings);
+  meetingsRef.current = meetings;
+  const attNow = useRef(new Map());
+  const attendance = useMemo(() => createSerialToggles({
+    get: (id) => (attNow.current.has(id) ? attNow.current.get(id)
+      : (meetingsRef.current.find(m => m.id === id)?.attendance || [])),
+    set: (id, arr) => {
+      attNow.current.set(id, arr);
+      setMeetings(rows => rows.map(m => (m.id === id ? { ...m, attendance: arr } : m)));
+    },
+    save: (id, arr) => saveMeetingAttendance(id, arr),
+    onFail: (e) => {
       console.error('[groups] 모임 출석 변경 실패:', e);
-      setMeetings(rows => rows.map(m => (m.id === meeting.id ? { ...m, attendance: before } : m)));
       showToast(failText('모임 출석을 바꾸지 못했어요', e));
-    }
-  }, []);
+    },
+  }), []);
+  const toggleMeeting = useCallback(async (meeting, personId) => {
+    await attendance.toggle(meeting.id, personId);
+    if (!attendance.busy(meeting.id)) attNow.current.delete(meeting.id);
+  }, [attendance]);
 
   // ── 지난 모임의 활동 보고서 (0093 · 시안 4-C) ─────────────────────────────
   // 올리는 길은 업무 첨부와 **한 벌**이다 — 큐(uploadQueue.runUploads · 열쇠 `meeting:<id>` · 동시 3 · 못 올린

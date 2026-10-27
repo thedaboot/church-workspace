@@ -779,10 +779,11 @@ export async function cardUpsertCloud(task, isNew, { changed = null, base = null
     const before = cardWrites.get(task.id);
     const p = (async () => {
       const patch = pickCols(cardPatch(task), changed);
+      // **같은 카드의 쓰기는 한 줄로 선다**(UX 감사 2026-10-27 · PITFALLS 70-a) — 업무 창에서 칸을 빨리 두 번 바꾸면 두 쓰기가 겹쳐
+      // 늦게 닿은 앞 쓰기가 서버에 중간 값을 남길 수 있었다. 하위 업무는 여기에 더해 앞 쓰기가 들어간 뒤에 서버 목록을 읽는다 —
+      // 안 기다리면 연달아 체크한 두 줄 중 앞 줄을 '내가 안 고친 줄'로 보고 서버의 옛 값(미체크)으로 되돌렸다(감사 2026-10-23)
+      await before;
       if (changed.includes('subtasks') && base) {
-        // 같은 카드의 앞 쓰기가 들어간 뒤에 서버 목록을 읽는다 — 안 기다리면 연달아 체크한 두 줄 중 앞 줄을
-        // '내가 안 고친 줄'로 보고 서버의 옛 값(미체크)으로 되돌렸다(감사 2026-10-23 · mergeSubtasks 실측)
-        await before;
         let now = await write(() => cloud.getCard(task.id)).catch(() => null);
         // 잠긴 업무(0100)는 하위 업무가 card_secrets에 있다 — cards 쪽 '[]'과 합치면 남의 줄을 지운 것으로 읽힌다
         if (now?.locked) now = await cloud.getCardSecret(task.id).catch(() => null);
@@ -1023,11 +1024,18 @@ export async function projectOrderCloud(orders) {
   }
 }
 
-// 보드 컬럼 안 순서(0024). 바뀐 카드만 넘어온다.
+// 보드 컬럼 안 순서(0024). 바뀐 카드만 넘어온다. 차례대로 쓰고 하나가 실패하면 뒤는 보내지 않는다(부르는 쪽이 다 되돌린다).
+// 카드마다는 그 카드의 다른 쓰기(cardUpsertCloud — 상태 저장 등) 뒤에 선다 — 빨리 두 번 끌면 앞 순서가 늦게 닿아 뒤 순서를 덮었다(PITFALLS 70-a).
 export async function cardOrderCloud(orders) {
-  for (const { id, position } of orders) {
-    await write(() => cloud.setCardPosition(id, position));
-  }
+  let prev = Promise.resolve();
+  const runs = orders.map(({ id, position }) => {
+    const before = cardWrites.get(id);
+    const p = prev.then(() => before).then(() => write(() => cloud.setCardPosition(id, position)));
+    cardWrites.set(id, p.then(() => true, () => false));
+    prev = p;
+    return p;
+  });
+  await Promise.all(runs);
 }
 
 // 주인은 프로젝트이거나 카드다(0058) — 부르는 쪽이 `{projectId}` 또는 `{cardId}`를 준다.

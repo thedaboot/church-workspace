@@ -141,6 +141,7 @@ import { setEntryQuery, isAppLink } from './services/entryQuery.js';
 import * as cloudSync from './services/cloudSync.js';
 import { setTrashReload, refreshTrash } from './services/trash.js';
 import { createIdBatcher } from './services/realtimeBatch.js';
+import { pendingCardFields } from './services/optimistic.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
 import { refreshTabFront } from './services/tabFront.js';
 import { captureSeenBase, captureGuestSeenBase } from './services/sinceSeen.js';
@@ -295,12 +296,17 @@ function WorkspaceShell() {
     const gen = ++reloadGenRef.current;
     const touched = new Set();
     reloadingRef.current = touched;
+    const since = pendingCardFields.now();
     const { state, profile } = await cloudSync.loadCloudState();
     // 열린 창의 상세는 **갈아 끼우기 전에** 읽어 둔다(2026-09-28) — 업무 창에 수정 모드가 없어져
     // 재조회를 미뤄 둘 자리가 없어졌다. 먼저 넣고 나서 읽으면 그 왕복 동안 창의 댓글·활동이 빈다.
     const openFirst = openCardIdRef.current;
     const openDetail = openFirst ? await cloudSync.loadCardDetail(openFirst).catch(() => null) : null;
     if (gen !== reloadGenRef.current) return profile;
+    // 내 쓰기가 아직 안 끝난 칸은 스토어의 값(내가 그린 값)을 그대로 싣는다(syncCard와 같은 규칙 · PITFALLS 70-a)
+    const liveById = store.getState().tasks.byId;
+    const byId = state?.tasks?.byId;
+    if (byId) for (const id of Object.keys(byId)) if (liveById[id]) byId[id] = pendingCardFields.mask(byId[id], since, liveById[id]);
     store.dispatch({ type: 'LOAD_STATE', payload: state });
     reloadingRef.current = null;
     touched.forEach(id => syncCardRef.current?.(id));
@@ -381,10 +387,12 @@ function WorkspaceShell() {
     if (!cardId) return;
     reloadingRef.current?.add(cardId);
     const n = nextSeq(`c:${cardId}`);
+    // 내 쓰기가 아직 안 끝난 칸(끌어 놓은 자리 · 업무 창에서 막 바꾼 칸)은 읽어 온 옛 값으로 덮지 않는다(PITFALLS 70-a)
+    const since = pendingCardFields.now();
     try {
       const patch = await cloudSync.loadCardPatch(cardId);
       if (n !== seqRef.current.get(`c:${cardId}`)) return;
-      if (patch) store.dispatch({ type: 'SYNC_TASK', payload: patch });
+      if (patch) store.dispatch({ type: 'SYNC_TASK', payload: pendingCardFields.mask(patch, since) });
       else store.dispatch({ type: 'DELETE_TASK', payload: cardId });
     } catch (e) { console.error('[cloud] 카드 갱신 실패:', e); }
   }, []);

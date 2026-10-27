@@ -665,7 +665,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 배선
   const ctl = readFileSync(new URL('../src/hooks/controllers.js', import.meta.url), 'utf8');
   const sync = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
-  assert.ok(/cardUpsertCloud\(task, isNew, \{ changed: taskChangedKeys\(task, oldData\), base: oldData \}\)/.test(ctl), '저장은 바뀐 칸 목록과 이전 카드를 넘긴다');
+  assert.ok(/const changed = taskChangedKeys\(task, oldData\);/.test(ctl) && /cardUpsertCloud\(task, isNew, \{ changed, base: oldData \}\)/.test(ctl), '저장은 바뀐 칸 목록과 이전 카드를 넘긴다');
   assert.ok(/const patch = pickCols\(cardPatch\(task\), changed\)/.test(sync) && /mergeSubtasks\(base\.subtasks, task\.subtasks, now\.subtasks\)/.test(sync),
     '클라우드 쓰기는 바뀐 칸만 · 하위 업무는 서버의 지금 목록과 합친다');
   assert.ok(/changed\.includes\('teams'\) \?/.test(sync) && /changed\.includes\('assignees'\) &&/.test(sync), '팀·담당자 조인도 바뀌었을 때만 다시 쓴다');
@@ -1244,6 +1244,72 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.ok(/if \(taskId && share\) return false;/.test(app), '스토어에 없는 공유 업무는 주소로 보낸다(삭제 토스트를 띄우지 않는다)');
   console.log('PASS  공유 주소 링크를 앱 안에서(appLink) 9가지');
+}
+
+// ── 내 쓰기가 안 끝난 칸은 재조회가 덮지 않는다(UX 감사 2026-10-27 · PITFALLS 70-a · services/optimistic.pendingCardFields) ─────────
+// 보드에서 끌어 놓으면 상태 저장의 에코가 옛 position을 들고 와 카드가 옛 칸으로 튀었다가 돌아왔다.
+// **되돌리기**: optimistic.js mask의 `(ended…) > since`를 빼면 ②가, App.syncCard의 `pendingCardFields.mask(patch, since)`를 `patch`로 되돌리면 ④가 깨진다.
+{
+  const O = await import(new URL('../src/services/optimistic.js', import.meta.url).href);
+  const P = O.createPendingFields();
+  const s0 = P.now();
+  const end = P.begin('c', ['position']);
+  const echo = { id: 'c', position: 1, status: '진행 중' };
+  assert.deepStrictEqual(P.mask(echo, s0), { id: 'c', status: '진행 중' }, '① 쓰는 중인 자리는 걷고 다른 칸은 받는다');
+  end(); end();
+  assert.deepStrictEqual(P.mask(echo, s0), { id: 'c', status: '진행 중' }, '② 읽기가 시작된 뒤에 끝난 쓰기의 칸도 걷는다(그 읽기에 실렸는지 모른다)');
+  assert.strictEqual(P.mask(echo, P.now()), echo, '② 끝난 뒤에 시작한 읽기는 그대로 받는다');
+  const e1 = P.begin('c', ['status']), e2 = P.begin('c', ['status']);
+  const s1 = P.now(); e1();
+  assert.deepStrictEqual(P.mask(echo, P.now(), { position: 9, status: '완료' }), { id: 'c', position: 1, status: '완료' }, '③ 같은 칸 쓰기가 하나 남았으면 걷는다 · local을 주면 그 값을 싣는다');
+  e2();
+  const other = { id: 'd', position: 3 };
+  assert.strictEqual(P.mask(other, s1), other, '③ 다른 카드는 그대로');
+  assert.strictEqual(P.busy('c'), false, '③ 다 끝나면 쓰는 중이 아니다');
+  const rd = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const app = rd('App.jsx'), ctl = rd('hooks/controllers.js'), cs = rd('services/cloudSync.js');
+  assert.ok(/const since = pendingCardFields\.now\(\);\s*try \{\s*const patch = await cloudSync\.loadCardPatch\(cardId\);/.test(app)
+    && /payload: pendingCardFields\.mask\(patch, since\)/.test(app), '④ 카드 1건 재조회가 쓰는 중인 칸을 걷는다');
+  assert.ok(/pendingCardFields\.mask\(byId\[id\], since, liveById\[id\]\)/.test(app), '④ 전체 재조회도 쓰는 중인 칸은 스토어 값을 싣는다');
+  assert.ok(/const ends = changed\.map\(\(\{ id \}\) => pendingCardFields\.begin\(id, \['position'\]\)\);/.test(ctl)
+    && /cardOrderCloud\(changed\)\.finally\(\(\) => ends\.forEach\(end => end\(\)\)\)/.test(ctl), '④ 순서 저장이 끝날 때까지 자리를 적어 둔다');
+  assert.ok(/pendingCardFields\.begin\(task\.id, changed \|\| \[\]\)/.test(ctl) && /\.finally\(endPending\)/.test(ctl), '④ 업무 저장도 바뀐 칸을 적어 둔다');
+  assert.ok(/const p = prev\.then\(\(\) => before\)\.then\(\(\) => write\(\(\) => cloud\.setCardPosition\(id, position\)\)\);/.test(cs), '④ 순서 쓰기는 그 카드의 앞 쓰기 뒤에 선다');
+  console.log('PASS  쓰는 중인 칸은 재조회가 덮지 않는다(pendingCardFields) 10가지');
+}
+
+// ── 동아리 모임 출석 — 한 줄로 쓰고 실패한 한 번만 되돌린다(UX 감사 2026-10-27 · PITFALLS 70-b · services/optimistic.createSerialToggles) ─────
+// 칩 하나에 배열 전체를 쓴다 — 겹쳐 쓰면 늦게 닿은 옛 배열이 이기고, 앞 쓰기의 실패가 '이전 배열'로 되돌려 뒤에 누른 것까지 지웠다.
+// **되돌리기**: createSerialToggles의 `(chains.get(key) || Promise.resolve())`를 `Promise.resolve()`로 바꾸면 ①(동시에 둘)이,
+// 실패 갈래의 `now.includes(item) === on` 조건을 빼고 앞 배열로 되돌리면 ②가, groupsView의 `attendance.toggle(meeting.id, personId)`를 빼면 ③이 깨진다.
+{
+  const O = await import(new URL('../src/services/optimistic.js', import.meta.url).href);
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  let local = [];
+  const sent = [], fails = [];
+  let inFlight = 0, maxInFlight = 0;
+  const gates = [];
+  const T = O.createSerialToggles({
+    get: () => local,
+    set: (_k, arr) => { local = arr; },
+    save: (_k, arr) => { sent.push([...arr]); inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+      return new Promise((res, rej) => gates.push({ res: () => { inFlight--; res(); }, rej: (e) => { inFlight--; rej(e); } })); },
+    onFail: (e, info) => fails.push(info),
+  });
+  const p1 = T.toggle('m', 'A'); await tick();
+  const p2 = T.toggle('m', 'B'); const p3 = T.toggle('m', 'C'); await tick();
+  assert.deepStrictEqual(local, ['A', 'B', 'C'], '누르는 대로 바로 화면에');
+  assert.strictEqual(sent.length, 1, '① 앞 쓰기가 끝나기 전에는 다음을 보내지 않는다');
+  gates[0].rej(new Error('boom')); await tick(); await tick();
+  assert.deepStrictEqual(local, ['B', 'C'], '② 실패한 한 번(A)만 되돌린다 — 뒤에 누른 B·C는 남는다');
+  assert.deepStrictEqual(sent[1], ['B', 'C'], '② 다음 쓰기가 되돌린 배열을 실어 간다');
+  gates[1].res(); await tick(); await tick(); gates[2].res(); await Promise.all([p1, p2, p3]);
+  assert.strictEqual(maxInFlight, 1, '① 한 번에 하나만');
+  assert.deepStrictEqual(fails, [{ key: 'm', item: 'A', on: true }], '② 실패 알림은 그 한 번');
+  assert.strictEqual(T.busy('m'), false, '다 끝나면 줄이 빈다');
+  const gv = readFileSync(new URL('../src/views/groupsView.jsx', import.meta.url), 'utf8');
+  assert.ok(/attendance\.toggle\(meeting\.id, personId\)/.test(gv) && !/saveMeetingAttendance\(meeting\.id, next\)/.test(gv), '③ 모임 출석이 줄 세운 토글을 쓴다');
+  console.log('PASS  동아리 모임 출석 — 한 줄로 · 실패한 한 번만 되돌린다(createSerialToggles) 8가지');
 }
 
 // 진행 검사의 일부 줄은 일부러 끝내지 않는다(차례·멈춤을 보려고) — 그 줄의 진행 타이머가 프로세스를 붙들지 않게 여기서 끝낸다

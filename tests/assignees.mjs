@@ -240,4 +240,30 @@ assert.ok(!stmtsFor('card_teams').length, 'undefined인 조인은 건드리지 �
   Object.assign(C, keep);
 }
 
+// ── 같은 카드의 쓰기는 한 줄로(UX 감사 2026-10-27 · PITFALLS 70-a) — 업무 창에서 상태를 빨리 두 번 바꾸면 앞 쓰기가 늦게 닿아
+// 서버에 중간 값이 남았다 · 끌어 놓은 순서 쓰기도 그 카드의 상태 쓰기 뒤에 선다.
+// 되돌리기: cardUpsertCloud의 `await before;`를 하위 업무 갈래 안으로 되돌리면 ①이, cardOrderCloud의 `prev.then(() => before)`를 `prev`로 바꾸면 ②가 깨진다.
+{
+  const C = globalThis.__CLOUD;
+  const keep = { updateCard: C.updateCard, setCardPosition: C.setCardPosition };
+  const server = { status: 'todo', position: 0 };
+  const order = [];
+  let slow = true;
+  C.updateCard = async (id, patch) => {
+    const ms = slow ? 40 : 1; slow = false;
+    await new Promise(r => setTimeout(r, ms));
+    Object.assign(server, patch); order.push(`card:${patch.status}`); return patch;
+  };
+  C.setCardPosition = async (id, position) => { server.position = position; order.push(`pos:${position}`); };
+  const card = (status, position = 0) => ({ id: 'cq', projectId: 'p1', title: '상태', status, position, teams: [], assignees: [] });
+  const w1 = sync.cardUpsertCloud(card('진행 중'), false, { changed: ['status'], base: card('시작 전') });
+  const w2 = sync.cardUpsertCloud(card('완료'), false, { changed: ['status'], base: card('진행 중') });
+  const w3 = sync.cardOrderCloud([{ id: 'cq', position: 7 }]);
+  await Promise.all([w1, w2, w3]);
+  assert.deepStrictEqual(order, ['card:doing', 'card:done', 'pos:7'], '① 같은 카드 쓰기는 보낸 차례대로 닿는다 · ② 순서 쓰기는 그 뒤에');
+  assert.strictEqual(server.status, 'done', '① 서버에 마지막 값이 남는다');
+  Object.assign(C, keep);
+  console.log('PASS  같은 카드의 쓰기는 한 줄로(상태 두 번 · 순서) 3가지');
+}
+
 console.log('PASS  담당자 읽기 3가지(조인·폴백·빈 값) · 쓰기 3가지(신규·수정·미등록) · 조인 쓰기가 순서에 상관없는 모양 · 합친 계정의 이름·사진(남긴 행이 이긴다) · 한 이름 → id 하나(알림 두 벌 방지)');

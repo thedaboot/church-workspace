@@ -7,7 +7,7 @@ import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { showToast, HOLD_MS_ACTION } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { rollbackPatch, createDeleteHold, failedComments } from '../services/optimistic.js';
+import { rollbackPatch, createDeleteHold, failedComments, pendingCardFields } from '../services/optimistic.js';
 import { openTaskId } from '../modals/taskFocus.js';
 import { trashTask } from '../services/trash.js';
 import { copyTasks } from '../services/projectCopy.js';
@@ -123,7 +123,11 @@ export const useWorkspaceController = () => {
       // 카드 쓰기 자체가 실패했을 때만 화면을 되돌린다(cardOk) — 뒤따르는 활동·알림이 실패한 것은 카드가 이미 저장된 것이다.
       // 되돌리는 칸은 상태·순서뿐이다(services/optimistic.js 머리말 — 제목·본문은 창의 초안이 원본).
       let cardOk = false;
-      cloudSync.cardUpsertCloud(task, isNew, { changed: taskChangedKeys(task, oldData), base: oldData })
+      const changed = taskChangedKeys(task, oldData);
+      // 쓰는 동안 이 칸은 실시간 재조회가 옛 값으로 덮지 않는다(services/optimistic.pendingCardFields · PITFALLS 70-a)
+      const endPending = isNew ? () => {} : pendingCardFields.begin(task.id, changed || []);
+      cloudSync.cardUpsertCloud(task, isNew, { changed, base: oldData })
+        .finally(endPending)
         // 활동 줄이 실패해도 멘션·담당자 알림은 보낸다(감사 2026-10-23 — 한 줄로 이어져 있어 알림까지 건너뛰었다)
         .then(() => { cardOk = true; return addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id).catch(reportCloudError('활동 기록을 남기지 못했어요')); })
         .then(() => mentionIds.length && cloudSync.notifyMentions(task.content, {
@@ -291,7 +295,11 @@ export const useWorkspaceController = () => {
     if (!changed.length) return;
     const before = changed.map(({ id }) => ({ id, position: byId[id].position }));
     changed.forEach(({ id, position }) => store.dispatch({ type: 'SYNC_TASK', payload: { id, position } }));
-    if (cloudOn) cloudSync.cardOrderCloud(changed).catch((e) => {
+    if (!cloudOn) return;
+    // 순서를 다 쓸 때까지 그 카드들의 자리는 실시간 재조회가 옛 값으로 덮지 않는다 — 끌어 놓으면 상태 저장의 에코(+200ms)가
+    // 옛 position을 들고 와 카드가 옛 칸으로 튀었다가 돌아왔다(services/optimistic.pendingCardFields · PITFALLS 70-a)
+    const ends = changed.map(({ id }) => pendingCardFields.begin(id, ['position']));
+    cloudSync.cardOrderCloud(changed).finally(() => ends.forEach(end => end())).catch((e) => {
       changed.forEach((wrote, i) => {
         const back = rollbackPatch({ wrote, prev: before[i], live: store.getState().tasks.byId[wrote.id], keys: ['position'] });
         if (back) store.dispatch({ type: 'SYNC_TASK', payload: back });
