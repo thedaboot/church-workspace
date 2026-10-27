@@ -477,7 +477,7 @@ await send('Emulation.setEmulatedMedia', { features: [] });
   const enter = (click, find) => ev(`new Promise(res => { ${click};
     requestAnimationFrame(() => { const el = (${find})(); if (!el) return res(null);
       const cs = getComputedStyle(el); res({ name: cs.animationName, ms: Math.round(parseFloat(cs.animationDuration) * 1000), ease: cs.animationTimingFunction,
-        origin: el.style.getPropertyValue('--pop-origin') }); }); })`, true);
+        origin: el.style.getPropertyValue('--pop-origin'), native: el.matches(':popover-open'), tms: Math.round(parseFloat(cs.transitionDuration) * 1000), tease: cs.transitionTimingFunction.match(/^(cubic-bezier\\([^)]*\\)|[a-z-]+)/)?.[0] }); }); })`, true);
   const ok = (m, name, min = 160) => !!m && m.name === name && m.ms >= min && m.ease === QUINT;
   const pop90 = `() => [...document.querySelectorAll('div')].find(d => d.style.position === 'fixed' && /z-\\[90\\]/.test(d.className))`;
   const scrimOf = (inner) => `() => [...document.querySelectorAll('div.fixed')].find(d => /bg-black\\/50/.test(d.className) && ${inner})`;
@@ -528,14 +528,94 @@ await send('Emulation.setEmulatedMedia', { features: [] });
   check('떠 있는 것: 설정 창 Esc — 걷히는 모션(dc-dialog-out)을 거쳐 내려간다', on.leave === 'dc-dialog-out' && on.gone === true, JSON.stringify([on.leave, on.gone]));
   check('떠 있는 것: 확인 팝오버(프로젝트 삭제)도 같은 판 모션', ok(on.confirm, 'dc-pop-in'), JSON.stringify(on.confirm));
   check('떠 있는 것: 업무 창(데스크톱) — 뒤판 dc-scrim-in · 창 dc-dialog-in', ok(on.task, 'dc-scrim-in') && ok(on.taskBox, 'dc-dialog-in'), JSON.stringify([on.task, on.taskBox]));
-  check('떠 있는 것: 알림 판 — dc-pop-in(160ms 이상 · quint)', ok(on.bell, 'dc-pop-in'), JSON.stringify(on.bell));
+  // 알림 판은 브라우저 기본 팝오버(D9 · 79-a)를 아는 브라우저에서 등장을 전이(@starting-style)로 그린다 — 같은 길이·이징이면 된다. 대체 길은 아래 D9 블록
+  const okNative = (m) => !!m && m.native && m.name === 'none' && m.tms >= 160 && m.tease === QUINT;
+  check('떠 있는 것: 알림 판 — dc-pop-in 또는 브라우저 기본 팝오버 등장 전이(160ms 이상 · quint)', ok(on.bell, 'dc-pop-in') || okNative(on.bell), JSON.stringify(on.bell));
   check('떠 있는 것: 폰 업무 창(393) — 아래에서 떠오른다(dc-rise-in · 160ms 이상 · quint)', ok(on.phoneTask, 'dc-rise-in'), JSON.stringify(on.phoneTask));
   const off = await run(true);
   const none = (m) => !!m && m.name === 'none';
   check('떠 있는 것: 움직임 줄이기 — 메뉴·설정 창·확인·업무 창(데스크톱·폰)·알림 판에 등장 모션이 없다',
-    [off.menu, off.settings, off.settingsBox, off.confirm, off.task, off.taskBox, off.bell, off.phoneTask].every(none), JSON.stringify(off));
+    [off.menu, off.settings, off.settingsBox, off.confirm, off.task, off.taskBox, off.bell, off.phoneTask].every(none) && !(off.bell?.tms > 0), JSON.stringify(off));
   check('떠 있는 것: 움직임 줄이기 — 닫기는 기다리지 않는다(다음 프레임에 이미 없다)', off.leave === 'gone' && off.gone === true, JSON.stringify([off.leave, off.gone]));
   await send('Emulation.setEmulatedMedia', { features: [] });
+}
+
+// ── D9 브라우저 기본 팝오버 — 알림 판 한 곳(UI 다듬기 2차 · PITFALLS 79-a) ──
+// 브라우저가 popover·@starting-style·allow-discrete를 알면: 판이 popover="manual"로 맨 위 층(:popover-open)에 서고, 닫으면 다음 프레임에
+// 아직 DOM에 남아 퇴장 전이(:popover-open 아님 · 180ms · quint)를 거쳐 걷힌다. 자리·폭은 대체 길과 같다(브라우저 기본 inset·margin을 걷었다).
+// 모르면(showPopover를 지운 채 그린다): popover 속성 없이 예전 .dc-pop(dc-pop-in) · 닫으면 dc-pop-out.
+// **되돌리기**: index.css `.dc-pop-native`의 `inset: auto; margin: 0`을 지우면 '자리' 단정이(판이 화면 가운데로 간다),
+// usePopover의 hidePopover 줄을 지우면 '퇴장' 단정이, notificationBell useSmoothHeight의 `getClientRects` 줄을 지우면 '등장'(첫 프레임 높이 0px)과
+// '자리'(첫 줄까지 M16)가, nativePopover()의 showPopover 확인을 지우면 대체 길이 깨진다.
+{
+  const QUINT = 'cubic-bezier(0.16, 1, 0.3, 1)';
+  const d9 = (strip) => ev(`(async () => {
+      if (${strip}) delete HTMLElement.prototype.showPopover;
+      const main = await (await fetch('/src/main.jsx')).text();
+      const R = await import(main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)[1]);
+      const C = await import(main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)[1]);
+      const { NotificationBell } = await import('/src/components/notificationBell.jsx');
+      const host = document.createElement('div'); host.id = 'd9-host'; host.style.cssText = 'position:fixed;top:4px;right:56px;z-index:200';
+      document.body.appendChild(host); (C.default ?? C).createRoot(host).render((R.default ?? R).createElement(NotificationBell, { guest: true }));
+      await new Promise(r => setTimeout(r, 300));
+      const btn = host.querySelector('button[title="알림"]');
+      const panel = () => [...host.querySelectorAll('div')].find(d => d.style.position === 'fixed');
+      const frame = () => new Promise(r => requestAnimationFrame(r));
+      btn.click(); await frame();
+      const p = panel(), cs = p && getComputedStyle(p);
+      const enter = p && { attr: p.getAttribute('popover'), open: p.matches(':popover-open'), name: cs.animationName,
+        tms: Math.round(parseFloat(cs.transitionDuration) * 1000), tease: cs.transitionTimingFunction.match(/^(cubic-bezier\\([^)]*\\)|[a-z-]+)/)?.[0], tprop: cs.transitionProperty, sh: p.firstElementChild?.style.height };
+      await new Promise(r => setTimeout(r, 450));
+      const q = panel(), rr = q.getBoundingClientRect(), br = btn.getBoundingClientRect();
+      const placed = { left: Math.round(rr.left), top: Math.round(rr.top), w: Math.round(rr.width), h: Math.round(rr.height), right: Math.round(br.right), bottom: Math.round(br.bottom),
+        rows: q.querySelectorAll('[data-notif-row]').length, head: !!q.querySelector('.stuck-edge'), op: getComputedStyle(q).opacity, bfit: (b => b === 'auto' || Math.abs(innerHeight - rr.bottom - parseFloat(b)) <= 1)(getComputedStyle(q).bottom), cssBottom: getComputedStyle(q).bottom, ml: getComputedStyle(q).marginLeft };
+      // 판 안의 일도 그대로인가 — M16(판 밖 줄은 기다렸다가 굴리면 들어옴) · S7(굴리면 머리 선) · M8(손가락으로 오른쪽 쓸면 그 줄이 지워짐)
+      const rows = [...q.querySelectorAll('[data-notif-row]')];
+      const inner = { first: rows[0]?.dataset.reveal || '', last: rows.at(-1)?.dataset.reveal || '' };
+      q.scrollTop = q.scrollHeight; await new Promise(r => setTimeout(r, 800));
+      inner.lastAfter = rows.at(-1)?.dataset.reveal || ''; inner.lastOp = rows.at(-1)?.style.opacity;
+      inner.stuck = getComputedStyle(q.querySelector('.stuck-edge'), '::after').opacity;
+      const row = rows.at(-1), sr = row.getBoundingClientRect(), sy = sr.top + sr.height / 2;
+      const fire = (type, cx) => row.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 9, pointerType: 'touch', clientX: cx, clientY: sy, isPrimary: true }));
+      fire('pointerdown', sr.left + 20);
+      for (const dx of [40, 90, 150]) { await new Promise(r => setTimeout(r, 30)); fire('pointermove', sr.left + 20 + dx); }
+      fire('pointerup', sr.left + 170); await new Promise(r => setTimeout(r, 700));
+      inner.swiped = rows.length - q.querySelectorAll('[data-notif-row]').length;
+      placed.inner = inner;
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await frame(); await frame();
+      const l = panel(), lcs = l && getComputedStyle(l);
+      const leave = l && { open: l.matches(':popover-open'), name: lcs.animationName, tms: Math.round(parseFloat(lcs.transitionDuration) * 1000), hidden: l.getAttribute('aria-hidden') };
+      await new Promise(r => setTimeout(r, 400));
+      const gone = !panel();
+      // 판 안을 누르면 그대로 · 바깥을 누르면 닫힘 · 종을 다시 누르면 닫힘(브라우저의 가벼운 닫기와 겹쳐 다시 열리지 않는다)
+      const md = (el) => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      btn.click(); await new Promise(r => setTimeout(r, 350));
+      md(panel().querySelector('.stuck-edge')); await new Promise(r => setTimeout(r, 300));
+      const dismiss = { inside: !!panel() && panel().getAttribute('aria-hidden') !== 'true' };
+      md(document.body); await new Promise(r => setTimeout(r, 400));
+      dismiss.outside = !panel();
+      btn.click(); await new Promise(r => setTimeout(r, 350));
+      md(btn); btn.click(); await new Promise(r => setTimeout(r, 400));
+      dismiss.again = !panel();
+      host.remove();
+      return { enter, placed, leave, gone, dismiss };
+    })()`, true);
+  await load(DESK, '/?p=dashboard');
+  const nat = await d9(false);
+  const placedOk = (r) => !!r && r.placed.w === 320 && Math.abs(r.placed.left + r.placed.w - r.placed.right) <= 1 && r.placed.top >= r.placed.bottom && r.placed.top <= r.placed.bottom + 8 && r.placed.h > 60 && r.placed.op === '1' && r.placed.head && r.placed.bfit && r.placed.ml === '0px'
+    && r.placed.inner.first === '' && r.placed.inner.last === 'wait' && r.placed.inner.lastAfter !== 'wait' && r.placed.inner.lastOp === '' && r.placed.inner.stuck === '1' && r.placed.inner.swiped === 1;
+  check('D9 알림 판: 브라우저 기본 팝오버(popover=manual · 맨 위 층) — 등장은 전이(160ms 이상 · quint · opacity·transform만 + overlay·display)',
+    !!nat?.enter && nat.enter.attr === 'manual' && nat.enter.open && nat.enter.name === 'none' && nat.enter.tms >= 160 && nat.enter.tease === QUINT
+      && /^opacity, transform, overlay, display$/.test(nat.enter.tprop) && nat.enter.sh !== "0px", JSON.stringify(nat?.enter));
+  check('D9 알림 판: 자리·폭은 그대로(종 오른쪽 끝 · 종 아래 · 게스트 320 · 다 뜬 뒤 불투명) · 판 안 M16 들어옴 · S7 머리 선 · M8 쓸어 지우기', placedOk(nat), JSON.stringify(nat?.placed));
+  check('D9 알림 판: Esc로 닫으면 맨 위 층에서 내려가며(퇴장 전이 180ms) 남았다가 걷힌다', !!nat?.leave && !nat.leave.open && nat.leave.tms === 180 && nat.leave.hidden === 'true' && nat.gone,
+    JSON.stringify([nat?.leave, nat?.gone]));
+  check('D9 알림 판: 판 안을 누르면 그대로 · 바깥을 누르면 닫힘 · 종을 다시 누르면 닫힘', !!nat?.dismiss && nat.dismiss.inside && nat.dismiss.outside && nat.dismiss.again, JSON.stringify(nat?.dismiss));
+  await load(DESK, '/?p=dashboard');
+  const old = await d9(true);
+  check('D9 알림 판 대체 길(showPopover 없음): popover 속성 없이 예전 dc-pop-in · 같은 자리 · 닫으면 dc-pop-out',
+    !!old?.enter && old.enter.attr === null && old.enter.name === 'dc-pop-in' && placedOk(old) && old.leave?.name === 'dc-pop-out' && old.gone,
+    JSON.stringify(old));
 }
 
 // ── 첨부 + 저장 경로 ──

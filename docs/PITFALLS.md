@@ -1626,3 +1626,14 @@ transform으로 주면 먹지 않는다(`.dc-lift`가 translate를 쓰는 것과
 옛 값은 `animationend`로 걷고, 오지 않으면(취소 · 리액트에는 onAnimationCancel이 없다) 400ms 타이머로 걷는다 — 움직임 줄이기면 아예 남기지 않는다(JS). 그 칸의 textContent를 재는 검사는 300ms 뒤에 잰다. 검사 `modalclose`(M25).
 **78-d.** **다붓이 기다림은 두 점(`.dab-orbit` · M24)이다 — 위키 다붓이 답 기다림과 순 가이드 다시 만들기 두 곳.** 점 색은 값을 따로 적지 않고 `--app-brand-grad`를 점마다 20배로 늘려 왼끝(파랑)·오른끝(분홍)만 보이게 한다 —
 그라데이션 값을 바꾸면(C 색 묶음 · 다크) 점도 따라간다. 움직임 줄이기면 첫 박자(좌우 6px로 벌어진 두 점)에 멈춘다. 옛 `.dab-dots`(점 셋)는 걷었다. 검사 `wiki`(M24) · `groups`(가이드 기다림 두 점).
+### 브라우저 기본 팝오버 D9 (UI 다듬기 2차 · 2026-10-28)
+**79-a.** **브라우저 기본 팝오버(`usePopover({ native: true })` · `.dc-pop-native`)는 지금 알림 판 하나만 켠다** — 폰 사파리·카카오 인앱 실기기에서 본 뒤 다른 판으로 넓힌다.
+`nativePopover()`가 popover(`showPopover`) · `transition-behavior: allow-discrete` · `@starting-style`을 **셋 다** 알 때만 이 길이다(@starting-style은 CSS.supports로 못 물어 규칙 하나를 넣어 보고 남는지 본다).
+하나라도 모르면 예전 `.dc-pop`·`.dc-out` 길 그대로 — 퇴장 전이를 모르는 브라우저(사파리 17.0~17.3)에서 팝오버만 쓰면 닫을 때 툭 사라져 지금보다 나빠진다.
+① **`popover="manual"`이다(auto 아님)** — 바깥 누름·Esc는 지금처럼 `useDismiss`가 정한다. auto의 가벼운 닫기는 종을 다시 누를 때 pointerdown에 닫고 click에 곧 다시 연다.
+② 브라우저 기본 `[popover]`(inset 0 · margin auto · padding · 글자색 CanvasText)를 `.dc-pop-native`가 걷는다 — 걷지 않으면 bottom 0이 남아 판이 max-height까지 늘어난다. 자리는 그대로 인라인 left/top(맨 위 층의 fixed 기준도 화면이라 좌표가 같다).
+③ 판은 ref가 붙는 순간 `showPopover()`로 띄운다 — 그런데 **판 안 자식의 레이아웃 효과는 부모 ref보다 먼저 돈다**. 그 사이 판은 display: none이라 자식이 자기 높이를 재면 0이다
+(알림 판 `useSmoothHeight`가 0을 잡아 판이 0에서 자랐고, 첫 줄까지 M16 '들어옴'을 탔다) — 안 보일 때(`getClientRects()`가 비면) 재지 않는다. 다른 판으로 넓힐 때 그 판 안에 자기를 재는 자식이 있는지 본다.
+④ 닫히면 `hidePopover()`로 퇴장 전이(opacity·transform + overlay·display allow-discrete · --dur-exit)를 걸고 EXIT_MS 뒤 걷는다(usePresence 그대로). 값은 `.dc-pop`과 같다(앵커 쪽 4px · .96/.97 · quint · 원점 --pop-origin) — 두 길이 같아 보인다. 시안 D9의 8px·.22s는 가운데 대화창 예시라 옮기지 않았다.
+⑤ 맨 위 층이라 판은 z-index와 상관없이 업무 창·토스트보다 위다 — 알림 줄을 눌러 업무 창이 열리면 걷히는 180ms 동안 판이 창 위에 있다(시안 D9가 말한 '닫히는 동안에도 맨 위').
+검사 `handoff` D9(맨 위 층 · 등장 전이 · 자리·폭 · 판 안 M16·S7·M8 · Esc 퇴장 · 안/바깥/종 다시 누름 · `showPopover`를 지운 대체 길) · `navsmoke`(폰 좌우 16px · M19 종).

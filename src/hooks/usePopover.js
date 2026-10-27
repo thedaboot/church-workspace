@@ -1,4 +1,4 @@
-import { createElement, useState, useRef } from 'react';
+import { createElement, useState, useRef, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPos, popMotion } from '../components/ConfirmPopover.jsx';
 import { useDismiss } from './useDismiss.js';
@@ -24,9 +24,33 @@ import { usePresence } from './useExit.js';
 // · fit: 고른 쪽(아래가 기본)에 남은 높이를 pos.maxHeight로 준다(useAnchoredPos fitHeight · estHeight가 위 한계).
 //   panel의 셋째 인자(style)로 그 높이를 판에 걸면, 안이 늘어도 판이 위로 밀려 올라가지 않고 판 안의 한 칸만 구른다
 //   (보는 사람 고르기 · 시안 2026-10-16).
+// · native: 브라우저 기본 팝오버(UI 다듬기 2차 D9 · PITFALLS 79-a) — 판을 `popover="manual"`로 맨 위 층에 올리고 등장·퇴장을
+//   CSS(`.dc-pop-native` · @starting-style · allow-discrete)가 그린다. 브라우저가 셋 다 알 때만(nativePopover()) — 모르면 위 길 그대로.
+//   manual이라 바깥 누름·Esc는 지금처럼 useDismiss가 정하고(브라우저의 가벼운 닫기(auto)를 쓰면 종을 다시 누를 때 누름에 닫히고 클릭에 곧 다시 열린다),
+//   자리도 지금처럼 인라인 left/top이다. 닫힌 판을 걷는 때(EXIT_MS)도 같다 — 걷기 전에 hidePopover로 퇴장 전이를 건다.
+//   **지금은 알림 판 하나만 켠다**(폰 사파리·카카오 인앱 실기기 확인 뒤 넓힌다).
 export const POP_MOTION = 'transition-none dc-pop';
 
-export function usePopover(width, estHeight, { gap, measure = false, portal = true, fit = false } = {}) {
+// 브라우저가 popover · allow-discrete 전이 · @starting-style을 다 아는가. @starting-style은 CSS.supports로 못 물어서
+// 규칙 하나를 넣어 보고 버려지는지 본다(모르는 @규칙은 cssRules에 남지 않는다) — 한 번만 잰다. showPopover는 부를 때마다 본다(검사가 지운다).
+let startingStyle;
+export function nativePopover() {
+  if (typeof HTMLElement === 'undefined' || typeof HTMLElement.prototype.showPopover !== 'function') return false;
+  if (typeof CSS === 'undefined' || !CSS.supports?.('transition-behavior', 'allow-discrete')) return false;
+  if (startingStyle === undefined) {
+    try {
+      const s = document.createElement('style');
+      s.textContent = '@starting-style{.x{opacity:0}}';
+      document.head.appendChild(s);
+      startingStyle = !!s.sheet && s.sheet.cssRules.length > 0;
+      s.remove();
+    } catch { startingStyle = false; }
+  }
+  return startingStyle;
+}
+
+export function usePopover(width, estHeight, { gap, measure = false, portal = true, fit = false, native: wantNative = false } = {}) {
+  const [native] = useState(() => wantNative && nativePopover());
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const btnRef = useRef(null);
@@ -36,15 +60,30 @@ export function usePopover(width, estHeight, { gap, measure = false, portal = tr
   const toggle = () => { place(); setOpen(o => !o); };
   const close = () => setOpen(false);
   const { shown, leaving } = usePresence(open);
+  // native: 붙는 순간 띄운다(ref — 아래 레이아웃 효과·rAF의 measure보다 먼저). 판 **안** 자식의 레이아웃 효과는 이보다 먼저 돌아
+  // 아직 숨은(display: none) 판을 재게 된다 — 자식이 자기를 재면 안 보일 때는 건너뛰어야 한다(알림 판 useSmoothHeight · 79-a).
+  // 닫히면 hidePopover로 퇴장 전이를 걸고, 걷히는 사이에 다시 열면 다시 띄운다.
+  const setPop = useCallback((el) => {
+    popRef.current = el;
+    if (native && el && !el.matches(':popover-open')) el.showPopover();
+  }, [native]);
+  useLayoutEffect(() => {
+    const el = popRef.current;
+    if (!native || !el) return;
+    const on = el.matches(':popover-open');
+    if (open && !on) el.showPopover();
+    else if (!open && on) el.hidePopover();
+  }, [native, open, shown]);
   const panel = (className, children, style = null) => {
     if (!shown) return null;
     const el = createElement('div', {
-      ref: popRef,
+      ref: native ? setPop : popRef,
+      popover: native ? 'manual' : undefined,
       style: { position: 'fixed', left: pos.left, top: pos.top, width, ...style, ...popMotion(pos) },
-      className: `${className} ${POP_MOTION}${leaving ? ' dc-out' : ''}`,
+      className: native ? `${className} dc-pop-native` : `${className} ${POP_MOTION}${leaving ? ' dc-out' : ''}`,
       'aria-hidden': leaving || undefined,
     }, children);
     return portal ? createPortal(el, document.body) : el;
   };
-  return { open, close, toggle, rootRef, btnRef, panel, pos };
+  return { open, close, toggle, rootRef, btnRef, panel, pos, native };
 }

@@ -1060,6 +1060,21 @@ svg.lucide { stroke-width: 1.4px; }
 @media (prefers-reduced-motion: reduce) {
   .dc-pop, .dc-dialog, .dc-sheet-up, .dc-sheet-dialog, .dc-rise, .dc-scrim, .dc-toast { animation: none !important; }
 }
+/* D9 브라우저 기본 팝오버(UI 다듬기 2차 · 시안 D9 · PITFALLS 79-a) — usePopover({ native: true })를 받은 판(지금은 알림 판 하나)이
+   브라우저가 popover·@starting-style·allow-discrete를 다 알 때만 이 길을 탄다. 모르면 위 .dc-pop · .dc-out 그대로다.
+   값은 .dc-pop과 같다(앵커 쪽 4px · 등장 scale .96 --dur-pop · 퇴장 .97 --dur-exit · quint · 원점 --pop-origin) — 두 길이 같은 모양으로 보인다.
+   [popover]의 브라우저 기본(inset 0 · margin auto · padding · 글자색 CanvasText)을 걷고 자리는 지금처럼 인라인 left/top이 정한다.
+   전이는 opacity·transform만(left/top은 전이하지 않는다 — 17-b) + 닫히는 동안 맨 위에 남게 overlay·display(allow-discrete). */
+.dc-pop-native {
+  inset: auto; margin: 0; padding: 0; height: auto; color: inherit;
+  opacity: 0; transform: translate3d(0, var(--pop-dy, -4px), 0) scale(.97); transform-origin: var(--pop-origin, top right);
+  transition: opacity var(--dur-exit) var(--ease-out-quint), transform var(--dur-exit) var(--ease-out-quint),
+    overlay var(--dur-exit) allow-discrete, display var(--dur-exit) allow-discrete;
+}
+.dc-pop-native:not(:popover-open) { pointer-events: none; }
+.dc-pop-native:popover-open { opacity: 1; transform: none; transition-duration: var(--dur-pop); }
+@starting-style { .dc-pop-native:popover-open { opacity: 0; transform: translate3d(0, var(--pop-dy, -4px), 0) scale(.96); } }
+@media (prefers-reduced-motion: reduce) { .dc-pop-native { transition: none !important; } }
 
 /* ── 다붓이 · 위키 (0088 · 16차 · 목업 v12) ───────────────────────────────────
    입구 셋(상단 알약 · 폰 얼굴 · 위키 안 물어보기 칸)은 **갸웃** — 얼굴이 5초에 한 번 고개를 기울인다.

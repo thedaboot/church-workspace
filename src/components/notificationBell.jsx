@@ -36,6 +36,7 @@ import { useSwipeAway } from '../hooks/useSwipeAway.js';
 //   · 카카오톡 인앱(v5 2묶음 · services/inApp.js)에서는 설치 줄·알림 받기 줄 대신 '브라우저로 열기' 한 줄(KakaoOutRow) — 인앱 웹뷰는
 //     웹 푸시도 홈 화면 추가도 못 한다. 게스트·미리보기는 `?demo=kakao`면 종이 서고(bellOn) 넘기는 대신 토스트 — 클라우드는 실제 UA만
 //   · 판은 앵커 곁에 그린다(portal: false — 원래 그렇다) · 껍데기는 hooks/usePopover 한 벌 · 640 미만 폰은 화면 폭 - 32px(좌우 16px · PITFALLS 49-f)
+//   · 브라우저 기본 팝오버(native · UI 다듬기 2차 D9 · PITFALLS 79-a) — 브라우저가 알면 판이 맨 위 층에 서고 등장·퇴장을 CSS가 그린다. 모르면 예전 .dc-pop 길
 // ============================================================================
 
 // ── @멘션 알림 (클라우드 모드 전용) ────────────────────────────────────────
@@ -204,7 +205,7 @@ function CloudBell({ onOpenTask, onOpenLink }) {
   // 왼쪽 9px · 오른쪽 25~48px로 어긋났다(2026-10-14 점검 · PITFALLS 49-f). 폭은 아래 판 클래스(!)가 정하고, measure로 그 실제 폭을 재서 가둔다.
   // 판 폭 360(UI 다듬기 2026-10-26 — 320일 때 제목 11px · 미리보기·시각 10px라 판을 열면 회색 글이 빼곡했다).
   // 글은 한 단씩 올렸다: 제목 12.5 · 미리보기·시각 11 · 기기 알림 줄 12/11. 폰은 그대로 화면 폭 - 32px.
-  const pop = usePopover(360, 240, { portal: false, gap: 16, measure: true });
+  const pop = usePopover(360, 240, { portal: false, gap: 16, measure: true, native: true });
   const unread = shown.filter(n => !n.read).length;
   // 첫 목록이 오기 전의 빈 목록을 기준으로 삼으면 첫 목록이 통째로 '새 알림'이 된다 — 받은 뒤부터 센다(M19)
   const [listed, setListed] = useState(false);
@@ -329,6 +330,8 @@ function useSmoothHeight() {
     const el = inner.current;
     if (!el) return undefined;
     const read = () => {
+      // 아직 안 보이는 판(브라우저 기본 팝오버가 띄워지기 전 · D9 · PITFALLS 79-a)은 재지 않는다 — 0으로 재면 판이 0에서 자란다
+      if (!el.getClientRects().length) return;
       const panel = el.parentElement?.parentElement;
       const max = panel ? parseFloat(getComputedStyle(panel).maxHeight) - (panel.offsetHeight - panel.clientHeight) : NaN;
       setH(Number.isFinite(max) && el.offsetHeight > max ? null : el.offsetHeight);
@@ -505,7 +508,7 @@ function GuestBell({ onOpenLink }) {
   const off = useNotifOff();
   const items = useMemo(() => filterNotifs(all, off), [all, off]);
   const unread = items.filter(n => !n.read).length;
-  const pop = usePopover(320, 240, { portal: false, gap: 16, measure: true });
+  const pop = usePopover(320, 240, { portal: false, gap: 16, measure: true, native: true });
   const ring = useBellRing(all, items);
   const openItem = (n) => {
     setGuestNotifs(list => list.map(x => (x.id === n.id ? { ...x, read: true } : x)));
