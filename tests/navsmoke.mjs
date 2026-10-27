@@ -892,6 +892,9 @@ await send('Emulation.clearDeviceMetricsOverride');
   await ev(`localStorage.setItem('theme', 'light')`);
   // ② 늦게 싣는 화면 — 한가할 때 미리 받는다 · 폰 하단 탭은 누르는 순간 받는다
   const chunks = `['worshipView', 'wordView', 'groupsView', 'membersView', 'wikiView'].filter(n => performance.getEntriesByType('resource').some(e => e.name.includes('/views/' + n + '.jsx')))`;
+  // dev 서버는 모듈마다 파일이라 자원 기록이 기본 한도(250)에 차서 늦게 온 위키 조각이 목록에서 빠진다(2026-10-28 — 정확히 250에서
+  // 멈춘 것을 쟀다). 받기는 됐는데 검사가 못 본 것이라 한도를 문서 시작 전에 늘린다.
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: 'performance.setResourceTimingBufferSize(2000)' });
   await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(4000);
   const idle = await ev(chunks);
   const gone = await ev(`!document.querySelector('.boot-splash')`);
