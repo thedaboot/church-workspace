@@ -142,6 +142,13 @@
   /* 모바일 주소창 바운스로 인한 이중 스크롤 억제 */
   html, body { overscroll-behavior-y: none; }
   body { background-color: var(--app-canvas); color: var(--app-ink); font-family: var(--font-sans); font-feature-settings: 'lnum', 'locl'; word-break: keep-all; overflow-wrap: break-word; transition: background-color .2s ease, color .2s ease; }
+  /* 줄바꿈(UI 다듬기 2차 D11 · PITFALLS 72-d) — 한국어는 위 keep-all로 낱말째 접고, 제목은 줄 길이를 고르게(balance),
+     본문은 마지막 줄에 한두 글자만 남지 않게(pretty). 글자 크기는 그대로다. :where라 어느 클래스든 덮어쓴다.
+     쓰는 칸(contenteditable) 안은 뺀다 — 치는 동안 앞 줄 낱말이 아래로 내려왔다 올라가며 흔들린다.
+     줄임말 `text-wrap`이 아니라 `text-wrap-style`만 준다 — 줄임말은 접기 여부(text-wrap-mode)까지 wrap으로 덮어
+     부모의 nowrap(truncate)을 물려받던 제목이 두 줄로 접힌다. */
+  :where(h1, h2, h3, h4, h5, h6):where(:not([contenteditable] *)) { text-wrap-style: balance; }
+  :where(p, li, blockquote, figcaption):where(:not([contenteditable] *)) { text-wrap-style: pretty; }
 
   /* 노션풍 얇은 스크롤바 (라이트/다크 토큰 연동) */
   * { scrollbar-width: thin; scrollbar-color: var(--app-line) transparent; }
@@ -183,6 +190,9 @@
    (레이아웃을 다시 계산하게 만들어 스크롤 중 프레임이 튄다). */
 @theme {
   --ease-out-quint: cubic-bezier(.16, 1, .3, 1);
+  /* 스프링(UI 다듬기 2차 D6 · PITFALLS 72-b) — 강성 170 · 감쇠 13 · 0.7초를 직접 풀어 71점으로 찍은 곡선(시안 값 그대로).
+     살짝(16%) 넘쳤다가 작게 되돌아오며 멈춘다. `linear()`를 모르는 브라우저는 쓰는 쪽이 @supports로 거른다(.dc-spring). */
+  --ease-spring: linear(0, 0.01, 0.034, 0.071, 0.118, 0.174, 0.236, 0.302, 0.372, 0.443, 0.515, 0.585, 0.654, 0.719, 0.781, 0.839, 0.892, 0.941, 0.984, 1.023, 1.056, 1.084, 1.108, 1.127, 1.141, 1.151, 1.158, 1.162, 1.162, 1.16, 1.155, 1.148, 1.14, 1.131, 1.121, 1.11, 1.098, 1.087, 1.075, 1.064, 1.053, 1.042, 1.033, 1.023, 1.015, 1.007, 1.001, 0.995, 0.989, 0.985, 0.982, 0.979, 0.977, 0.975, 0.974, 0.974, 0.974, 0.974, 0.975, 0.976, 0.978, 0.979, 0.981, 0.983, 0.985, 0.987, 0.988, 0.99, 0.992, 0.994, 1);
 }
 @keyframes dc-screen-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes dc-row-in    { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
@@ -1089,6 +1099,8 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
    - .dc-breathe / .dc-squish : 홈 다붓이 숨쉬기 · 누르면 말랑(K2)
    창 뒤 흐림(M5)은 뺐다 — 막이 opacity로 떠오르는 동안 브라우저가 backdrop-filter를 끊어(backdrop root) 끝에 흐림이 툭 켜진다. */
 .dc-spring { transition: transform .42s cubic-bezier(.34, 1.56, .64, 1); }
+/* D6 — linear()를 아는 브라우저는 진짜 스프링(0.7초 · 위 --ease-spring). 모르면 바로 위 베지어가 남는다. */
+@supports (transition-timing-function: linear(0, 1)) { .dc-spring { transition: transform .7s var(--ease-spring); } }
 @keyframes dc-react-pop { 0% { transform: scale(1); } 30% { transform: scale(.72); } 65% { transform: scale(1.22); } 100% { transform: scale(1); } }
 .dc-react-pop { animation: dc-react-pop .42s var(--ease-out-quint); }
 @keyframes dc-num-roll { from { transform: translateY(70%); opacity: 0; } }

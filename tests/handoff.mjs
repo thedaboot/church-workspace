@@ -253,6 +253,18 @@ const dark = await ev(`(() => { document.documentElement.dataset.theme='dark';
   const cs=getComputedStyle(document.documentElement); return cs.getPropertyValue('--p-track').trim(); })()`);
 check('다크 파스텔도 따로 정의', dark === '#2d2d2c', dark);
 await ev(`document.documentElement.dataset.theme='light'`);
+// UI 다듬기 2차 D6·D11(PITFALLS 72-b·72-d) — 빌드가 @supports·:where를 지나서도 살아 있나를 실제 계산값으로 본다.
+// D6 스위치 손잡이는 linear() 스프링 0.7초(지원 브라우저) · D11 제목은 balance · 본문은 pretty · 쓰는 칸 안은 둘 다 아님.
+// **되돌리기**: index.css의 '@supports (transition-timing-function: linear(0, 1))' 줄이나 :where(h1…) 줄을 지우면 깨진다.
+const d611 = await ev(`(() => {
+  const box = document.createElement('div'); document.body.appendChild(box);
+  box.innerHTML = '<span class="dc-spring"></span><h3>제목</h3><p>본문</p><div contenteditable="true"><p>쓰는 칸</p></div>';
+  const [sp, h, p, ce] = [box.querySelector('.dc-spring'), box.querySelector('h3'), box.querySelector(':scope > p'), box.querySelector('[contenteditable] p')].map(e => getComputedStyle(e));
+  const r = { ease: sp.transitionTimingFunction.slice(0, 40), dur: sp.transitionDuration, h: h.textWrapStyle, p: p.textWrapStyle, ce: ce.textWrapStyle, hMode: h.textWrapMode };
+  box.remove(); return r;
+})()`);
+check('다듬기 2차 D6: 스위치 손잡이는 스프링 곡선(linear()) 0.7초', /^linear\(0[ ,]/.test(d611.ease) && d611.dur === '0.7s', JSON.stringify(d611));
+check('다듬기 2차 D11: 제목 balance · 본문 pretty · 쓰는 칸 안은 그대로 · 접기 여부는 안 건드림', d611.h === 'balance' && d611.p === 'pretty' && d611.ce === 'auto' && d611.hMode === 'wrap', JSON.stringify(d611));
 
 // ── 1. 대시보드 ──
 const dash = await ev(`(() => {
