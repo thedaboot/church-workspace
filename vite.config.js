@@ -204,6 +204,10 @@ export default defineConfig(({ mode }) => ({
   define: {
     __BUILD_ID__: JSON.stringify((process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || (mode === 'guest' ? 'guest' : 'dev')),
   },
+  // dev 의존성 미리 묶기 — pdf 워커는 `new Worker(new URL(...))` 안이라 시작 때 훑기가 못 보고, 처음 미리보기를 열 때
+  // 찾아 'optimized dependencies changed. reloading'으로 **페이지를 통째로 다시 읽는다**(2026-10-27 — 새로 띄운 게스트
+  // 서버에서 modalclose가 도중에 끊기고, 만들기 직후 다시 읽혀 '새 업무: Ctrl+Enter' 단정이 한 번 떨어졌다). 빌드에는 영향 없다.
+  optimizeDeps: { include: ['pdfjs-dist/build/pdf.worker.min.mjs'] },
   build: {
     rollupOptions: {
       // 입구 둘 — 앱(index.html)과 주보 공개 보기(service-view.html · api/service-view.js가 받아 데이터를 끼운다).
