@@ -61,7 +61,7 @@ const INK_2 = '#2c2a25';   // --app-ink-secondary
 const INK_M = '#6c665c';   // --app-ink-muted
 const INK_F = '#a39f98';   // --app-ink-faint
 const ACCENT = '#3f6fc4';  // --app-accent
-const RED = '#993731';     // --app-tag-red-fg
+const RED = '#8c2b26';     // --app-tag-red-fg
 
 // 종이 위의 큰 카드 — **위가 넓은 돔**이다(사용자가 준 템플릿). 가로 반지름은 폭의
 // 46%라 375px에서도 1440px에서도 같은 모양이고, 세로 반지름만 고정이라 돔의 높이가

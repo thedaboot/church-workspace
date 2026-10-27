@@ -1265,6 +1265,31 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   const near = (a, b, k) => a.every((v, i) => Math.abs(v - b[i] * (1 - k)) <= 1.5);
   check('C4: hover·눌림이 accent의 한 단(12%)·두 단(24%) — 라이트·다크 · accent를 바꾸면 따라온다',
     ['light', 'dark'].every(t => near(c4[t].hover, c4[t].base, .12) && near(c4[t].press, c4[t].base, .24)) && near(c4.swapped, [192, 57, 43], .12), JSON.stringify(c4));
+
+  // C5·C6 칩 — 아홉 색 짝(바탕 --app-tag-X · 글자 --app-tag-X-fg)의 글자 대비가 라이트·다크 모두 4.5:1 이상(C5 대비 보증),
+  // 바탕끼리 가장 가까운 짝도 OKLab 거리 .02 이상 · 바탕이 카드(surface)와 .08 이상 떨어진다(C6 한 단 위 — 옛 회색·갈색은 .007).
+  // **되돌리기**: 태그 팔레트를 옛 값(#e8e6ea·#eee6e0 …)으로 두면 C6이, 아무 글자색을 바탕 쪽으로 옅게 하면 C5가 깨진다.
+  const TAGS = ['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'];
+  const pal = await ev(`(() => { const out = {};
+    for (const th of ['light', 'dark']) { document.documentElement.dataset.theme = th; const cs = getComputedStyle(document.documentElement);
+      out[th] = { surface: cs.getPropertyValue('--app-surface').trim(), tags: ${JSON.stringify(TAGS)}.map(k => [k, cs.getPropertyValue('--app-tag-' + k).trim(), cs.getPropertyValue('--app-tag-' + k + '-fg').trim()]) }; }
+    document.documentElement.dataset.theme = 'light'; return out; })()`);
+  const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const rgbOf = (h) => [1, 3, 5].map(i => lin(parseInt(h.slice(i, i + 2), 16) / 255));
+  const lumOf = (h) => { const [r, g, b] = rgbOf(h); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const cr = (a, b) => { const [x, y] = [lumOf(a), lumOf(b)].sort((p, q) => p - q); return (y + 0.05) / (x + 0.05); };
+  const lab = (h) => { const [r, g, b] = rgbOf(h);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s]; };
+  const dE = (a, b) => { const p = lab(a), q = lab(b); return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); };
+  const c5 = [], c6 = [];
+  for (const th of ['light', 'dark']) {
+    const { surface, tags } = pal[th];
+    for (const [k, bg, fg] of tags) { const r = cr(bg, fg); if (!(r >= 4.5)) c5.push(`${th} ${k} ${r.toFixed(2)}`); const d = dE(bg, surface); if (!(d >= 0.08)) c6.push(`${th} ${k}↔surface ${d.toFixed(3)}`); }
+    for (let i = 0; i < tags.length; i++) for (let j = i + 1; j < tags.length; j++) { const d = dE(tags[i][1], tags[j][1]); if (!(d >= 0.02)) c6.push(`${th} ${tags[i][0]}↔${tags[j][0]} ${d.toFixed(3)}`); }
+  }
+  check('C5: 칩 아홉 색 글자 대비 4.5:1 이상(라이트·다크)', c5.length === 0 && pal.light.tags.every(t => /^#/.test(t[1])), c5.join(' · ') || JSON.stringify(pal.light.tags[0]));
+  check('C6: 칩 바탕은 서로·카드와 갈린다(한 단 위)', c6.length === 0, c6.join(' · '));
 }
 
 console.log(results.join('\n'));

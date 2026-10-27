@@ -54,16 +54,18 @@
      태그 바탕(--app-tag-*)보다 한 단 진하다. 글자색은 바꾸지 않는다(예전엔 빨강이면 말씀이 빨간 글씨가 됐다). */
   --app-hl-red: #f2b2aa; --app-hl-blue: #b2cbf1; --app-hl-yellow: #f3d474; --app-hl-green: #acd6b8;
   /* 태그 팔레트 라이트 — 로그인 글로우 3색(하늘·라벤더·핑크) 계열로 통일해
-     로그인에서 본 색이 앱 안에서 팀 색으로 이어지게 한다 */
-  --app-tag-gray: #e9e7e1;    --app-tag-gray-fg: #5d5951;
-  --app-tag-brown: #eee6e0;   --app-tag-brown-fg: #6b5347;
-  --app-tag-orange: #fce0cf;  --app-tag-orange-fg: #8b4a20;
-  --app-tag-yellow: #fbecd0;  --app-tag-yellow-fg: #7a5a1e;
-  --app-tag-green: #d9ecdf;   --app-tag-green-fg: #2c5d42;
-  --app-tag-blue: #dbeafd;    --app-tag-blue-fg: #2a5c9e;
-  --app-tag-purple: #e7dffb;  --app-tag-purple-fg: #5a3f9e;
-  --app-tag-pink: #fbdcec;    --app-tag-pink-fg: #9c3a6c;
-  --app-tag-red: #fbdedb;     --app-tag-red-fg: #993731;
+     로그인에서 본 색이 앱 안에서 팀 색으로 이어지게 한다.
+     바탕·글자를 한 단씩 올렸다(C6 · PITFALLS 77-c) — 바탕은 OKLCH 밝기 .025 아래·채도 1.45배, 글자는 밝기 .04 아래.
+     가장 옅은 칩끼리(회색·갈색) 구분이 안 됐다. 짝마다 글자 대비 4.5:1 이상은 handoff C5가 단정한다(라이트·다크). */
+  --app-tag-gray: #e1dfd8;    --app-tag-gray-fg: #524e46;
+  --app-tag-brown: #f0dbcd;   --app-tag-brown-fg: #60483c;
+  --app-tag-orange: #fdd5bc;  --app-tag-orange-fg: #7e3f12;
+  --app-tag-yellow: #f9e3ba;  --app-tag-yellow-fg: #6e4f0f;
+  --app-tag-green: #cbe6d4;   --app-tag-green-fg: #205237;
+  --app-tag-blue: #cde2fe;    --app-tag-blue-fg: #1e5091;
+  --app-tag-purple: #e0d4fd;  --app-tag-purple-fg: #4f3391;
+  --app-tag-pink: #fbcfe6;    --app-tag-pink-fg: #8f2e61;
+  --app-tag-red: #fcd2ce;     --app-tag-red-fg: #8c2b26;
   /* 상태 dot 전용 — 태그 fg(#7a5a1e)는 갈색으로 읽혀서 '보류 중'은 별도 노란색 */
   --app-status-hold: #d0a02a;
   /* 진행 바 전용 파스텔 — 진한 팀 색을 바에 그대로 쓰면 대시보드가 시끄럽다.
@@ -91,15 +93,15 @@
     --app-shadow-tint: 8 6 3;   /* 거의 검정이되 바탕 쪽으로 한 방울(C3) */
     --app-hl-red: #7a3c36; --app-hl-blue: #2f4c78; --app-hl-yellow: #6e5b22; --app-hl-green: #2f5c3e;
     --app-night: #213183;
-    --app-tag-gray: #32302b;   --app-tag-gray-fg: #b9b7b3;
-    --app-tag-brown: #362e26;  --app-tag-brown-fg: #c2a891;
-    --app-tag-orange: #3d2a1a; --app-tag-orange-fg: #d3a173;
-    --app-tag-yellow: #3a3020; --app-tag-yellow-fg: #cbb877;
-    --app-tag-green: #24322a;  --app-tag-green-fg: #8fc7a4;
-    --app-tag-blue: #1f2d38;   --app-tag-blue-fg: #8ab8d8;
-    --app-tag-purple: #2f2740; --app-tag-purple-fg: #b8a3d8;
-    --app-tag-pink: #392430;   --app-tag-pink-fg: #d8a3bd;
-    --app-tag-red: #3b2523;    --app-tag-red-fg: #d8a09a;
+    --app-tag-gray: #383631;   --app-tag-gray-fg: #c6c4c0;
+    --app-tag-brown: #42322e;  --app-tag-brown-fg: #cfb59d;
+    --app-tag-orange: #482f19; --app-tag-orange-fg: #e0ae7f;
+    --app-tag-yellow: #433620; --app-tag-yellow-fg: #d8c583;
+    --app-tag-green: #273a2f;  --app-tag-green-fg: #9cd4b1;
+    --app-tag-blue: #213442;   --app-tag-blue-fg: #96c5e5;
+    --app-tag-purple: #362b4d; --app-tag-purple-fg: #c5b0e5;
+    --app-tag-pink: #432838;   --app-tag-pink-fg: #e5b0ca;
+    --app-tag-red: #462926;    --app-tag-red-fg: #e5ada6;
     --app-status-hold: #e5b95c;
     --p-track: #2f2d28;
     --p-blue: #5b83bd;  --p-red: #9a635d;    --p-yellow: #9c8450; --p-green: #5b8a70;
