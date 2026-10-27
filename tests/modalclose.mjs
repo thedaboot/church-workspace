@@ -2572,6 +2572,110 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
 
+// ── 토스트 묶음 · 쓸어 닫기 · 가려지면 멈춤 · 툴팁 (UI 다듬기 2차 M6~M9 · 2026-10-27 · 시안 값 · PITFALLS 74-a~c) ──────────
+// M7 그냥 토스트는 갈아 끼우지 않고 쌓인다 — 새것이 DOM 먼저 · 뒤 것은 9px 위 · 5% 작게 · 앞 것의 폭·높이 · 같은 글은 쌓지 않음 · 마우스를 올리면 펼침
+// M9 가려진 동안(visibilitychange) 그냥 토스트의 4초 시계가 멈추고 다시 보이면 이어서 센다
+// M8 손가락으로 오른쪽 90px 넘게 · 빨리 튕기면 닫히고, 왼쪽은 무거워져 40px 안쪽에 붙었다가 돌아온다
+// M6 편집기 서식 줄 — 처음 툴팁은 500ms 뒤 떠오름 · 옆 버튼은 바로(움직임 없이) · 닫힌 뒤 400ms가 지나면 다시 기다린다 · title은 없다
+// **되돌리기**: PlainStack을 한 자리로(새것이 옛것을 갈아 낌) 되돌리면 M7이, pausable의 pause를 비우면 M9가, useSwipeAway의 swipeAway를
+// false로 두면 M8이, Tip의 `open || warm`을 false로 두면 M6 '바로'가 깨진다.
+{
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1300);
+  // 앱이 실제로 불러 쓴 사본을 잡는다(HMR 뒤 `?t=`가 붙은 주소 — 맨 주소를 import하면 마운트되지 않은 사본이다 · PITFALLS 54)
+  const toast = (msg) => ev(`(async () => { const u = performance.getEntriesByType('resource').map(e => e.name).filter(n => n.includes('/src/components/Toast.jsx')).pop();
+    (await import(u)).showToast(${JSON.stringify(msg)}); })()`, true);
+  const stack = () => ev(`(() => { const s = document.querySelector('[data-toast-stack]'); if (!s) return null;
+    const at = [...s.querySelectorAll('.dc-toast-at')].map(n => ({ t: n.style.transform, o: n.style.opacity, w: Math.round(n.getBoundingClientRect().width), h: n.offsetHeight, text: n.innerText.trim() }));
+    return { state: s.dataset.toastStack, at, first: document.querySelector('[data-toast]')?.innerText.trim() }; })()`);
+  await toast('토스트 하나 — 첫 번째 저장 안내'); await sleep(120);
+  await toast('둘'); await sleep(120);
+  await toast('셋째 토스트'); await sleep(600);
+  const s1 = await stack();
+  check('M7 그냥 토스트가 쌓인다 — 새것이 맨 앞(DOM 먼저) · 뒤 것은 9px 위 · 5% 작게 · 맨 앞 것의 폭·높이',
+    !!s1 && s1.at.length === 3 && s1.first === '셋째 토스트' && s1.at[0].t === 'translateY(0px) scale(1)' && s1.at[1].t === 'translateY(-9px) scale(0.95)'
+    && s1.at[2].t === 'translateY(-18px) scale(0.9)' && s1.at[1].h === s1.at[0].h && Math.abs(s1.at[1].w / 0.95 - s1.at[0].w) <= 2 && s1.state === 'shut', JSON.stringify(s1));
+  await toast('셋째 토스트'); await sleep(300);
+  const s2 = await stack();
+  check('M7 같은 글이 또 오면 쌓지 않는다', s2?.at.length === 3, JSON.stringify(s2?.at.map(a => a.text)));
+  const fr = await ev(`(() => { const r = document.querySelector('.dc-toast-at').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+  await mouse('mouseMoved', fr.x, fr.y); await sleep(500);
+  const s3 = await stack();
+  check('M7 마우스를 올리면 위로 펼쳐진다(6px 틈 · 제 크기)', s3?.state === 'open' && s3.at[1].t === `translateY(${-(s3.at[0].h + 6)}px)` && s3.at[2].t === `translateY(${-(s3.at[0].h + s3.at[1].h + 12)}px)` && s3.at[2].w > s1.at[2].w, JSON.stringify(s3));
+  await mouse('mouseMoved', 20, 400); await sleep(500);
+  check('M7 마우스가 떠나면 다시 접힌다', (await stack())?.state === 'shut');
+  // M9 — 가려진 4.6초 동안 그대로 · 다시 보이고 4.6초 뒤 걷힘
+  const setHidden = (h) => ev(`(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => ${h} }); document.dispatchEvent(new Event('visibilitychange')); })()`);
+  await setHidden(true); await sleep(4600);
+  const hid = await ev(`document.querySelectorAll('[data-toast]').length`);
+  await setHidden(false); await sleep(4600);
+  const back = await ev(`document.querySelectorAll('[data-toast]').length`);
+  await ev(`delete document.hidden`);
+  check('M9 가려진 동안 그냥 토스트의 시계가 멈추고 · 다시 보이면 이어서 센다', hid === 3 && back === 0, JSON.stringify({ hid, back }));
+
+  // M8 — 폰 · 손가락
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await sleep(300);
+  const swipe = (steps) => ev(`(async () => { const el = document.querySelector('.dc-toast-swipe'); if (!el) return null;
+    const r = el.getBoundingClientRect(), y = r.top + r.height / 2; let x = r.left + 20;
+    const fire = (type, cx) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 7, pointerType: 'touch', clientX: cx, clientY: y, isPrimary: true }));
+    fire('pointerdown', x);
+    for (const [dx, wait] of ${JSON.stringify(steps)}) { await new Promise(r => setTimeout(r, wait)); fire('pointermove', x + dx); }
+    const mid = el.style.transform;
+    fire('pointerup', x + ${JSON.stringify(steps)}.at(-1)[0]);
+    return mid; })()`, true);
+  await toast('쓸어 닫을 토스트'); await sleep(500);
+  const pulled = await swipe([[-60, 30], [-120, 30], [-200, 30]]);
+  await sleep(450);
+  const stay = await ev(`({ n: document.querySelectorAll('[data-toast]').length, t: document.querySelector('.dc-toast-swipe')?.style.transform })`);
+  const px = Math.abs(parseFloat(String(pulled).replace('translateX(', '')));
+  check('M8 왼쪽으로 당기면 무거워져(200px → 40px 안쪽) 놓으면 제자리', px > 25 && px < 40 && stay.n === 1 && stay.t === '', JSON.stringify({ pulled, stay }));
+  await swipe([[30, 30], [60, 30], [100, 30], [130, 300]]);
+  await sleep(450);
+  check('M8 오른쪽으로 90px 넘게 밀면 닫힌다', (await ev(`document.querySelectorAll('[data-toast]').length`)) === 0);
+  await toast('튕겨 닫을 토스트'); await sleep(500);
+  await swipe([[10, 16], [24, 16], [40, 16]]);
+  await sleep(450);
+  check('M8 짧게 빨리 튕겨도 닫힌다(0.35px/ms)', (await ev(`document.querySelectorAll('[data-toast]').length`)) === 0);
+  await toast('천천히 조금'); await sleep(500);
+  await swipe([[20, 200], [40, 200], [60, 200]]);
+  await sleep(450);
+  check('M8 천천히 조금(60px) 밀면 돌아온다', (await ev(`document.querySelectorAll('[data-toast]').length`)) === 1);
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(4200);
+
+  // M6 — 업무 창 수정 화면의 서식 줄
+  await ev(`document.querySelector('.board-card').click()`); await sleep(800);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '수정')?.click()`); await sleep(700);
+  const at = (tip) => ev(`(() => { const b = document.querySelector('[data-editor-bar] [data-tip=${JSON.stringify(tip)}]'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), bottom: r.bottom, title: b.hasAttribute('title'), label: b.getAttribute('aria-label') }; })()`);
+  const tipNow = () => ev(`(() => { const t = document.querySelector('.dc-tip'); return t && !t.hidden ? { text: t.textContent, anim: t.classList.contains('dc-tip-anim'), top: parseFloat(t.style.top) } : null; })()`);
+  const b1 = await at('굵게'), b2 = await at('기울임'), b3 = await at('밑줄');
+  check('M6 서식 버튼은 title 없이 data-tip + aria-label', !!b1 && !b1.title && b1.label === '굵게', JSON.stringify(b1));
+  if (b1 && b2 && b3) {
+    await mouse('mouseMoved', b1.x, b1.y); await sleep(300);
+    const early = await tipNow(); await sleep(350);
+    const first = await tipNow();
+    check('M6 처음 툴팁은 500ms 기다렸다가 떠오른다(버튼 아래 6px)', early === null && first?.text === '굵게' && first.anim && Math.abs(first.top - (b1.bottom + 6)) <= 1, JSON.stringify({ early, first }));
+    await mouse('mouseMoved', b2.x, b2.y); await sleep(40);
+    const second = await tipNow();
+    check('M6 옆 버튼으로 옮기면 기다림·움직임 없이 바로', second?.text === '기울임' && second.anim === false, JSON.stringify(second));
+    await mouse('mouseMoved', b2.x, b2.y + 200); await sleep(150);
+    const gone = await tipNow();
+    await mouse('mouseMoved', b3.x, b3.y); await sleep(40);
+    const warm = await tipNow();
+    check('M6 닫힌 뒤 400ms 안에 다시 올리면 바로', gone === null && warm?.text === '밑줄' && !warm.anim, JSON.stringify({ gone, warm }));
+    await mouse('mouseMoved', b3.x, b3.y + 200); await sleep(700);
+    await mouse('mouseMoved', b1.x, b1.y); await sleep(100);
+    check('M6 한참 떠나 있었으면 다시 기다린다', (await tipNow()) === null);
+    await mouse('mouseMoved', b1.x, b1.y + 300); await sleep(200);
+  }
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '닫기')?.click()`); await sleep(500);
+  const src = readFileSync(join(import.meta.dirname, '../src/components/notificationBell.jsx'), 'utf8');
+  check('M8 알림 판 줄도 같은 쓸기(useSwipeAway → dismiss)', /useSwipeAway\(ref, \(\) => dismiss\(n\)\)/.test(src) && /dc-swipe-row/.test(src));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

@@ -1040,7 +1040,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/type: 'DELETE_PROJECT', payload: newProject\.id/.test(ctl) && /archived: !archived/.test(ctl), '못 만든 프로젝트는 빼고 · 못 보관하면 되돌린다');
   assert.ok(/createDeleteHold\(\{ store, ms: HOLD_MS_ACTION \+ 300 \}\)/.test(ctl) && /'\$\{snap\.title\}'을\(를\) 삭제했어요/.test(ctl) && /deleteHold\.cancel\(id\)/.test(ctl),
     '지우기는 토스트 시간 동안 붙들고 되돌리기로 놓는다');
-  assert.ok(/const \[act, setAct\] = useSlot\(HOLD_MS_ACTION\);/.test(toast) && /if \(action\) setAct\(t\); else setPlain\(t\);/.test(toast), '토스트 자리는 둘(그냥 토스트가 되돌리기를 밀어내지 않는다)');
+  assert.ok(/const \[act, setAct\] = useSlot\(HOLD_MS_ACTION\);/.test(toast) && /if \(action\) setAct\(\{ id: \+\+seq, message, action \}\); else pushPlain\(message\);/.test(toast), '토스트 자리는 둘(그냥 토스트가 되돌리기를 밀어내지 않는다 · 그냥 토스트는 묶음으로 쌓인다 — M7 · 74-c)');
   assert.ok(/notifArrival\(row, openTaskId\(\)\) === 'quiet'/.test(bell) && /label: '열기', onAction: \(\) => openRef\.current\(got\)/.test(bell),
     '새 알림 토스트에 열기 · 열린 업무의 알림은 조용히 읽음');
   assert.ok(/useEffect\(\(\) => onTaskOpen\(markCardRead\), \[markCardRead\]\)/.test(bell) && /setTaskFocus\(task\.id, notifFocusHint\(n\)\)/.test(bell), '업무를 열면 그 업무 알림을 읽음 · 댓글 알림은 댓글로 연다');

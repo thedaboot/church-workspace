@@ -687,9 +687,11 @@ function Toolbar({
     setHref(''); setLinkOpen(false);
   };
 
+  // 이름은 title이 아니라 data-tip + aria-label — 툴팁은 components/Tip.jsx 한 벌(UI 다듬기 2차 M6 · 옆 버튼으로 옮기면 바로 뜬다 · PITFALLS 74-a).
+  // title을 같이 두면 브라우저 기본 툴팁이 겹쳐 뜬다. 검사(word · worship)는 `button[data-tip]`으로 버튼을 센다.
   const TB = ({ on, onClick, title, children }) => (
     <button
-      type="button" title={title} onMouseDown={e => e.preventDefault()} onClick={onClick}
+      type="button" data-tip={title} aria-label={title} onMouseDown={e => e.preventDefault()} onClick={onClick}
       className={`h-7 w-7 flex items-center justify-center rounded-md transition active:scale-95 shrink-0 ${on ? 'bg-surface-hover text-fg' : 'hover:bg-surface-hover text-fg-muted'}`}
     >{children}</button>
   );
@@ -728,7 +730,7 @@ function Toolbar({
       <TB on={active.highlight} onClick={() => chain().toggleHighlight().run()} title="형광펜"><Highlighter size={14} /></TB>
       {/* 제목 묶음 — **노트에서는 빠진다**(`tools="note"` · 사용자 결정 2026-09-10).
           도막 제목이 고정이라 제목을 만들 일이 없고, 그 앞의 구분선도 이 묶음의 것이라
-          같이 걷는다. `tests/word`가 노트 바에 `title="제목 1"`이 **없어야 한다**로
+          같이 걷는다. `tests/word`가 노트 바에 `data-tip="제목 1"`이 **없어야 한다**로
           단정한다(업무 본문·업무 창은 그대로 넷 다 있다 — `tests/handoff`). */}
       {!note && (
         <>

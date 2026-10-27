@@ -21,6 +21,7 @@ import { useGuestNotifs, setGuestNotifs } from '../services/opsDemo.js';
 import { useNotifOff, setNotifOff } from '../services/notifOff.js';
 import { ShareSwitch } from './bibleParts.jsx';
 import { Skeleton } from './media.jsx';
+import { useSwipeAway } from '../hooks/useSwipeAway.js';
 
 // ============================================================================
 // 알림 종(클라우드 모드에서만 선다 · 데스크톱 TopNav와 폰 상단바가 같은 것을 쓴다).
@@ -426,10 +427,20 @@ function NotifRows({ items, openItem, dismiss }) {
     <div className="divide-y divide-line/60">
       {/* 줄 전체가 button이었는데 지우기 버튼이 그 안에 들어가야 해서 div로 바꿨다
           (button 안의 button은 유효하지 않다). 여는 영역만 button으로 남긴다. */}
-      {items.map(n => (
+      {items.map(n => <NotifRow key={n.id} n={n} openItem={openItem} dismiss={dismiss} />)}
+    </div>
+  );
+}
+
+// 알림 한 줄 — 폰에서는 오른쪽으로 쓸어 지운다(UI 다듬기 2차 M8 · hooks/useSwipeAway.js · x 버튼과 같은 dismiss · PITFALLS 74-b).
+// 판이 세로로 구르므로 줄은 pan-y(.dc-swipe-row) — 세로로 밀면 브라우저가 굴리고 줄은 제자리로 돌아온다.
+function NotifRow({ n, openItem, dismiss }) {
+  const ref = useRef(null);
+  useSwipeAway(ref, () => dismiss(n));
+  return (
         <div
-          key={n.id}
-          className={`flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
+          ref={ref} data-notif-row=""
+          className={`dc-swipe-row flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
         >
           <button onClick={() => openItem(n)} className="flex-1 min-w-0 flex items-start gap-2.5 text-left">
             {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
@@ -458,8 +469,6 @@ function NotifRows({ items, openItem, dismiss }) {
             <X size={12} />
           </button>
         </div>
-      ))}
-    </div>
   );
 }
 

@@ -715,7 +715,7 @@ await waitFor(`document.querySelector('.tiptap')`);
 const editor = await ev(`(() => ({
   tiptap: !!document.querySelector('.tiptap'),
   textarea: !!document.querySelector('textarea[aria-label="내 묵상"]'),
-  bar: [...document.querySelectorAll('button[title]')].map(b => b.title).filter(t => ['굵게','형광펜','불릿 목록','체크리스트'].includes(t)).length,
+  bar: [...document.querySelectorAll('button[data-tip]')].map(b => b.dataset.tip).filter(t => ['굵게','형광펜','불릿 목록','체크리스트'].includes(t)).length,
 }))()`);
 check('묵상 칸이 마크다운 에디터로 바뀌었다', editor.tiptap && !editor.textarea, JSON.stringify(editor));
 // 제목 버튼은 노트에 **없다**(사용자 결정 2026-09-10 · 8-a-2가 그것을 단정한다) —
@@ -970,7 +970,7 @@ check('제목 칸의 커서·글자가 종이 잉크 색이다',
 // **되돌리기**: `tools="note"`를 떼면 그 셋이 다시 나타나 첫 줄이 깨진다.
 const noteBar = await ev(`(() => {
   const box = document.querySelector('.qt-note-editor');
-  const titles = [...box.querySelectorAll('button[title]')].map(b => b.title);
+  const titles = [...box.querySelectorAll('button[data-tip]')].map(b => b.dataset.tip);
   return { heads: titles.filter(t => t.indexOf('제목 ') === 0),
            rule: titles.includes('구분선'),
            link: titles.some(t => t.indexOf('링크') >= 0),
@@ -1103,7 +1103,7 @@ await ev(`(() => {
   const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
 })()`);
 await sleep(250);
-await ev(`(() => { const b = document.querySelector('.qt-note-editor button[title="불릿 목록"]'); b && b.click(); })()`);
+await ev(`(() => { const b = document.querySelector('.qt-note-editor button[data-tip="불릿 목록"]'); b && b.click(); })()`);
 await sleep(500);
 const 글머리 = await ev(`(() => {
   const t = document.querySelector('.qt-note-editor .tiptap');

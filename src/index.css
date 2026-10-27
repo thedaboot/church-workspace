@@ -1112,3 +1112,37 @@ html[data-kb] [data-viewers-sheet]:has([data-viewer-search]:focus) [data-viewers
 @keyframes dc-was-open { from { background-color: var(--app-accent-weak); } }
 .dc-was-open { animation: dc-was-open 1.4s ease-out; }
 @media (prefers-reduced-motion: reduce) { .dc-was-open { animation-duration: .6s; } }
+
+/* ── M 토스트·툴팁 (UI 다듬기 2차 M6~M9 · 2026-10-27 · 시안 값 그대로 · PITFALLS 74) ──────────────────────
+   M7 그냥 토스트 묶음(components/Toast.jsx PlainStack) — 자리는 JS가 transform·opacity로 준다(9px · 5% · 셋).
+      transform .42s quint · opacity .3s. 뒤 것은 맨 앞 것의 폭·높이로 잘린다(data-clamp — 둥근 모서리로 자른다).
+      묶음 상자는 누름을 받지 않는다(폭 전체 띠가 아래 화면을 막지 않게) — 마우스는 둘 이상일 때만 토스트가 받는다(올리면 펼침).
+      ::before는 펼친 토스트 사이 틈을 메운다(틈을 지나는 순간 묶음을 떠난 것으로 쳐서 접혔다 펴지지 않게).
+   M8 폰(손가락 기기)은 토스트가 늘 누름을 받는다 — 오른쪽으로 쓸어 닫기(hooks/useSwipeAway.js) · 세로 굴리기는 브라우저 몫(pan-y).
+   M6 툴팁(components/Tip.jsx) — 처음 것만 .16s ease-out으로 4px 위에서 · scale .96, 옆으로 옮겨 갈 때는 움직임 없이 바로. */
+:root { --dur-toast-stack: .42s; --dur-toast-fade: .3s; --dur-tip: .16s; }
+.dc-toast-at {
+  position: absolute; left: 0; right: 0; bottom: 0; margin-inline: auto; width: fit-content; max-width: 100%;
+  transform-origin: 50% 100%;
+  transition: transform var(--dur-toast-stack) var(--ease-out-quint), opacity var(--dur-toast-fade);
+}
+.dc-toast-at[data-clamp='1'] { overflow: hidden; border-radius: var(--radius-lg); }
+.dc-toast-at > .dc-toast-swipe { height: 100%; }
+.dc-toast-at > .dc-toast-swipe > [data-toast] { min-height: 100%; }
+.dc-toast-many .dc-toast-at { pointer-events: auto; }
+.dc-toast-many .dc-toast-at::before { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 8px; }
+@media (hover: none) and (pointer: coarse) {
+  .dc-toast-at, .dc-toast-swipe { pointer-events: auto; touch-action: pan-y; }
+}
+.dc-swipe-row { touch-action: pan-y; }
+.dc-tip {
+  position: fixed; z-index: 140; pointer-events: none; transform: translateX(-50%);
+  background: var(--app-ink); color: var(--app-canvas); font-size: 11.5px; font-weight: 600; line-height: 1.35;
+  padding: 3px 8px; border-radius: 6px; white-space: nowrap;
+}
+@keyframes dc-tip-in { from { opacity: 0; transform: translate(-50%, -4px) scale(.96); } }
+.dc-tip.dc-tip-anim { animation: dc-tip-in var(--dur-tip) ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .dc-toast-at { transition: none; }
+  .dc-tip.dc-tip-anim { animation: none; }
+}

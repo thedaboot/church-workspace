@@ -1251,7 +1251,7 @@ check("공유 세그먼트 라벨은 '나만 보기 | 순에 공유하기'",
 // 노트 칸은 **업무 본문과 같은 편집기**다 — 맨 textarea가 아니라 서식 바가 붙은
 // 마크다운 편집기이고, 저장되는 값은 그대로 마크다운 문자열이다.
 const noteEditor = await ev(`(() => {
-  const titles = [...document.querySelectorAll('.worship-note button[title]')].map(b => b.title);
+  const titles = [...document.querySelectorAll('.worship-note button[data-tip]')].map(b => b.dataset.tip);
   return {
     tiptap: !!document.querySelector('.worship-note .tiptap'),
     textarea: !!document.querySelector('.worship-note textarea'),

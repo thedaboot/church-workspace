@@ -136,6 +136,7 @@ const GroupsView = lazyView('groups', m => m.GroupsView);
 // 위키는 늦게 싣는다 — 첫 화면 번들에 넣지 않는다(다붓이 입구를 눌러야 받는다 · 0088)
 const WikiView = lazyView('wiki', m => m.default);
 import { ToastHost, showToast } from './components/Toast.jsx';
+import { TipHost } from './components/Tip.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
 import { setEntryQuery, isAppLink } from './services/entryQuery.js';
 import * as cloudSync from './services/cloudSync.js';
@@ -219,6 +220,7 @@ export default function ChurchApp() {
       <AuthProvider>
         <AuthGate />
         <ToastHost />
+        <TipHost />
       </AuthProvider>
       <Analytics />
     </ErrorBoundary>
