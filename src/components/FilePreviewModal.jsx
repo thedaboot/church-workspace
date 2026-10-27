@@ -645,6 +645,8 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
 
   // 드라이브 영상·소리 — 프록시로 통째로 받아 블롭 URL로 튼다(첨부 상한 10MB).
   // <video src>에 웹 주소(web_view_link)를 주면 HTML 페이지라 못 튼다.
+  // 받는 동안은 PDF·문서와 같은 준비 중 자리 + '다운로드 중 N%'(UX 감사 2026-10-27 — 예전에는 막대만 서 있어 멈춘 것처럼 보였다).
+  // 스트리밍은 하지 않는다 — 중계(/api/drive-file)는 Range를 받지 않고 인증 머리(승인된 사용자)를 요구해서 <video src>로 바로 줄 수 없다.
   const [blobSrc, setBlobSrc] = useState(null);
   useEffect(() => {
     if (kind !== 'video' && kind !== 'audio') return;
@@ -655,7 +657,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     }
     if (cur.source !== 'drive' || !cur.drive_file_id) return;
     let alive = true; let obj = null;
-    fetchDriveFileBlob(cur.drive_file_id)
+    fetchDriveFileBlob(cur.drive_file_id, { onProgress: onDl })
       .then(b => { if (!alive) return; obj = URL.createObjectURL(b); setBlobSrc(obj); })
       .catch(e => { if (alive) failFetch(e); });
     return () => { alive = false; if (obj) URL.revokeObjectURL(obj); setBlobSrc(null); };
@@ -845,14 +847,14 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     }
     if (kind === 'video') {
       const src = (cur.source === 'drive' || local) ? blobSrc : url;
-      if (!src) return <Skeleton className="w-full h-full" />;
+      if (!src) return <PreparingFrame pct={dlPct} />;
       // `playsInline`이 없으면 iOS가 재생을 누르는 순간 **자기 전체화면**으로 채 간다 —
       // 이 창이 그 뒤에 남아 닫을 수도 없다(감사 2026-09-13).
       return <video src={src} controls playsInline className="max-w-full max-h-full rounded-md bg-black" />;
     }
     if (kind === 'audio') {
       const src = (cur.source === 'drive' || local) ? blobSrc : url;
-      if (!src) return <Skeleton className="w-full h-16" />;
+      if (!src) return <div className="w-full h-32"><PreparingFrame pct={dlPct} /></div>;
       return <audio src={src} controls className="w-full" />;
     }
     if (kind === 'text') {

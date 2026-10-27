@@ -1767,6 +1767,13 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
     assert.match(preview, /if \(!pdfSrc\) return <PreparingFrame pct=\{dlPct\} \/>;/, 'PDF 준비 중 자리에 진행이 없다');
     assert.match(preview, /const dlPct = dl\?\.id === cur\.id \? dl\.pct : null;/, '넘긴 뒤 앞 파일의 진행이 선다');
   });
+  // 영상·소리도 같은 자리(UX 감사 2026-10-27 — 통째로 받는 동안 막대만 서 있어 멈춘 것처럼 보였다)
+  // 되돌리기: 영상 갈래를 `<Skeleton className="w-full h-full" />`로 되돌리거나 영상 받기에서 `{ onProgress: onDl }`을 빼면 깨진다.
+  check('C4-b 영상·소리 받는 중 — PDF·문서와 같은 준비 중 자리 + "다운로드 중 N%"', () => {
+    assert.ok((preview.match(/fetchDriveFileBlob\(cur\.drive_file_id, \{ onProgress: onDl \}\)/g) || []).length >= 4, '영상·소리가 받는 진행을 안 넘긴다');
+    assert.match(preview, /if \(kind === 'video'\) \{\s*const src = [^\n]+\n\s*if \(!src\) return <PreparingFrame pct=\{dlPct\} \/>;/, '영상 준비 중 자리에 진행이 없다');
+    assert.match(preview, /if \(kind === 'audio'\) \{\s*const src = [^\n]+\n\s*if \(!src\) return <div className="w-full h-32"><PreparingFrame pct=\{dlPct\} \/><\/div>;/, '소리 준비 중 자리에 진행이 없다');
+  });
   check('C5 첨부 메타 — 크기 · 올린 날 · 올린 사람(모든 줄)', () => {
     const fr = read('src/components/fileRow.jsx');
     assert.match(fr, /export const fileMeta = \(row, nameOf = \(\) => ''\) =>\s*\[formatBytes\(row\?\.size_bytes\), fileDay\(row\?\.created_at\), nameOf\(row\?\.uploaded_by\) \|\| ''\]\.filter\(Boolean\)\.join\(' · '\);/, '메타 차례가 크기·날·사람이 아니다');
