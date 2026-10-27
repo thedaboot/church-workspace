@@ -110,6 +110,35 @@
 
 }
 
+/* ── 역할 표 (UI 다듬기 2차 C9 · C7 · PITFALLS 77-e) ── 라이트/다크 값은 위 두 블록의 사본이고 handoff 'C7·C9'가 실제 값과 맞는지 잰다.
+   [역할 먼저 · C9] 화면은 역할(Tailwind 이름)만 쓴다 — 다크는 역할 값만 바뀌어 전부 따라온다. 원색(hex)은 아래 '예외'에만.
+     바탕            bg-canvas · bg-surface-2      --app-canvas #f6f5f2/#1b1a17
+     층(카드·판)      bg-surface                     --app-surface #fffdfc/#21201d
+     층 위(hover·칸)  bg-surface-hover               --app-surface-hover #eeece7/#2c2a26
+     선              border-line                     --app-line #dcd8d0/#3a3731
+     글자            text-fg                         --app-ink #1a1815/#eeedea
+     둘째 글자        text-fg-secondary               --app-ink-secondary #2c2a25/#d3d1cb
+     흐린 글자        text-fg-muted                   --app-ink-muted #6c665c/#a39d92
+     꾸밈 글자        text-fg-faint(12px 이상만)       --app-ink-faint #a39f98/#6f6d66
+     브랜드           bg-accent(위 글자는 text-white)  --app-accent #3f6fc4/#4573c6
+     브랜드 글자       text-accent-text                --app-accent-text #3f6fc4/#8fb4ea
+     브랜드 옅은 바탕   bg-accent-weak                  --app-accent-weak #e8eefa/#202a3a
+     브랜드 hover·눌림 bg-accent-strong · -press       (accent에서 계산 · C4)
+   예외(원색을 직접): 늘 밝은 종이(paper·sunGuide·ClubQr) · 공개 화면(LoginScreen·newcomerCard — 로그인 글로우 한 벌) ·
+   파일 종류 색(dabooti EXT_PAINT) · 브랜드 마크(카카오 노랑) · 절기 색(--season-*). 새 화면이 `bg-[#…]`를 쓰면 handoff C9가 잡는다.
+   [10단 · C7] 색마다 단을 역할로 고른다 — 100–200 바탕 · 300 눌림/형광펜 · 400–600 테두리·막대 · 700–800 진한 바탕 · 900–1000 글자.
+   글자 대비는 바탕(100–200)과 글자(900–1000) 사이 간격이 보증한다(C5 — handoff가 짝마다 4.5:1을 잰다). 빈 단은 아직 쓰는 곳이 없다.
+     회색  100–200 --app-tag-gray #e1dfd8/#383631 · 400–600 --p-gray #c3bfb6/#5d5b57 · 900–1000 --app-tag-gray-fg #524e46/#c6c4c0
+     갈색  100–200 --app-tag-brown #f0dbcd/#42322e · 400–600 --p-brown #c9ad99/#87695a · 900–1000 --app-tag-brown-fg #60483c/#cfb59d
+     주황  100–200 --app-tag-orange #fdd5bc/#482f19 · 400–600 --p-orange #d9a075/#8b6647 · 900–1000 --app-tag-orange-fg #7e3f12/#e0ae7f
+     노랑  100–200 --app-tag-yellow #f9e3ba/#433620 · 300 --app-hl-yellow #f3d474/#6e5b22 · 400–600 --p-yellow #e3c47b/#9c8450 · 900–1000 --app-tag-yellow-fg #6e4f0f/#d8c583
+     초록  100–200 --app-tag-green #cbe6d4/#273a2f · 300 --app-hl-green #acd6b8/#2f5c3e · 400–600 --p-green #8bbda2/#5b8a70 · 900–1000 --app-tag-green-fg #205237/#9cd4b1
+     파랑  100–200 --app-tag-blue #cde2fe/#213442 · 300 --app-hl-blue #b2cbf1/#2f4c78 · 400–600 --p-blue #93b4e4/#5b83bd · 700–800 --app-accent #3f6fc4/#4573c6 · 900–1000 --app-tag-blue-fg #1e5091/#96c5e5
+     보라  100–200 --app-tag-purple #e0d4fd/#362b4d · 400–600 --p-purple #b4a2dc/#75659b · 900–1000 --app-tag-purple-fg #4f3391/#c5b0e5
+     분홍  100–200 --app-tag-pink #fbcfe6/#432838 · 400–600 --p-pink #e3a8c6/#96667c · 900–1000 --app-tag-pink-fg #8f2e61/#e5b0ca
+     빨강  100–200 --app-tag-red #fcd2ce/#462926 · 300 --app-hl-red #f2b2aa/#7a3c36 · 400–600 --p-red #e5a29b/#9a635d · 900–1000 --app-tag-red-fg #8c2b26/#e5ada6
+   ── 역할 표 끝 */
+
 /* ── 그림자 식 (S5 빛 한 방향 · S6 영역 색을 물려받는 그림자 · PITFALLS 73-a) ──
    빛은 위에서 하나다 — 모든 층이 x 0 · y만 아래로, 높을수록 그림자만 길고 옅게 번진다(handoff가 x 0을 단정).
    식을 `:root`와 `.shadow-tint` **둘 다에** 적는다: 사용자 속성 안의 var()는 그 속성을 적은 요소에서 풀려

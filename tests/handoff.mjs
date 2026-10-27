@@ -1303,6 +1303,33 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   const p3 = await gamut('p3'), srgb = await gamut('srgb');
   await send('Emulation.setEmulatedMedia', { features: [] });
   check('C8: P3 화면에서만 바탕 빛·brand-grad·다붓이 고리가 display-p3', p3.every(Boolean) && srgb.every(x => !x), JSON.stringify({ p3, srgb }));
+
+  // C7·C9 역할 표 — index.css '역할 표'의 `--이름 #라이트/#다크`가 실제 토큰 값과 같다(표가 코드와 어긋나지 않게).
+  // C9 원색은 예외에만 — 화면 className에 `bg-[#…]`류 hex와 Tailwind 원색 팔레트(`bg-gray-100` 등)가 없다(공개 화면 둘만 예외).
+  // **되돌리기**: 태그 하나를 고치고 표를 그대로 두면 C7이, 아무 화면에 `bg-[#ffffff]`를 넣으면 C9가 깨진다.
+  {
+    const { readFileSync, readdirSync, statSync } = await import('node:fs');
+    const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+    const block = css.slice(css.indexOf('/* ── 역할 표 (UI'), css.indexOf('── 역할 표 끝'));
+    const rows = [...block.matchAll(/(--[\w-]+) (#[0-9a-f]{6})\/(#[0-9a-f]{6})/g)].map(m => [m[1], m[2], m[3]]);
+    const live = await ev(`(() => { const names = ${JSON.stringify(rows.map(r => r[0]))}; const out = {};
+      for (const th of ['light', 'dark']) { document.documentElement.dataset.theme = th; const cs = getComputedStyle(document.documentElement); out[th] = names.map(n => cs.getPropertyValue(n).trim().toLowerCase()); }
+      document.documentElement.dataset.theme = 'light'; return out; })()`);
+    const off = rows.filter((r, i) => live.light[i] !== r[1] || live.dark[i] !== r[2]).map((r, i) => `${r[0]} 표 ${r[1]}/${r[2]}`);
+    check('C7·C9: 역할 표(10단 포함)의 라이트·다크 값이 실제 토큰과 같다', rows.length >= 40 && off.length === 0, off.join(' · ') || `${rows.length}줄`);
+    const SRC = new URL('../src/', import.meta.url);
+    const walk = (u) => readdirSync(u).flatMap(n => { const c = new URL(n, u); return statSync(c).isDirectory() ? walk(new URL(n + '/', u)) : [c]; });
+    const raw = [];
+    for (const u of walk(SRC).filter(u => /\.(jsx|js)$/.test(u.pathname))) {
+      const name = decodeURIComponent(u.pathname).split('/src/')[1];
+      if (/LoginScreen|newcomerCard/.test(name)) continue;
+      readFileSync(u, 'utf8').split('\n').forEach((l, i) => {
+        if (/\b(?:bg|text|border|from|via|to|fill|stroke|ring|outline|decoration)-\[#[0-9a-fA-F]{3,8}\]/.test(l)
+          || /\b(?:bg|text|border)-(?:gray|slate|zinc|neutral|stone|red|blue|green|yellow|purple|pink|orange|amber|emerald|sky|indigo|rose|violet|teal|cyan|lime|fuchsia)-\d{2,3}\b/.test(l)) raw.push(`${name}:${i + 1}`);
+      });
+    }
+    check('C9: 화면 className에 원색(hex·Tailwind 팔레트)이 없다 — 역할 토큰만', raw.length === 0, raw.join(' · '));
+  }
 }
 
 console.log(results.join('\n'));
