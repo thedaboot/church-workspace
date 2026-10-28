@@ -655,8 +655,9 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
       if (performance.now() - t0 < 1600) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-    setTimeout(() => window.__store.dispatch({ type: 'UPSERT_TASK', payload: { ...window.__store.getState().tasks.byId['${W[12]}'],
-      id: 'cnew', title: '워크스페이스 14차 개선', dependsOn: ['${W[12]}'], status: '시작 전', position: 99 } }), 120);
+    // 둘을 잇달아 단다 — 폰 세로 흐름은 빈 갈래 칸에 하나쯤은 판을 안 늘리고 들어간다(80-e)
+    setTimeout(() => ['cnew', 'cnew2'].forEach((id, k) => window.__store.dispatch({ type: 'UPSERT_TASK', payload: { ...window.__store.getState().tasks.byId['${W[12]}'],
+      id, title: '워크스페이스 ' + (14 + k) + '차 개선', dependsOn: [k ? 'cnew' : '${W[12]}'], status: '시작 전', position: 99 + k } })), 120);
   })()`);
   await sleep(2000);
   const glide = await ev(`(() => {
@@ -668,8 +669,10 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
     return { frames: s.length, step: Math.round(step * 10) / 10, heights: hs.length, from: hs[0], to: hs[hs.length - 1],
       added: !!s[s.length - 1].p['워크스페이스 14차 개선'] };
   })()`);
-  check('그래프: 업무가 늘어도 알약이 툭 튀지 않고(프레임당 10px 이하) 판 높이가 미끄러지듯 늘어난다',
-    glide.added && glide.step <= 10 && glide.to > glide.from && glide.heights >= 4, JSON.stringify(glide));
+  // 프레임당 16px 이하 — 폰 세로 흐름은 사슬이 길어지면 다른 알약이 두 줄(80px)까지 자리를 바꾼다(80-e). .46s quint의 첫 프레임이
+  // 그 17%쯤(≈13px)이고, 튀면(미끄러짐 없이) 한 프레임에 80px이다.
+  check('그래프: 업무가 늘어도 알약이 툭 튀지 않고(프레임당 16px 이하) 판 높이가 미끄러지듯 늘어난다',
+    glide.added && glide.step <= 16 && glide.to > glide.from && glide.heights >= 4, JSON.stringify(glide));
   // ③ 움직임 줄이기 — 판 높이 전이 없음 · 처음부터 제자리(프레임 사이 움직임 0)
   await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   await openGraph(393);

@@ -596,6 +596,33 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
       assert.strictEqual(over, 0, `G16 ${W}px: 알약끼리 안 겹친다 (${over}쌍)`);
       if (W === 560) assert.ok(new Set([...at.values()].map(p => Math.round(p.y))).size <= 7 && H <= 330, `G16 560px: 톱니는 부딪히는 알약만 — 줄 7 이하 · 판 330 이하 (H ${H})`);
     }
+    // 80-e(2026-10-29) — 폰 폭(390 안팎)에서 톱니 가로 흐름이 골라져 열이 서로 겹치고 **참가 신청 받기(깊이 2)가 숙소 예약(깊이 1)보다
+    // 위에** 섰고, 세로 흐름에서는 선이 사이 줄 알약 밑으로 깔렸다. 폰 폭에서는 늘 아래로 흐르고, 어떤 선도 남의 알약 밑을 안 지난다.
+    // **되돌리기**: 480 조건을 지우면 '아래로'가, 칸 고르기에서 cross를 빼면 '알약 밑'이 깨진다.
+    const { edgeCurve, curveHits } = await loadSource('src/utils.js');
+    const under = (T, at, wOf) => {
+      const node = (id) => ({ ...at.get(id), w: wOf(T.find(t => t.id === id)) });
+      const out = [];
+      T.forEach(t => t.dependsOn.forEach(d => {
+        const { P } = edgeCurve(node(d), node(t.id), PH);
+        T.forEach(q => { if (q.id === d || q.id === t.id) return; const p = node(q.id);
+          if (curveHits(P, { l: p.x - p.w / 2, r: p.x + p.w / 2, t: p.y - PH / 2, b: p.y + PH / 2 })) out.push(`${d}>${t.id} 밑 ${q.id}`); });
+      }));
+      return out;
+    };
+    for (const W of [344, 360, 392, 424, 472]) {
+      const tm = Math.max(88, Math.min(168, Math.floor((W - 44) / 2) - 43));
+      const wOf = t => Math.min(tm, t.title.length * 12) + 43;
+      const { at, mode } = depGraphLayout(C, W, { widthOf: wOf, PH, minH: 0 });
+      const up = E.filter(([a, b]) => at.get(b).y <= at.get(a).y);
+      assert.ok(mode === 'down' && !up.length, `80-e ${W}px: 폰은 위에서 아래로만 흐른다 (${mode} · ${up.join(' ')})`);
+      assert.deepStrictEqual(under(C, at, wOf), [], `80-e ${W}px: 선이 남의 알약 밑을 안 지난다`);
+    }
+    {
+      const W = 392, tm = Math.floor((W - 44) / 2) - 43, wOf = t => Math.min(tm, t.title.length * 10.5) + 43;
+      const { at } = depGraphLayout(T, W, { widthOf: wOf, PH, minH: 0 });
+      assert.deepStrictEqual(under(T, at, wOf), [], '80-e 392px 25건: 선이 남의 알약 밑을 안 지난다');
+    }
   }
 
   // 상자 충돌 — 겹친 둘이 풀리고, 식은 뒤(alpha 0)에도 민다. 다 풀리면 민 양이 0이다(루프가 멈출 수 있다)

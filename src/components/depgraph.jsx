@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CONFIG, teamPaint } from '../config.js';
-import { depGraphLayout, subtaskProgress } from '../utils.js';
+import { depGraphLayout, edgeCurve, subtaskProgress } from '../utils.js';
 import { useForceGraph, hoverProps, textPx, appFont } from '../hooks/useForceGraph.js';
 import { useReducedMotion } from '../hooks/useReducedMotion.js';
 import { STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
@@ -24,30 +24,12 @@ const DG = { PH: 28 };
 const PILL_CHROME = 43;
 
 // ── 선 모양(UI 다듬기 2차 G1·G2 · 시안 값 그대로 · PITFALLS 80-a) ──
-// 흐름 방향 S곡선: 두 알약이 옆으로 떨어져 있으면(틈 10px 넘게) 가로로 나가 가로로 들어가고, 아니면 세로로.
-// 끝점은 알약 **가장자리**(나가는 쪽 1px · 들어가는 쪽 1.5px 밖)이고, 들어가는 끝에 작은 화살촉(길이 5 · 반폭 3)을 단다 —
-// 선은 화살촉 뒤 4px에서 멈춘다. 예전에는 알약 중심끼리 이은 위로 휜 2차 곡선 + 끝 점(r 2.6)이라 선이 알약 밑으로 깔리고 방향이 안 보였다.
+// 흐름 방향 S곡선 · 가장자리 끝점 · 화살촉 뒤 4px에서 멈춤 — 곡선 점은 utils.edgeCurve(세로 흐름 자리 짜기가 같은 곡선으로
+// '알약 밑을 지나나'를 잰다 · 80-e). 예전에는 알약 중심끼리 이은 위로 휜 2차 곡선 + 끝 점(r 2.6)이라 선이 알약 밑으로 깔리고 방향이 안 보였다.
 const r1 = (n) => Math.round(n * 10) / 10;
 function edgeGeom(A, B, PH) {
-  const horiz = Math.abs(B.x - A.x) - (A.w + B.w) / 2 > 10;
-  let x1, y1, x2, y2, dir;
-  if (horiz) {
-    const sx = Math.sign(B.x - A.x) || 1;
-    x1 = A.x + sx * (A.w / 2 + 1); x2 = B.x - sx * (B.w / 2 + 1.5); y1 = A.y; y2 = B.y; dir = [sx, 0];
-  } else {
-    const sy = Math.sign(B.y - A.y) || 1;
-    y1 = A.y + sy * (PH / 2 + 1); y2 = B.y - sy * (PH / 2 + 1.5); x1 = A.x; x2 = B.x; dir = [0, sy];
-  }
-  const tip = [x2, y2];
-  x2 -= dir[0] * 4; y2 -= dir[1] * 4;
-  let d;
-  if (horiz) {
-    const k = Math.max(16, Math.abs(x2 - x1) * 0.5);
-    d = `M${r1(x1)} ${r1(y1)}C${r1(x1 + dir[0] * k)} ${r1(y1)} ${r1(x2 - dir[0] * k)} ${r1(y2)} ${r1(x2)} ${r1(y2)}`;
-  } else {
-    const k = Math.max(12, Math.abs(y2 - y1) * 0.5);
-    d = `M${r1(x1)} ${r1(y1)}C${r1(x1)} ${r1(y1 + dir[1] * k)} ${r1(x2)} ${r1(y2 - dir[1] * k)} ${r1(x2)} ${r1(y2)}`;
-  }
+  const { P, tip, dir } = edgeCurve(A, B, PH);
+  const d = `M${r1(P[0][0])} ${r1(P[0][1])}C${P.slice(1).map(([x, y]) => `${r1(x)} ${r1(y)}`).join(' ')}`;
   const s = 5, h = 3, bx = tip[0] - dir[0] * s, by = tip[1] - dir[1] * s;
   const head = `M${r1(tip[0])} ${r1(tip[1])}L${r1(bx - dir[1] * h)} ${r1(by + dir[0] * h)}L${r1(bx + dir[1] * h)} ${r1(by - dir[0] * h)}Z`;
   return { d, head };

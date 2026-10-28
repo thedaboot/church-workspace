@@ -233,6 +233,51 @@ export function spreadBoxes(items, y0, y1) {
   return out;
 }
 
+// ── 프로젝트 그래프 선 곡선 (depgraph의 edgeGeom이 그리고, depGraphLayout의 세로 흐름이 '알약 밑을 지나나'를 잰다) ──
+// 흐름 방향 S곡선: 두 알약이 옆으로 떨어져 있으면(틈 10px 넘게) 가로로 나가 가로로 들어가고, 아니면 세로로.
+// 끝점은 알약 가장자리(나가는 쪽 1px · 들어가는 쪽 1.5px 밖) · 선은 화살촉(길이 5) 뒤 4px에서 멈춘다(PITFALLS 80-a).
+// A·B: { x, y, w } → { horiz, P: 3차 곡선 점 넷, tip: 화살촉 끝, dir }
+export function edgeCurve(A, B, PH) {
+  const horiz = Math.abs(B.x - A.x) - (A.w + B.w) / 2 > 10;
+  let x1, y1, x2, y2, dir;
+  if (horiz) {
+    const sx = Math.sign(B.x - A.x) || 1;
+    x1 = A.x + sx * (A.w / 2 + 1); x2 = B.x - sx * (B.w / 2 + 1.5); y1 = A.y; y2 = B.y; dir = [sx, 0];
+  } else {
+    const sy = Math.sign(B.y - A.y) || 1;
+    y1 = A.y + sy * (PH / 2 + 1); y2 = B.y - sy * (PH / 2 + 1.5); x1 = A.x; x2 = B.x; dir = [0, sy];
+  }
+  const tip = [x2, y2];
+  x2 -= dir[0] * 4; y2 -= dir[1] * 4;
+  const k = horiz ? Math.max(16, Math.abs(x2 - x1) * 0.5) : Math.max(12, Math.abs(y2 - y1) * 0.5);
+  const P = horiz
+    ? [[x1, y1], [x1 + dir[0] * k, y1], [x2 - dir[0] * k, y2], [x2, y2]]
+    : [[x1, y1], [x1, y1 + dir[1] * k], [x2, y2 - dir[1] * k], [x2, y2]];
+  return { horiz, P, tip, dir };
+}
+// 곡선이 상자({ l, r, t, b })를 지나가나 — 24점으로 훑는다(1px 안쪽만 · 가장자리 스침은 겹침이 아니다)
+export function curveHits(P, q) {
+  for (let s = 0; s <= 24; s++) {
+    const u = s / 24, v = 1 - u, a = v * v * v, b = 3 * v * v * u, c = 3 * v * u * u, d = u * u * u;
+    const x = a * P[0][0] + b * P[1][0] + c * P[2][0] + d * P[3][0], y = a * P[0][1] + b * P[1][1] + c * P[2][1] + d * P[3][1];
+    if (x > q.l + 1 && x < q.r - 1 && y > q.t + 1 && y < q.b - 1) return true;
+  }
+  return false;
+}
+
+// 두 곡선이 서로 엇갈리나 — 8토막 꺾은선끼리 맞대 본다
+export function curvesCross(P, Q) {
+  const pts = (A) => Array.from({ length: 9 }, (_, s) => {
+    const u = s / 8, v = 1 - u, a = v * v * v, b = 3 * v * v * u, c = 3 * v * u * u, d = u * u * u;
+    return [a * A[0][0] + b * A[1][0] + c * A[2][0] + d * A[3][0], a * A[0][1] + b * A[1][1] + c * A[2][1] + d * A[3][1]];
+  });
+  const ccw = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const a = pts(P), b = pts(Q);
+  for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++)
+    if (ccw(a[i], a[i + 1], b[j]) * ccw(a[i], a[i + 1], b[j + 1]) < 0 && ccw(b[j], b[j + 1], a[i]) * ccw(b[j], b[j + 1], a[i + 1]) < 0) return true;
+  return false;
+}
+
 // ── 프로젝트 그래프의 자리 짜기 (depgraph · 2026-10-14 시안 'Graph') ───────────────
 // 힘 배치만으로는 알약이 겹치고 판 가장자리에 줄지어 붙었다(점끼리 밀어내니 글자 폭을
 // 모르고, 높이 고정이라 자리가 모자라면 벽에 눌린다). 그래서 **겹치지 않는 자리를 먼저
@@ -240,9 +285,8 @@ export function spreadBoxes(items, y0, y1) {
 //  · 가로 흐름(넓은 판): 선후 깊이 = 열(왼쪽이 먼저). 열 간격이 알약보다 좁으면(s줄 톱니 · 셋까지) 옆 열과
 //    실제로 부딪히는 알약만 한 줄 내린다(G16). 같은 열 안 차례는 앞 업무들의 차례를 물려받은 뒤 앞뒤 열 평균
 //    자리로 다시 줄 세운다(G14 · 선 엇갈림 줄이기 · PITFALLS 80-c).
-//  · 세로 흐름(좁은 판 · 톱니가 셋을 넘으면): 깊이 = 줄(위가 먼저). 한 줄에 들어가면 나란히 서고,
-//    깊이에 따라 왼쪽에서 오른쪽으로 비껴 내려간다 — 그래도 왼쪽이 먼저 읽힌다. 안 들어가면
-//    차례대로 왼쪽→오른쪽 길에 한 줄씩(시안의 두 갈래).
+//  · 세로 흐름(톱니가 셋을 넘거나 · 폭 480 미만에서 톱니면): 선행보다 아래 줄. 칸(줄 × 갈래)에 하나씩 서고
+//    선이 남의 알약 밑을 지나지 않는 칸을 고른다(80-e).
 //  · 선이 없는 업무는 아래에 격자로 편다(예전의 '0열에 세로로만 쌓임'으로 돌아가지 않는다).
 //  · 판 높이 = 짠 높이(최소 minH). 남는 높이는 줄 간격을 벌려(최대 2.4배) 채우고 가운데에 선다.
 // 순수 함수 — 글자 폭은 부르는 쪽이 widthOf로 준다(브라우저 측정). 반환 { at: Map(id → {x, y}), H, mode }
@@ -285,7 +329,8 @@ export function depGraphLayout(tasks = [], W, o = {}) {
       colGap = Math.min((avail - maxW) / (n - 1), maxW + GX + 120);   // 너무 벌리지도 않는다
       s = colGap >= maxW + GX ? 1 : Math.ceil((maxW + GX) / Math.max(1, colGap));
     }
-    if (s <= 3) {
+    // 폰 폭(480 미만)에서 톱니면 열이 서로 겹쳐 뒤 업무가 앞 업무보다 위에 섰다 — 그때는 세로 흐름(80-e)
+    if (s === 1 || (s <= 3 && W >= 480)) {
       mode = 'across';
       const x0 = PAD + maxW / 2 + (avail - maxW - (n - 1) * colGap) / 2;
       const band = new Map();
@@ -351,43 +396,50 @@ export function depGraphLayout(tasks = [], W, o = {}) {
       }
     } else {
       mode = 'down';
-      // 한 줄 무리 폭 — 깊이마다 비껴 내려가는 한 걸음(drift)은 흔한 무리 폭이 남기는 자리를 깊이 수로 나눈 것
-      const gws = L.map(col => col.reduce((sum, t) => sum + wOf(t), 0) + GX * (col.length - 1)).filter(g => g <= avail).sort((u, v) => u - v);
-      const typical = gws.length ? gws[Math.floor(gws.length / 2)] : avail;
-      const drift = n > 1 ? Math.max(0, (avail - typical) / (n - 1)) : 0;
-      const xs = new Map();
-      L.forEach((col, d) => {
-        const ws = new Map(col.map(t => [t.id, wOf(t)]));
-        const gw = col.reduce((sum, t) => sum + ws.get(t.id), 0) + GX * (col.length - 1);
-        const items = wants(col, xs, () => NaN);
-        if (gw <= avail) {
-          // 나란히 — 앞 업무 x(+한 걸음)를 원하고, 겹치면 오른쪽으로 민 뒤 넘친 만큼 되민다
-          let x = PAD;
-          const seq = items.map(it => {
-            const w = ws.get(it.t.id);
-            const want = Number.isNaN(it.pref) ? x + w / 2 : it.pref + drift;
-            const cx = Math.max(want, x + w / 2);
-            x = cx + w / 2 + GX;
-            return { it, w, cx };
-          });
-          let right = W - PAD;
-          for (let k = seq.length - 1; k >= 0; k--) {
-            seq[k].cx = Math.min(seq[k].cx, right - seq[k].w / 2);
-            right = seq[k].cx - seq[k].w / 2 - GX;
+      // 세로 흐름은 **칸(줄 × 갈래)**에 하나씩 선다 — 갈래 = 가장 넓은 알약이 한 줄에 몇 개 들어가나(폰은 둘).
+      // 업무를 놓을 때마다 빈 칸들을 견줘 **자기 선이 남의 알약 밑을 지나거나, 남의 선이 자기 밑을 지나는** 칸을 피한다
+      // (곡선은 그릴 때와 같은 edgeCurve로 잰다 · 그다음은 덜 내려가는 칸 · 선행과 같은 갈래 · PITFALLS 80-e).
+      // 예전에는 깊이마다 한 줄(안 들어가면 하나씩 비껴 내려가는 길)이라 선이 사이 줄 알약 밑으로 깔렸다.
+      const pitch = PH + GY;
+      const lanes = Math.max(1, Math.min(4, Math.floor((avail + GX) / (Math.max(...L.flat().map(wOf)) + GX))));
+      const node = (r, l, w) => ({ x: PAD + (avail * (l + 0.5)) / lanes, y: r * pitch, w, r, l });
+      const boxOf = (p) => ({ l: p.x - p.w / 2, r: p.x + p.w / 2, t: p.y - PH / 2, b: p.y + PH / 2 });
+      const order = L.flat();
+      // 한 차례로 놓아 본다 — 선행이 다 놓인 업무 중 rank가 앞선 것부터. 반환 { at, cost }(칸마다 고른 값의 합 + 줄 수)
+      const place = (rank) => {
+        const at = new Map(), taken = new Set(), curves = [];
+        let cost = 0;
+        while (at.size < order.length) {
+          const t = order.filter(u => !at.has(u.id) && deps(u).every(x => at.has(x) || !order.some(o => o.id === x))).sort(rank)[0]
+            || order.find(u => !at.has(u.id));   // 순환이 남았으면 원래 차례로
+          const ps = deps(t).filter(x => at.has(x)).map(x => at.get(x));
+          const r0 = ps.length ? Math.max(...ps.map(p => p.r)) + 1 : 0;
+          const want = ps.length ? ps.reduce((sum, p) => sum + p.l, 0) / ps.length : 0;
+          let best = null;
+          for (let r = r0; r <= r0 + 6 || !best; r++) for (let l = 0; l < lanes; l++) {
+            if (taken.has(`${r},${l}`)) continue;
+            const me = node(r, l, wOf(t)), mine = ps.map(p => ({ P: edgeCurve(p, me, PH).P, ends: [p, me] })), box = boxOf(me);
+            const under = curves.filter(c => curveHits(c.P, box)).length
+              + mine.reduce((sum, c) => sum + [...at.values()].filter(q => q !== c.ends[0] && curveHits(c.P, boxOf(q))).length, 0);
+            const tangle = mine.reduce((sum, c) => sum + curves.filter(o => !o.ends.some(e => c.ends.includes(e)) && curvesCross(c.P, o.P)).length, 0);
+            const v = under * 100 + tangle * 3 + (r - r0) * 2 + Math.abs(l - want);
+            if (!best || v < best.v) best = { me, mine, v };
           }
-          seq.forEach(({ it, w, cx }) => { const c = Math.max(PAD + w / 2, cx); xs.set(it.t.id, c); grid.set(it.t.id, { x: c, row: rows }); });
-          rows += 1;
-        } else {
-          // 한 줄에 못 들어가면 하나씩 — 차례대로 왼쪽→오른쪽 길(시안의 두 갈래)
-          items.forEach(({ t }, k) => {
-            const w = ws.get(t.id);
-            const f = items.length > 1 ? k / (items.length - 1) : 0.5;
-            const c = PAD + w / 2 + (avail - w) * f;
-            xs.set(t.id, c); grid.set(t.id, { x: c, row: rows + k });
-          });
-          rows += items.length;
+          at.set(t.id, best.me); taken.add(`${best.me.r},${best.me.l}`); curves.push(...best.mine);
+          cost += best.v;
         }
-      });
+        return { at, cost: cost + Math.max(...[...at.values()].map(p => p.r)) };
+      };
+      // 차례 셋 중 가장 덜 엉킨 것 — 사슬을 길게 잇는 업무부터 · 깊이 차례 · 끝나는 업무부터. 한 차례만으로는
+      // 먼저 놓인 업무가 뒤 업무의 곧은 자리를 막는 판이 남았다(수련회: 주보 PPT가 찬양 콘티 밑에 못 섰다).
+      const root = (u) => +!deps(u).length, ix = (u) => order.indexOf(u);
+      const { at } = [
+        (u, v) => (root(v) - root(u)) || (tail(v.id) - tail(u.id)) || (ix(u) - ix(v)),
+        (u, v) => ix(u) - ix(v),
+        (u, v) => (root(v) - root(u)) || (tail(u.id) - tail(v.id)) || (ix(u) - ix(v)),
+      ].map(place).reduce((m, x) => (x.cost < m.cost ? x : m));
+      at.forEach((p, id) => grid.set(id, { x: p.x, row: p.r }));
+      rows = Math.max(...[...at.values()].map(p => p.r)) + 1;
     }
   }
   if (loose.length) {
