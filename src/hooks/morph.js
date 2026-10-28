@@ -12,6 +12,7 @@ import { easeMove } from './useFlip.js';
 //   이 곡선은 70%에야 9할이라, 유령과 창이 엇갈리는 박자를 그만큼 뒤로 민다(열 때 창은 60%부터 · 유령은 65%부터 · 닫을 때 유령은 75%부터 걷힘).
 const OPEN_MS = 360;
 const CLOSE_MS = 300;
+const REVEAL_MS = 140;   // 다 큰 유령이 걷히며 창의 글이 드러나는 시간
 let origin = null;   // { id, rect, at }
 
 if (typeof document !== 'undefined') {
@@ -23,13 +24,13 @@ if (typeof document !== 'undefined') {
 
 const visible = (r) => r.width > 0 && r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth;
 
-function ghost(to) {
+function ghost(to, radius) {
   const g = document.createElement('div');
   g.setAttribute('aria-hidden', 'true');
   g.setAttribute('data-morph-ghost', '');
   Object.assign(g.style, {
     position: 'fixed', left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`,
-    background: 'var(--app-surface)', border: '1px solid var(--app-line)', borderRadius: '12px',
+    background: 'var(--app-surface)', border: '1px solid var(--app-line)', borderRadius: radius || '12px',
     boxShadow: 'var(--app-shadow-elevated)', transformOrigin: '0 0', zIndex: '60', pointerEvents: 'none',
   });
   document.body.appendChild(g);
@@ -43,14 +44,20 @@ export function morphOpen(win, taskId) {
   const o = origin;
   origin = null;
   if (!win || !o || o.id !== String(taskId) || performance.now() - o.at > 800 || prefersReducedMotion() || !visible(o.rect)) return;
+  // 창 자신의 등장(.dc-dialog·.dc-rise — 아래에서 떠오름)은 끈다: 그 움직임을 둔 채 재면 도착 자리가 28px 어긋나고,
+  // 유령이 다 큰 뒤에도 창이 움직여 두 판이 겹쳐 보였다(사용자 지적 2026-10-28).
+  win.style.animation = 'none';
   const to = win.getBoundingClientRect();
   if (!to.width || !to.height) return;
-  const g = ghost(to);
-  // 자라기(quint)와 엇갈려 사라지기(직선)를 따로 돌린다 — 한 애니메이션의 구간으로 두면 quint가 앞 구간을 120ms에 끝내고
-  // 창이 뜨기 전 100ms 동안 빈 판이 멈춰 서 있었다.
+  const g = ghost(to, getComputedStyle(win).borderRadius);
+  // **둘이 동시에 반투명인 순간이 없게 한다** — 예전에는 창이 떠오르는 동안 유령이 걷혀 그 사이로 뒤 화면이 비쳤다
+  // (폰은 뒤판이 없어 대시보드가 통째로 겹쳐 보였다). 지금: 창은 유령이 다 클 때까지 숨었다가 **불투명하게** 서고,
+  // 그 위에서 유령(빈 판)만 걷혀 글이 드러난다. 뒤에 있는 것이 늘 불투명한 창이라 아무것도 비치지 않는다.
   g.animate([{ transform: squeeze(o.rect, to) }, { transform: 'none' }], { duration: OPEN_MS, easing: easeMove() });
-  g.animate([{ opacity: 1 }, { opacity: 1, offset: 0.65 }, { opacity: 0 }], { duration: OPEN_MS, easing: 'linear' }).onfinish = () => g.remove();
-  win.animate([{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], { duration: OPEN_MS, easing: 'linear' });
+  // 이 곡선은 85%에 이미 크기의 98%라, 거기서부터 글을 드러낸다(끝까지 기다리면 빈 판이 멈춰 선 순간이 보였다).
+  const at = OPEN_MS * 0.85;
+  win.animate([{ opacity: 0 }, { opacity: 0 }], { duration: at });
+  g.animate([{ opacity: 1 }, { opacity: 0 }], { delay: at, duration: REVEAL_MS, easing: 'ease-out', fill: 'backwards' }).onfinish = () => g.remove();
 }
 
 // 닫기를 누른 순간(창이 걷히기 전) 부른다. 돌아갈 줄이 화면에 있으면 그 줄로 줄어들고, 줄은 잠깐 연한 파랑으로 남는다.
@@ -62,8 +69,11 @@ export function morphClose(win, taskId) {
   const to = target.getBoundingClientRect();
   const from = win?.getBoundingClientRect();
   if (prefersReducedMotion() || !from?.width || !visible(to)) { flash(); return; }
-  const g = ghost(from);
+  const g = ghost(from, getComputedStyle(win).borderRadius);
+  // 유령이 창 위에서 먼저 짙어진 뒤(앞 4분의 1 — 이 곡선은 그동안 거의 안 움직인다) 줄로 줄어든다. 창은 그때까지 불투명하게 붙들어 둔다 —
+  // 둘이 같이 옅어지면 그 사이로 뒤 화면이 비쳐 겹쳐 보였다.
   g.animate([{ transform: 'none' }, { transform: squeeze(to, from) }], { duration: CLOSE_MS, easing: easeMove() });
-  g.animate([{ opacity: 0.9 }, { opacity: 0.9, offset: 0.75 }, { opacity: 0 }], { duration: CLOSE_MS, easing: 'linear' }).onfinish = () => g.remove();
+  g.animate([{ opacity: 0 }, { opacity: 1, offset: 0.22 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }], { duration: CLOSE_MS, easing: 'linear' }).onfinish = () => g.remove();
+  win.animate([{ opacity: 1, transform: 'none' }, { opacity: 1, transform: 'none' }], { duration: CLOSE_MS * 0.22, fill: 'forwards' });
   setTimeout(flash, CLOSE_MS * 0.8);
 }

@@ -55,6 +55,38 @@ await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
 await wait('Page.loadEventFired');
 await sleep(1300);
 
+// M1 업무 창이 줄에서 자랄 때 뒤 화면이 비치는 순간이 없다(사용자 지적 2026-10-28 — 유령과 창이 같이 반투명해 대시보드가 겹쳐 보였다 · PITFALLS 71-f).
+// 누른 순간 애니메이션을 모두 멈추고 시간을 처음부터 끝까지 옮기며 잰다: 창은 숨었거나(0) 다 섰거나(1) 둘 중 하나이고,
+// 창이 숨은 동안 유령은 불투명하다. 창 자신의 등장(.dc-dialog 떠오름)은 꺼져 있다(움직이면 유령과 어긋난다).
+// **되돌리기**: morph.js에서 창을 엇갈려 떠오르게(opacity 0→1 구간) 하거나 win.style.animation을 지우면 깨진다.
+{
+  const c = await ev(`(() => { const b = document.querySelector('.board-card[data-flip]').getBoundingClientRect(); return { x: b.x + 30, y: b.y + b.height / 2 }; })()`);
+  await send('Animation.enable'); await send('Animation.setPlaybackRate', { playbackRate: 0 });
+  await mouse('mousePressed', c.x, c.y); await mouse('mouseReleased', c.x, c.y);
+  await sleep(300);
+  const sweep = await ev(`(() => {
+    const win = document.querySelector('[data-task-window]'), gh = document.querySelector('[data-morph-ghost]');
+    if (!win || !gh) return { win: !!win, gh: !!gh };
+    const anims = [...win.getAnimations(), ...gh.getAnimations()];
+    const bad = []; let both = 0;
+    for (let t = 0; t <= 560; t += 8) {
+      anims.forEach(a => { a.currentTime = t; });
+      const wo = +getComputedStyle(win).opacity, go = +getComputedStyle(gh).opacity;
+      if (wo > 0.01 && wo < 0.99) bad.push(t + ':win' + wo.toFixed(2));
+      if (wo < 0.5 && go < 0.99) bad.push(t + ':ghost' + go.toFixed(2));
+      if (wo > 0.99 && go > 0.01) both++;
+    }
+    return { bad: bad.slice(0, 6), both, winAnim: getComputedStyle(win).animationName };
+  })()`);
+  await send('Animation.setPlaybackRate', { playbackRate: 1 });
+  await sleep(800);
+  check('M1: 업무 창이 줄에서 자랄 때 뒤 화면이 비치는 순간이 없다(창은 0 아니면 1 · 숨은 동안 유령은 불투명 · 창 등장 꺼짐)',
+    Array.isArray(sweep.bad) && sweep.bad.length === 0 && sweep.both > 0 && sweep.winAnim === 'none', JSON.stringify(sweep));
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+  await sleep(700);
+  if (await isOpen()) { await ev(`[...document.querySelectorAll('[data-task-window] button')].find(b => b.textContent.trim() === '닫기')?.click()`); await sleep(700); }
+}
+
 // 1) 바깥(딤) 클릭 → 닫힘
 await openCard();
 check('업무 상세 열림', await isOpen());
