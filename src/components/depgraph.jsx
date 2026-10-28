@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CONFIG, teamPaint } from '../config.js';
-import { depGraphLayout } from '../utils.js';
+import { depGraphLayout, subtaskProgress } from '../utils.js';
 import { useForceGraph, hoverProps, textPx, appFont } from '../hooks/useForceGraph.js';
 import { useReducedMotion } from '../hooks/useReducedMotion.js';
 import { STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
@@ -51,6 +51,21 @@ function edgeGeom(A, B, PH) {
   const s = 5, h = 3, bx = tip[0] - dir[0] * s, by = tip[1] - dir[1] * s;
   const head = `M${r1(tip[0])} ${r1(tip[1])}L${r1(bx - dir[1] * h)} ${r1(by + dir[0] * h)}L${r1(bx + dir[1] * h)} ${r1(by - dir[0] * h)}Z`;
   return { d, head };
+}
+
+// 상태 점 — 하위 업무가 있으면 **진행 링**(G11 · 시안 값 그대로): 10px · 반지름 3.6 · 굵기 2.2 · 바탕 고리는 선 색,
+// 채운 몫은 상태 색으로 12시에서 시계 방향. 막대 없이 진척이 보인다(PITFALLS 80-d).
+function StatusMark({ t }) {
+  const sub = subtaskProgress(t.subtasks || []);
+  if (!sub.total) return <span className="shrink-0 w-2 h-2 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />;
+  const C = 2 * Math.PI * 3.6;
+  return (
+    <svg className="shrink-0 w-2.5 h-2.5" viewBox="0 0 10 10" aria-hidden="true" data-ring={`${sub.done}/${sub.total}`}>
+      <circle cx="5" cy="5" r="3.6" fill="none" stroke="var(--app-line)" strokeWidth="2.2" />
+      <circle cx="5" cy="5" r="3.6" fill="none" stroke={STATUS_DOT_VAR[t.status]} strokeWidth="2.2"
+        strokeDasharray={`${r1(C * sub.ratio)} ${r1(C)}`} transform="rotate(-90 5 5)" />
+    </svg>
+  );
 }
 
 // 업무가 하나도 없을 때 — 남는 공간의 **정가운데**에 표식과 함께 선다(사용자 요청
@@ -116,7 +131,8 @@ export function DepGraph({ tasks, onTaskClick }) {
     // 짠 자리와 그려진 크기가 어긋나 겹치는 일이 없다.
     const textMax = compact ? Math.max(88, Math.min(168, Math.floor((W - 44) / 2) - PILL_CHROME)) : 168;
     const font = `600 12px ${appFont()}`;
-    const widths = new Map(list.map(t => [t.id, Math.ceil(Math.min(textMax, textPx(t.title, font))) + PILL_CHROME]));
+    // 하위 업무가 있으면 상태 점(8px) 대신 진행 링(10px) — 2px 더(G11)
+    const widths = new Map(list.map(t => [t.id, Math.ceil(Math.min(textMax, textPx(t.title, font))) + PILL_CHROME + (t.subtasks?.length ? 2 : 0)]));
     const { at, H } = depGraphLayout(list, W, { widthOf: t => widths.get(t.id), PH: DG.PH, minH });
     const nodes = list.map((t, i) => {
       const p = at.get(t.id);
@@ -278,7 +294,7 @@ export function DepGraph({ tasks, onTaskClick }) {
                 {/* 끝낸 업무는 **안쪽만** 흐리게 — 필째 반투명이면 뒤를 지나는 선이 제목 위로 비친다(2026-10-15 실화면 확인) */}
                 <span className="flex flex-1 min-w-0 items-center gap-1.5 pointer-events-none" style={{ opacity: done ? 0.55 : 1 }}>
                   <span className="shrink-0 w-[3px] h-3.5 rounded-full" style={teamPaint(t.teams, true)} />
-                  <span className="shrink-0 w-2 h-2 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
+                  <StatusMark t={t} />
                   <span className="flex-1 min-w-0 text-[12px] font-semibold leading-none text-fg truncate">
                     {t.title}
                   </span>

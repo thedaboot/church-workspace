@@ -785,6 +785,14 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
   const late = await ev(`(() => { const L = [...document.querySelectorAll('[data-edge][data-late]')];
     return { keys: L.map(g => g.dataset.edge), stroke: L[0]?.querySelector('path').getAttribute('stroke'), op: L[0] && getComputedStyle(L[0]).opacity }; })()`);
   check('그래프 G6: 일정이 어긋난 선만 빨강(.9)', late.keys.join() === 'g>h' && late.stroke === 'var(--app-tag-red-fg)' && late.op === '0.9', JSON.stringify(late));
+  // G11 — 하위 업무가 있는 업무만 상태 점 대신 진행 링(10px · 2/5 → 12시부터 40% · 상태 색) · 나머지는 점 그대로
+  // **되돌리기**: StatusMark가 늘 점을 그리면 깨진다.
+  const ring = await ev(`(() => { const R = [...document.querySelectorAll('[data-graph-root] svg[data-ring]')];
+    const arc = R[0]?.querySelectorAll('circle')[1];
+    return { n: R.length, of: R[0]?.closest('button').textContent.trim(), ring: R[0]?.dataset.ring, w: R[0] && Math.round(R[0].getBoundingClientRect().width),
+      dash: arc?.getAttribute('stroke-dasharray'), stroke: arc?.getAttribute('stroke') }; })()`);
+  check('그래프 G11: 하위 업무 2/5인 업무만 진행 링(10px · 40%)', ring.n === 1 && ring.of === '참가 신청 받기' && ring.ring === '2/5' && ring.w === 10
+    && ring.dash === '9 22.6' && ring.stroke === 'var(--app-accent)', JSON.stringify(ring));
   // G4 — 마우스를 올리면 사슬 전체(앞으로 선행 전부 · 뒤로 후행 전부)가 켜진다. 숙소 예약 → 장소 답사 · 참가 신청 받기 · 조 편성
   // **되돌리기**: lit을 이웃 한 칸(a === hi || b === hi)으로 되돌리면 조 편성이 흐려져 깨진다.
   const litOf = `(() => ({ on: [...document.querySelectorAll('[data-graph-root] button.dg-pill')].filter(b => b.style.opacity !== '0.2').map(b => b.textContent.trim()).sort().join(','),
