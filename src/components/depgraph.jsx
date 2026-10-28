@@ -14,11 +14,12 @@ import { STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 // 겹치고 판 위아래 끝에 줄지어 눌렸다(2026-10-14 시안 'Graph' · PITFALLS 50-a·50-b).
 // 지금은 **자리를 먼저 짠다**(utils.depGraphLayout — 넓은 판은 깊이 = 열(왼쪽이 먼저),
 // 좁은 판은 깊이 = 줄(위가 먼저) · 선 없는 업무는 격자). 판 높이는 업무 수를 따라가고
-// (폰 최소 360), 힘 배치는 그 자리를 앵커로 끌기·자리 잡는 모션·상자 충돌만 맡는다.
+// (최소 높이 없음 — G20), 힘 배치는 그 자리를 앵커로 끌기·자리 잡는 모션·상자 충돌만 맡는다.
 // 노드는 [팀 레일 | 상태 점 | 제목] 알약이다 — 폭 = 잰 글자 폭. 상세는 클릭해서 업무 창으로.
 // ============================================================================
-// 판 최소 높이(폰 360 · 넓은 판 440)와 알약 높이. 판 높이는 업무 수를 따라 늘어난다(depGraphLayout).
-const DG = { H_DESK: 440, H_MOBILE: 360, PH: 28 };
+// 알약 높이. 판 높이는 **내용 높이 그대로**다(G20 · PITFALLS 80-c) — 예전 최소 높이(폰 360 · 넓은 판 440)는
+// 업무가 적을 때 큰 빈 판을 남기고 줄 간격을 2.4배까지 벌렸다.
+const DG = { PH: 28 };
 // 알약에서 글자 밖 폭 — pl 6 · 레일 3 · 틈 6 · 점 8 · 틈 6 · pr 10 · 테두리 2 · 반올림 여유 2
 const PILL_CHROME = 43;
 
@@ -108,7 +109,7 @@ export function DepGraph({ tasks, onTaskClick }) {
   const offX = (cw - W) / 2;
 
   const { nodes, edges, H } = useMemo(() => {
-    const minH = compact ? DG.H_MOBILE : DG.H_DESK;
+    const minH = 0;
     if (!W) return { nodes: [], edges: [], H: minH };
     // 알약 폭 = 글자 폭 + 레일·점·여백(PILL_CHROME). 글자는 168px까지 — 폰은 두 알약이 한 줄에
     // 나란히 들어갈 만큼까지만(최소 88px). 이 폭이 그대로 알약 width가 된다 —
@@ -144,7 +145,8 @@ export function DepGraph({ tasks, onTaskClick }) {
     // W가 들어온 이유: 자리를 폭에 맞춰 짠다
   }, [list, compact, W]);
 
-  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX, compact });
+  // 업무가 늘거나 선행이 바뀌어 다시 짜면 바뀐 자리로 .46s quint에 미끄러진다(G18 · PITFALLS 80-c)
+  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX, compact, glideMs: 460 });
   // **고른 노드는 인덱스가 아니라 id로 기억한다.** 인덱스로 들고 있으면 목록이 다시
   // 만들어질 때(사람이 가입하거나 실시간 재조회가 오거나 폭이 바뀔 때) 같은 번호가
   // **딴 노드**를 가리켜서, 아무것도 안 했는데 엉뚱한 프로젝트가 강조됐다
@@ -185,9 +187,14 @@ export function DepGraph({ tasks, onTaskClick }) {
   const edgeKeys = useMemo(() => edges.map(([a, b]) => `${nodes[a].id}>${nodes[b].id}`), [nodes, edges]);
   const freshEdges = useMemo(() => {
     const prev = seenRef.current;
-    return new Set(prev ? edgeKeys.filter(k => !prev.has(k)) : []);
+    return new Set(prev ? edgeKeys.filter(k => !prev.edges.has(k)) : []);
   }, [edgeKeys]);
-  useEffect(() => { if (nodes.length) seenRef.current = new Set(edgeKeys); }, [edgeKeys, nodes.length]);
+  // 새로 생긴 알약은 작게(.82)·투명에서 .46s에 선다(G18 · .dg-pop) — 같은 규칙(이미 그려진 판에 새로 온 id만)
+  const freshNodes = useMemo(() => {
+    const prev = seenRef.current;
+    return new Set(prev ? nodes.map(n => n.id).filter(id => !prev.nodes.has(id)) : []);
+  }, [nodes]);
+  useEffect(() => { if (nodes.length) seenRef.current = { edges: new Set(edgeKeys), nodes: new Set(nodes.map(n => n.id)) }; }, [edgeKeys, nodes]);
 
   if (!list.length) {
     return <GraphEmpty />;
@@ -263,7 +270,7 @@ export function DepGraph({ tasks, onTaskClick }) {
                 title={`${t.title}${t.assignees?.length ? ` · ${t.assignees.join(', ')}` : ''} · ${t.status}`}
                 // 연결 지도의 필과 같은 시각 언어 — [팀 레일 | 상태 점 | 제목].
                 // 맨 점 + 밑 글자는 허전하고 무엇을 누르는지도 흐렸다(사용자 지적).
-                className="dg-pill absolute flex items-center gap-1.5 pl-1.5 pr-2.5 rounded-full bg-surface border border-line shadow-soft hover:shadow-elevated transition"
+                className={`dg-pill${freshNodes.has(n.id) ? ' dg-pop' : ''} absolute flex items-center gap-1.5 pl-1.5 pr-2.5 rounded-full bg-surface border border-line shadow-soft hover:shadow-elevated transition`}
                 style={{
                   left: offX + P.x, top: P.y, width: n.w, height: DG.PH, transform: 'translate(-50%, -50%)', cursor: 'grab',
                   opacity: dim ? 0.2 : 1, transition: 'opacity 200ms, box-shadow 150ms', ...drag.style,

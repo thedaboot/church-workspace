@@ -237,8 +237,9 @@ export function spreadBoxes(items, y0, y1) {
 // 힘 배치만으로는 알약이 겹치고 판 가장자리에 줄지어 붙었다(점끼리 밀어내니 글자 폭을
 // 모르고, 높이 고정이라 자리가 모자라면 벽에 눌린다). 그래서 **겹치지 않는 자리를 먼저
 // 짜고** 힘 배치는 그 자리를 앵커로 삼아 끌기·자리 잡는 모션만 맡는다.
-//  · 가로 흐름(넓은 판): 선후 깊이 = 열(왼쪽이 먼저). 열 간격이 알약보다 좁으면 열마다 한 칸씩
-//    내려 엇갈리게 선다(s줄 톱니) — 셋까지. 같은 열 안 차례는 앞 업무들의 차례를 따른다(선 엇갈림 줄이기).
+//  · 가로 흐름(넓은 판): 선후 깊이 = 열(왼쪽이 먼저). 열 간격이 알약보다 좁으면(s줄 톱니 · 셋까지) 옆 열과
+//    실제로 부딪히는 알약만 한 줄 내린다(G16). 같은 열 안 차례는 앞 업무들의 차례를 물려받은 뒤 앞뒤 열 평균
+//    자리로 다시 줄 세운다(G14 · 선 엇갈림 줄이기 · PITFALLS 80-c).
 //  · 세로 흐름(좁은 판 · 톱니가 셋을 넘으면): 깊이 = 줄(위가 먼저). 한 줄에 들어가면 나란히 서고,
 //    깊이에 따라 왼쪽에서 오른쪽으로 비껴 내려간다 — 그래도 왼쪽이 먼저 읽힌다. 안 들어가면
 //    차례대로 왼쪽→오른쪽 길에 한 줄씩(시안의 두 갈래).
@@ -301,9 +302,53 @@ export function depGraphLayout(tasks = [], W, o = {}) {
             if (b0 - k >= 0 && !used.has(b0 - k)) { used.add(b0 - k); band.set(it.t.id, b0 - k); break; }
           }
         }
-        col.forEach(t => grid.set(t.id, { x: x0 + d * colGap, row: band.get(t.id) * s + (d % s) }));
       });
-      rows = (Math.max(...band.values()) + 1) * s;
+      // 같은 열 차례를 앞뒤 열의 평균 자리로 네 번 다시 줄 세운다(G14 · barycenter — 앞→뒤로 선행 평균, 뒤→앞으로 후행 평균).
+      // 물려받기만으로는 갈래가 갈린 뒤 선이 엇갈렸다. 다시 세운 차례가 곧 띠다(0부터 빈칸 없이).
+      {
+        const ord = L.map(col => col.map(t => t.id).sort((u, v) => band.get(u) - band.get(v)));
+        const idx = new Map();
+        const sync = () => ord.forEach(c => c.forEach((id, k) => idx.set(id, k)));
+        const byId = new Map(list.map(t => [t.id, t]));
+        const preds = (id) => deps(byId.get(id));
+        const succs = (id) => list.filter(t => deps(t).includes(id)).map(t => t.id);
+        const bary = (col, nb) => col.map((id, k) => {
+          const ns = nb(id).filter(x => idx.has(x));
+          return { id, k, v: ns.length ? ns.reduce((sum, x) => sum + idx.get(x), 0) / ns.length : k };
+        }).sort((u, v) => (u.v - v.v) || (u.k - v.k)).map(x => x.id);
+        sync();
+        for (let it = 0; it < 4; it++) {
+          for (let d = 1; d < n; d++) { ord[d] = bary(ord[d], preds); sync(); }
+          for (let d = n - 2; d >= 0; d--) { ord[d] = bary(ord[d], succs); sync(); }
+        }
+        ord.forEach(c => c.forEach((id, k) => band.set(id, k)));
+      }
+      if (s > 1) {
+        // 톱니(s줄)가 필요한 폭이면 **옆 열과 실제로 부딪히는 알약만** 한 줄 내린다(G16 — 예전에는 열마다 d % s줄씩 내려
+        // 넓은 화면에 대각선 계단이 섰다). 띠 높이는 그 띠에서 실제로 쓴 줄 수만큼.
+        const nb = Math.max(...band.values()) + 1;
+        const off = new Map();
+        let start = 0;
+        for (let bi = 0; bi < nb; bi++) {
+          const placed = [];
+          let used = 1;
+          L.forEach((col, d) => col.forEach(t => {
+            if (band.get(t.id) !== bi) return;
+            const x = x0 + d * colGap, w = wOf(t);
+            let k = 0;
+            while (placed.some(q => q.k === k && Math.abs(q.x - x) < (q.w + w) / 2 + GX)) k++;
+            placed.push({ x, w, k });
+            off.set(t.id, start + k);
+            used = Math.max(used, k + 1);
+          }));
+          start += used;
+        }
+        L.forEach((col, d) => col.forEach(t => grid.set(t.id, { x: x0 + d * colGap, row: off.get(t.id) })));
+        rows = start;
+      } else {
+        L.forEach((col, d) => col.forEach(t => grid.set(t.id, { x: x0 + d * colGap, row: band.get(t.id) })));
+        rows = Math.max(...band.values()) + 1;
+      }
     } else {
       mode = 'down';
       // 한 줄 무리 폭 — 깊이마다 비껴 내려가는 한 걸음(drift)은 흔한 무리 폭이 남기는 자리를 깊이 수로 나눈 것

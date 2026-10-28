@@ -562,6 +562,41 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   const loose = Array.from({ length: 12 }, (_, k) => ({ id: 'x' + k, title: '업무 ' + k }));
   const lz = depGraphLayout(loose, 1400, { widthOf, PH, minH: 440 });
   assert.ok(new Set([...lz.at.values()].map(p => Math.round(p.x))).size >= 4 && lz.H === 440, `선 없는 업무는 면으로 편다 (H ${lz.H})`);
+  // UI 다듬기 2차 G14·G16(2026-10-28 · PITFALLS 80-c) — 시안의 수련회 프로젝트(업무 10 · 선 7).
+  // G14: 같은 열 차례를 앞뒤 열 평균 자리로 다시 줄 세워 선 겹침 2 → 0. **되돌리기**: barycenter 블록을 건너뛰면 2곳이라 깨진다.
+  // G16: 톱니 폭(560)에서 부딪히는 알약만 내려 줄 8 → 7(판 446 → 326). **되돌리기**: 예전 band·s + d % s 줄로 되돌리면 깨진다.
+  {
+    const C = [
+      ['a', '수련회 장소 답사', [], '2026-10-18'], ['b', '찬양 콘티 정리', [], '2026-10-30'], ['e', '수련회 포스터', ['a'], '2026-10-24'],
+      ['c', '숙소 예약', ['a'], '2026-10-29'], ['d', '버스 대절', ['a'], '2026-11-01'], ['f', '주보 PPT 만들기', ['b'], '2026-11-01'],
+      ['g', '참가 신청 받기', ['c', 'e'], '2026-11-05'], ['h', '조 편성', ['g'], '2026-11-03'], ['i', '새가족 환영 카드', [], '2026-11-02'], ['j', '10월 순모임 가이드', [], '2026-10-12'],
+    ].map(([id, title, dependsOn, dueDate]) => ({ id, title, dependsOn, dueDate }));
+    const E = C.flatMap(t => t.dependsOn.map(d => [d, t.id]));
+    const cross = (at) => {
+      const ccw = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+      let k = 0;
+      for (let i = 0; i < E.length; i++) for (let j = i + 1; j < E.length; j++) {
+        const [a1, b1] = E[i], [a2, b2] = E[j];
+        if (new Set([a1, b1, a2, b2]).size < 4) continue;
+        const [p1, p2, p3, p4] = [a1, b1, a2, b2].map(x => at.get(x));
+        if (ccw(p1, p2, p3) * ccw(p1, p2, p4) < 0 && ccw(p3, p4, p1) * ccw(p3, p4, p2) < 0) k++;
+      }
+      return k;
+    };
+    for (const W of [560, 800, 1248]) {
+      const { at, H, mode } = depGraphLayout(C, W, { widthOf, PH, minH: 0 });
+      assert.strictEqual(mode, 'across', `${W}px 가로 흐름`);
+      assert.strictEqual(cross(at), 0, `G14 ${W}px: 선 겹침 0곳 (${cross(at)})`);
+      const box = C.map(t => { const p = at.get(t.id), w = widthOf(t); return { l: p.x - w / 2, r: p.x + w / 2, t: p.y - PH / 2, b: p.y + PH / 2 }; });
+      let over = 0;
+      for (let i = 0; i < box.length; i++) for (let j = i + 1; j < box.length; j++) {
+        const a = box[i], b = box[j];
+        if (Math.min(a.r, b.r) - Math.max(a.l, b.l) > 0 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 0) over++;
+      }
+      assert.strictEqual(over, 0, `G16 ${W}px: 알약끼리 안 겹친다 (${over}쌍)`);
+      if (W === 560) assert.ok(new Set([...at.values()].map(p => Math.round(p.y))).size <= 7 && H <= 330, `G16 560px: 톱니는 부딪히는 알약만 — 줄 7 이하 · 판 330 이하 (H ${H})`);
+    }
+  }
 
   // 상자 충돌 — 겹친 둘이 풀리고, 식은 뒤(alpha 0)에도 민다. 다 풀리면 민 양이 0이다(루프가 멈출 수 있다)
   {
@@ -628,7 +663,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   const hook = readFileSync(new URL('../src/hooks/useForceGraph.js', import.meta.url), 'utf8');
   assert.ok(/push > PUSH_MIN/.test(hook), '겹침이 풀릴 때까지 루프를 잇는다(식었다고 반쯤 겹친 채 굳지 않게)');
   assert.ok(/\} else if \(resumed\) \{/.test(hook), '그려진 자리에서 다시 짤 때는 미리 돌리지 않는다(툭 튀지 않게)');
-  console.log('PASS  겹치지 않는 그래프·사람 덩어리(그래프 7폭 · 상자 충돌 · 꽉 찬 사람 층 · 그릴 때 안전망 · 배선)');
+  console.log('PASS  겹치지 않는 그래프·사람 덩어리(그래프 7폭 · 상자 충돌 · 꽉 찬 사람 층 · 그릴 때 안전망 · 배선 · G14 선 겹침 · G16 톱니)');
 }
 // ── 강조가 엉뚱한 노드로 옮겨가지 않나 (연결 지도 · 그래프 뷰) ────────────────
 // 사용자 지적 2026-08-31 — "가끔 다른 프로젝트가 갑자기 강조가 된다". 원인이 둘이었다:

@@ -419,9 +419,13 @@
 /* 알약의 누를 자리(G21 · PITFALLS 80-b) — 폰(.dg-hit)만 위아래 7px · 좌우 3px 넓힌다. 줄 사이 틈이 12px이라 이웃 자리와 2px만 겹친다. */
 .dg-pill::before { content: ''; position: absolute; inset: -1px; border-radius: 999px; }
 .dg-hit .dg-pill::before { inset: -7px -3px; }
+/* 새로 생긴 알약(G18 · PITFALLS 80-c) — 작게·투명에서 제자리로. 알약의 translate(-50%, -50%)를 같이 적어야 자리가 안 튄다. */
+@keyframes dg-pop { from { opacity: 0; transform: translate(-50%, -50%) scale(.82); } }
+.dg-pop { animation: dg-pop .46s var(--ease-out-quint) both; }
 @media (prefers-reduced-motion: reduce) {
   .dg-edges g, .dg-edges path { transition: none !important; }
   .dg-edge-new { animation: none !important; stroke-dasharray: none; }
+  .dg-pop { animation: none !important; }
 }
 
 /* ── 작은 완료의 손맛 (사용자 결정 2026-09-25 · 목업 mockup-grace 4) ─────────────

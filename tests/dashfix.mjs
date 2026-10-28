@@ -618,8 +618,9 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
       const edge = R.filter(r => r.top - C.top < 3 || C.bottom - r.bottom < 3 || r.left - C.left < 3 || C.right - r.right < 3).length;
       return { n: btns.length, H: Math.round(C.height), over, edge };
     })()`);
+    // 판 최소 높이(360·440)는 G20에서 걷었다(판 = 내용 높이) — 높이 단정은 아래 G20 묶음.
     check(`그래프 ${w}px: 업무 25건 알약이 서로 안 겹치고 판 가장자리에 줄지어 붙지 않는다`,
-      !!g && g.n === 25 && g.over === 0 && g.edge === 0 && g.H >= (w < 768 ? 360 : 440), JSON.stringify(g));
+      !!g && g.n === 25 && g.over === 0 && g.edge === 0, JSON.stringify(g));
   }
   // ①-b 폰에서 맨 아래 알약까지 내려갈 수 있다 — 프로젝트 화면은 h-full이라 판이 넘친 몫에 main 아래 여백이 안 붙어 마지막 알약이
   // 하단 바 밑에 깔린 채 멈췄다(사용자 지적 2026-10-18 아이폰 · PITFALLS 68-a). 판은 모든 알약을 담고, 끝까지 내리면 마지막 알약이 하단 바 위.
@@ -743,15 +744,20 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
   const byId = {}, allIds = [];
   G.forEach((t, n) => { byId[t.id] = { projectId: 'p1', content: '', assignees: ['노준석'], teams: ['찬양팀'], startDate: '', position: n, author: '노준석',
     createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', comments: [], attachments: [], activityLog: [], dependsOn: [], subtasks: [], ...t }; allIds.push(t.id); });
+  // 업무 셋뿐인 프로젝트(G20)
+  [['x1', '장소 답사'], ['x2', '숙소 예약', ['x1']], ['x3', '참가 신청', ['x2']]].forEach(([id, title, dependsOn = []], n) => {
+    byId[id] = { ...byId.a, id, title, dependsOn, projectId: 'p2', status: '시작 전', position: n }; allIds.push(id);
+  });
   const camp = { currentUser: { name: '노준석', team: '찬양팀', teams: ['찬양팀'] },
     members: [{ id: 'u1', name: '노준석', avatarUrl: '', team: '찬양팀', teams: ['찬양팀'], birthday: '', lastSeenAt: '', joinedAt: '2026-01-01T00:00:00Z' }],
-    projects: { byId: { p1: { id: 'p1', title: '수련회', pinnedLinks: [], year: 2026, createdAt: '2026-01-01T00:00:00Z' } }, allIds: ['p1'] }, tasks: { byId, allIds } };
-  const openCamp = async (w, theme = 'light') => {
+    projects: { byId: { p1: { id: 'p1', title: '수련회', pinnedLinks: [], year: 2026, createdAt: '2026-01-01T00:00:00Z' },
+      p2: { id: 'p2', title: '답사', pinnedLinks: [], year: 2026, createdAt: '2026-01-01T00:00:00Z' } }, allIds: ['p1', 'p2'] }, tasks: { byId, allIds } };
+  const openCamp = async (w, theme = 'light', proj = 'p1') => {
     await send('Emulation.setDeviceMetricsOverride', { width: w, height: w < 768 ? 860 : 1000, deviceScaleFactor: 1, mobile: w < 1024 });
     await send('Emulation.setTouchEmulationEnabled', { enabled: w < 768, maxTouchPoints: w < 768 ? 5 : 1 });
     await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
     await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(camp))}); localStorage.setItem('theme','${theme}')`);
-    await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
+    await send('Page.navigate', { url: URL_BASE + '/?p=' + proj }); await wait('Page.loadEventFired'); await sleep(1400);
     await ev(`[...document.querySelectorAll('main button')].find(b => b.textContent.trim() === '그래프')?.click()`);
     await sleep(2200);
   };
@@ -847,6 +853,50 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
     check('그래프 G8(폰): 첫 탭은 사슬 강조 · 빈 곳 탭은 걷힘 · 같은 알약 다시 탭은 업무 창',
       !first.open && first.on === '수련회 장소 답사,숙소 예약,조 편성,참가 신청 받기' && cleared.on.split(',').length === 10 && second,
       JSON.stringify({ first, cleared: cleared.on.split(',').length, second }));
+  }
+  // G20 — 업무가 셋뿐이면 판 = 내용 높이(한 줄 · 28 + 위아래 22 = 72) · 폰도 같다(예전 최소 440 · 360)
+  // **되돌리기**: depgraph의 minH를 compact ? 360 : 440으로 되돌리면 깨진다.
+  {
+    const hOf = `Math.round(document.querySelector('[data-graph-root] .relative').getBoundingClientRect().height)`;
+    await openCamp(1280, 'light', 'p2');
+    const desk = await ev(hOf);
+    await openCamp(393, 'light', 'p2');
+    const phone = await ev(hOf);
+    check('그래프 G20: 업무가 적으면 판이 내용 높이(데스크톱·폰 한 줄 72)', desk === 72 && phone === 72, JSON.stringify({ desk, phone }));
+  }
+  // G18 — 업무가 늘고 선행이 바뀌면 바뀐 자리로 .46s quint에 미끄러지고(중간에 지나가고 .5s 안에 멈춤) 새 알약은 작게·투명에서 선다
+  // **되돌리기**: depgraph의 glideMs: 460을 지우면(예전 힘으로 미끄러짐 · 1초 넘게 움직임) '.5s 안에 멈춤'이, freshNodes를 늘 빈 Set으로 두면 '새 알약'이 깨진다.
+  await openCamp(1280);
+  {
+    await ev(`(() => {
+      window.__g18 = [];
+      const t0 = performance.now();
+      const tick = () => {
+        const b = ${pill('버스 대절')};
+        window.__g18.push({ t: performance.now() - t0, x: parseFloat(b.style.left), y: parseFloat(b.style.top) });
+        if (performance.now() - t0 < 1400) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+      setTimeout(() => {
+        window.__g18t = performance.now() - t0;
+        const S = window.__store, T = S.getState().tasks.byId;
+        S.dispatch({ type: 'UPSERT_TASK', payload: { ...T.d, dependsOn: ['c'] } });
+        S.dispatch({ type: 'UPSERT_TASK', payload: { ...T.h, id: 'k', title: '방 배정', dependsOn: ['c'], position: 50 } });
+      }, 100);
+    })()`);
+    await sleep(300);
+    const pop = await ev(`(() => { const b = ${pill('방 배정')}; return b && { cls: b.classList.contains('dg-pop'), anim: getComputedStyle(b).animationName, dur: getComputedStyle(b).animationDuration }; })()`);
+    await sleep(1500);
+    const mv = await ev(`(() => {
+      const s = window.__g18, t1 = window.__g18t, a = s.find(f => f.t >= t1) || s[0], z = s[s.length - 1];
+      const dist = Math.hypot(z.x - a.x, z.y - a.y);
+      const mid = s.find(f => f.t >= t1 + 150);
+      const midFrac = mid ? Math.hypot(mid.x - a.x, mid.y - a.y) / (dist || 1) : -1;
+      const last = s.filter(f => Math.hypot(f.x - z.x, f.y - z.y) > 0.5).pop();
+      return { dist: Math.round(dist), midFrac: Math.round(midFrac * 100) / 100, stopAt: last ? Math.round(last.t - t1) : 0 };
+    })()`);
+    check('그래프 G18: 바뀐 자리로 .46s 안에 미끄러지고(150ms에 중간) 새 알약은 dg-pop(.46s)',
+      !!pop && pop.cls && pop.anim === 'dg-pop' && pop.dur === '0.46s' && mv.dist > 20 && mv.midFrac > 0.3 && mv.midFrac < 1 && mv.stopAt <= 500, JSON.stringify({ pop, mv }));
   }
   // G21 — 폰은 알약의 누를 자리가 위아래 7px · 좌우 3px 넓다(알약 아래 5px을 눌러도 그 알약) · 데스크톱은 그대로(1px)
   // **되돌리기**: 판의 dg-hit 클래스를 지우면 깨진다.

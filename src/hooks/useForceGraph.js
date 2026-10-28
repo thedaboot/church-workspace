@@ -16,6 +16,8 @@ import { prefersReducedMotion } from './useReducedMotion.js';
 // · prefers-reduced-motion이면 동기로 수렴시켜 정착 상태를 바로 그린다.
 // · 상자(node.box)가 겹쳐 있는 동안은 식었어도 루프를 잇는다(PUSH_MIN · PITFALLS 50-a).
 // · 이미 그려진 자리에서 다시 짤 때(업무 추가 · 폭·높이 변경)는 미리 돌리지 않고 미끄러진다(50-c).
+// · glideMs를 주면(그래프 뷰 · G18 · PITFALLS 80-c) 다시 짤 때 힘으로 미끄러지지 않고 **도착 자리를 먼저 풀어 두고**
+//   그 시간(quint) 동안 옛 자리 → 새 자리로 옮긴다. 선도 매 프레임 자리를 따라가 알약에 붙어 있다. 끌기를 시작하면 그 자리에서 멈춘다.
 // · 글자 폭 재기(textPx · appFont)도 여기 — 알약·이름 상자의 크기를 두 화면이 같은 식으로 잰다.
 // ============================================================================
 const ALPHA_DECAY = 0.0228;   // ≈300틱에 수렴(d3 기본)
@@ -42,13 +44,25 @@ const PRE_GUARD = 400;        // 미리 돌리는 루프의 백스톱
 // alpha만 보고 멈추면 겹침이 반쯤 풀린 채 굳는다(2026-10-14 · PITFALLS 50-a).
 const PUSH_MIN = 0.05;
 
-export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact = false }) {
+// 앱 quint(index.css --ease-out-quint = cubic-bezier(.16, 1, .3, 1))를 JS로 — 시간 비율 → 진행 비율(이분법으로 x를 푼다)
+const QX1 = 0.16, QY1 = 1, QX2 = 0.3, QY2 = 1;
+const bz = (p1, p2, s) => 3 * p1 * s * (1 - s) ** 2 + 3 * p2 * s * s * (1 - s) + s ** 3;
+export function easeOutQuint(t) {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  let lo = 0, hi = 1, s = t;
+  for (let k = 0; k < 24; k++) { s = (lo + hi) / 2; if (bz(QX1, QX2, s) < t) lo = s; else hi = s; }
+  return bz(QY1, QY2, s);
+}
+
+export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact = false, glideMs = 0 }) {
   const pRef = useRef([]);
   const velRef = useRef([]);
   const posById = useRef(new Map());     // 데이터가 바뀔 때 자리를 물려주기 위한 기억
   const pinnedIds = useRef(new Set());   // 손으로 놓아둔 노드 — 다시 움직이지 않는다
   const alphaRef = useRef(1);
   const rafRef = useRef(0);
+  const glideRef = useRef(0);            // 다시 짠 자리로 옮기는 rAF(glideMs)
   const framesRef = useRef(0);
   const dragRef = useRef(null);          // { i, sx, sy, moved }
   const swallowClickRef = useRef(false);
@@ -115,6 +129,26 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
         alphaRef.current -= alphaRef.current * ALPHA_DECAY;
       }
       bump(x => x + 1);
+    } else if (resumed && glideMs) {
+      // 도착 자리를 동기로 풀어 두고(움직임 줄이기 갈래와 같은 수렴) 옛 자리에서 glideMs 동안 quint로 옮긴다.
+      const from = pRef.current.map(p => ({ x: p.x, y: p.y }));
+      const skip = skipSet();
+      alphaRef.current = ALPHA_RESUME;
+      for (let i = 0, push = 1; i < 1200 && (alphaRef.current > ALPHA_MIN || push > PUSH_MIN); i++) {
+        push = forceStep(pRef.current, velRef.current, nodes, edges, W, H, { alpha: alphaRef.current, skip }) || 0;
+        alphaRef.current -= alphaRef.current * ALPHA_DECAY;
+      }
+      const to = pRef.current.map(p => ({ x: p.x, y: p.y }));
+      pRef.current.forEach((p, i) => { p.x = from[i].x; p.y = from[i].y; });
+      velRef.current = nodes.map(() => ({ x: 0, y: 0 }));
+      const t0 = performance.now();
+      const step = (now) => {
+        const e = easeOutQuint(Math.max(0, now - t0) / glideMs);
+        pRef.current.forEach((p, i) => { p.x = from[i].x + (to[i].x - from[i].x) * e; p.y = from[i].y + (to[i].y - from[i].y) * e; });
+        bump(x => x + 1);
+        glideRef.current = e < 1 ? requestAnimationFrame(step) : 0;
+      };
+      glideRef.current = requestAnimationFrame(step);
     } else if (resumed) {
       // **이미 그려진 자리에서 이어 간다**(2026-10-14 — 업무가 늘거나 폭·높이가 바뀔 때).
       // 미리 돌리기를 하면 첫 페인트 전에 노드가 수십 px 옮겨 앉아 '툭' 튄다 — 여기서는
@@ -138,6 +172,7 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
     return () => {
       nodes.forEach((n, i) => { if (!n.fixed && pRef.current[i]) posById.current.set(n.id, pRef.current[i]); });
       cancelAnimationFrame(rafRef.current); rafRef.current = 0;
+      cancelAnimationFrame(glideRef.current); glideRef.current = 0;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, edges, W, H, compact]);
@@ -149,6 +184,8 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
       style: { touchAction: 'none' },   // 터치에서 스크롤이 드래그를 뺏지 않게
       onPointerDown: (e) => {
         e.currentTarget.setPointerCapture?.(e.pointerId);
+        // 옮기는 중이면 그 자리에서 멈춘다(glideMs) — 그 뒤는 예전처럼 힘 배치가 잇는다
+        if (glideRef.current) { cancelAnimationFrame(glideRef.current); glideRef.current = 0; }
         // **잡은 지점과 노드 중심의 차이를 기억한다**(2026-08-31 사용자 지적 — "드래그가
         // 인위적인 느낌"). 예전에는 노드 **중심**을 손가락 좌표에 그대로 앉혀서, 라벨
         // 귀퉁이를 잡으면 라벨이 손가락으로 순간이동했다. 그 텔레포트가 인위적이었다.
