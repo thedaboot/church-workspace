@@ -779,6 +779,34 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
   const late = await ev(`(() => { const L = [...document.querySelectorAll('[data-edge][data-late]')];
     return { keys: L.map(g => g.dataset.edge), stroke: L[0]?.querySelector('path').getAttribute('stroke'), op: L[0] && getComputedStyle(L[0]).opacity }; })()`);
   check('그래프 G6: 일정이 어긋난 선만 빨강(.9)', late.keys.join() === 'g>h' && late.stroke === 'var(--app-tag-red-fg)' && late.op === '0.9', JSON.stringify(late));
+  // G4 — 마우스를 올리면 사슬 전체(앞으로 선행 전부 · 뒤로 후행 전부)가 켜진다. 숙소 예약 → 장소 답사 · 참가 신청 받기 · 조 편성
+  // **되돌리기**: lit을 이웃 한 칸(a === hi || b === hi)으로 되돌리면 조 편성이 흐려져 깨진다.
+  const litOf = `(() => ({ on: [...document.querySelectorAll('[data-graph-root] button.dg-pill')].filter(b => b.style.opacity !== '0.2').map(b => b.textContent.trim()).sort().join(','),
+    edges: Object.fromEntries([...document.querySelectorAll('[data-edge]')].map(g => [g.dataset.edge, g.style.opacity])) }))()`;
+  const ctr = async (title) => ev(`(() => { const r = ${pill(title)}.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, b: r.bottom, l: r.left, w: r.width }; })()`);
+  {
+    const c = await ctr('숙소 예약');
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y });
+    await sleep(300);
+    const hov = await ev(litOf);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 4, y: 4 });
+    check('그래프 G4: 올리면 사슬 전체가 켜지고 형제 갈래는 흐리다',
+      hov.on === '수련회 장소 답사,숙소 예약,조 편성,참가 신청 받기' && hov.edges['a>c'] === '0.9' && hov.edges['g>h'] === '0.9' && hov.edges['a>e'] === '0.12' && hov.edges['e>g'] === '0.12', JSON.stringify(hov));
+  }
+  // G9 — 키보드 초점도 같은 강조(:focus-visible일 때만) · 초점이 떠나면 걷힌다
+  // **되돌리기**: 알약의 onFocus를 지우면 깨진다.
+  {
+    // 바로 앞 알약(수련회 포스터)에 초점을 두고 Tab 한 번 — 숙소 예약으로 간다(DOM 차례 = 업무 차례)
+    await ev(`${pill('수련회 포스터')}.focus()`);
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+    await sleep(300);
+    const kb = await ev(`({ ...${litOf}, fv: document.activeElement.matches(':focus-visible') })`);
+    await ev(`document.activeElement.blur()`);
+    await sleep(300);
+    const off = await ev(litOf);
+    check('그래프 G9: 키보드 초점이 오면 사슬 강조 · 떠나면 걷힘', kb.fv && kb.on === '수련회 장소 답사,숙소 예약,조 편성,참가 신청 받기' && off.on.split(',').length === 10, JSON.stringify({ kb: kb.on, fv: kb.fv, off: off.on }));
+  }
   // G19 — 선행을 정해 새로 생긴 선만 .6s에 그려진다(이미 있던 선은 그대로)
   // **되돌리기**: freshEdges를 늘 빈 Set으로 두면 깨진다.
   await ev(`window.__store.dispatch({ type: 'UPSERT_TASK', payload: { ...window.__store.getState().tasks.byId.h, dependsOn: ['g', 'd'] } })`);
@@ -796,6 +824,41 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
   const darkEdge = await ev(edgeOf);
   check('그래프 G24: 안 끝난 선 — 라이트 faint .5 · 다크 muted .8',
     lightEdge.op === '0.5' && lightEdge.stroke === hexRgb(lightEdge.faint) && darkEdge.op === '0.8' && darkEdge.stroke === hexRgb(darkEdge.muted), JSON.stringify({ lightEdge, darkEdge }));
+
+  // G8 — 폰: 첫 탭은 사슬 강조(창이 안 열린다) · 같은 알약을 다시 탭하면 업무 창 · 판 빈 곳을 탭하면 강조가 걷힌다
+  // **되돌리기**: 알약 onClick을 늘 onTaskClick으로 되돌리면 첫 탭에 창이 열려 깨진다.
+  await openCamp(393);
+  const tapAt = async (x, y) => {
+    await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+    await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(450);
+  };
+  const winOpen = `!!document.querySelector('.fixed.z-50')`;
+  {
+    const c = await ctr('숙소 예약');
+    await tapAt(c.x, c.y);
+    const first = await ev(`({ ...${litOf}, open: ${winOpen} })`);
+    const wrapBox = await ev(`(() => { const r = document.querySelector('[data-graph-root] .relative').getBoundingClientRect(); return { x: r.right - 6, y: r.top + 6 }; })()`);
+    await tapAt(wrapBox.x, wrapBox.y);
+    const cleared = await ev(litOf);
+    await tapAt(c.x, c.y);
+    await tapAt(c.x, c.y);
+    const second = await ev(winOpen);
+    check('그래프 G8(폰): 첫 탭은 사슬 강조 · 빈 곳 탭은 걷힘 · 같은 알약 다시 탭은 업무 창',
+      !first.open && first.on === '수련회 장소 답사,숙소 예약,조 편성,참가 신청 받기' && cleared.on.split(',').length === 10 && second,
+      JSON.stringify({ first, cleared: cleared.on.split(',').length, second }));
+  }
+  // G21 — 폰은 알약의 누를 자리가 위아래 7px · 좌우 3px 넓다(알약 아래 5px을 눌러도 그 알약) · 데스크톱은 그대로(1px)
+  // **되돌리기**: 판의 dg-hit 클래스를 지우면 깨진다.
+  await openCamp(393);
+  {
+    const c = await ctr('숙소 예약');
+    const hit = await ev(`(() => { const p = ${pill('숙소 예약')}; const s = getComputedStyle(p, '::before');
+      const under = document.elementFromPoint(${c.x}, ${c.b} + 5); return { top: s.top, left: s.left, under: under?.closest('button') === p }; })()`);
+    await openCamp(1280);
+    const desk = await ev(`getComputedStyle(${pill('숙소 예약')}, '::before').top`);
+    check('그래프 G21: 폰은 누를 자리가 위아래 7 · 좌우 3px 넓다(데스크톱 1px)', hit.top === '-7px' && hit.left === '-3px' && hit.under && desk === '-1px', JSON.stringify({ hit, desk }));
+  }
 }
 
 console.log(results.join('\n'));

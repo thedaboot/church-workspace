@@ -157,12 +157,26 @@ export function DepGraph({ tasks, onTaskClick }) {
   // 터치에서 강조를 보는 길은 업무를 눌러 창을 여는 것이고, 이 화면은 강조 자체가
   // 마우스용 보조다.
   const hoverOn = hoverProps(setHiId);
+  // 폰(손가락·펜)은 호버가 없다 — **첫 탭은 강조, 같은 알약을 다시 탭하면 업무 창**(G8 · PITFALLS 80-b).
+  // 마우스 클릭과 키보드(Enter · detail 0)는 예전처럼 바로 연다. 판 빈 곳을 누르면 강조가 걷힌다.
+  const pointerRef = useRef('mouse');
+  // 키보드 초점도 호버와 같은 강조(G9) — :focus-visible일 때만(손가락 탭의 초점은 G8 강조와 겹치지 않게).
+  // 초점으로 켠 강조만 초점이 떠날 때 걷는다(마우스로 켠 강조를 blur가 지우지 않게).
+  const focusHiRef = useRef(null);
 
-  const linked = useMemo(() => {
+  // 강조는 **사슬 전체**다(G4) — 고른 업무의 앞으로 이어진 선행 전부 + 뒤로 이어진 후행 전부.
+  // 선은 같은 쪽 사슬 안의 선만 켠다(형제 갈래는 흐린 채로).
+  const lit = useMemo(() => {
     if (hi == null) return null;
-    const set = new Set([hi]);
-    edges.forEach(([a, b]) => { if (a === hi) set.add(b); if (b === hi) set.add(a); });
-    return set;
+    const up = new Set([hi]), down = new Set([hi]);
+    for (let grew = true; grew;) {
+      grew = false;
+      edges.forEach(([a, b]) => {
+        if (up.has(b) && !up.has(a)) { up.add(a); grew = true; }
+        if (down.has(a) && !down.has(b)) { down.add(b); grew = true; }
+      });
+    }
+    return { nodes: new Set([...up, ...down]), edge: (a, b) => (up.has(a) && up.has(b)) || (down.has(a) && down.has(b)) };
   }, [hi, edges]);
 
   // 방금 생긴 선(G19 · PITFALLS 80-a) — **이미 그려진 판에** 새로 생긴 선만 .6s에 그려진다.
@@ -200,8 +214,10 @@ export function DepGraph({ tasks, onTaskClick }) {
       <div className="rounded-lg shadow-soft select-none"
         style={{ border: '1px solid var(--app-line)', background: 'var(--app-surface)' }}>
         {/* 판 높이는 업무 수를 따라간다 — 바뀔 때 툭 늘지 않게 높이도 같은 곡선으로(움직임 줄이기면 즉시) */}
-        <div ref={wrapRef} className="relative"
+        {/* 폰은 알약의 누를 자리를 위아래 7px · 좌우 3px 넓힌다(G21 · .dg-hit — 알약 모양은 그대로) */}
+        <div ref={wrapRef} className={`relative${compact ? ' dg-hit' : ''}`}
           style={{ height: H, transition: reduce ? 'none' : 'height .42s var(--ease-out-quint)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setHiId(null); }}
           onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHiId(null); }}>
           <svg className="dg-edges absolute inset-0 pointer-events-none overflow-visible" width={cw} height={H} aria-hidden>
             {edges.map(([a, b]) => {
@@ -211,8 +227,8 @@ export function DepGraph({ tasks, onTaskClick }) {
               // 둘 다 안 끝났는데 선행 마감이 후행 마감보다 늦으면 빨강(G6 · 일정 충돌 — 마감이 둘 다 있을 때만)
               const done = pa.status === '완료';
               const late = !done && pb.status !== '완료' && !!pa.dueDate && !!pb.dueDate && String(pa.dueDate) > String(pb.dueDate);
-              const on = hi != null && (a === hi || b === hi);
-              const dim = hi != null && !on;
+              const on = !!lit && lit.edge(a, b);
+              const dim = !!lit && !on;
               const color = done ? 'var(--app-tag-green-fg)' : late ? 'var(--app-tag-red-fg)' : 'var(--dg-edge)';
               const base = done ? 0.75 : late ? 0.9 : 'var(--dg-edge-op)';
               const A = { x: offX + (pos[a]?.x || 0), y: pos[a]?.y || 0, w: nodes[a].w };
@@ -231,17 +247,23 @@ export function DepGraph({ tasks, onTaskClick }) {
             const P = pos[i];
             if (!P) return null;
             const t = n.t;
-            const dim = linked && !linked.has(i);
+            const dim = lit && !lit.nodes.has(i);
             const drag = bindDrag(i);
             const done = t.status === '완료';
             return (
               <button key={n.id} type="button" {...drag}
-                onClick={() => onTaskClick(t)}
+                onPointerDown={(e) => { pointerRef.current = e.pointerType || 'mouse'; drag.onPointerDown?.(e); }}
+                onClick={(e) => {
+                  if (e.detail === 0 || pointerRef.current === 'mouse' || hiId === n.id) onTaskClick(t);
+                  else setHiId(n.id);
+                }}
+                onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) { focusHiRef.current = n.id; setHiId(n.id); } }}
+                onBlur={() => { if (focusHiRef.current === n.id) { focusHiRef.current = null; setHiId(h => (h === n.id ? null : h)); } }}
                 {...hoverOn(n.id)}
                 title={`${t.title}${t.assignees?.length ? ` · ${t.assignees.join(', ')}` : ''} · ${t.status}`}
                 // 연결 지도의 필과 같은 시각 언어 — [팀 레일 | 상태 점 | 제목].
                 // 맨 점 + 밑 글자는 허전하고 무엇을 누르는지도 흐렸다(사용자 지적).
-                className="absolute flex items-center gap-1.5 pl-1.5 pr-2.5 rounded-full bg-surface border border-line shadow-soft hover:shadow-elevated transition"
+                className="dg-pill absolute flex items-center gap-1.5 pl-1.5 pr-2.5 rounded-full bg-surface border border-line shadow-soft hover:shadow-elevated transition"
                 style={{
                   left: offX + P.x, top: P.y, width: n.w, height: DG.PH, transform: 'translate(-50%, -50%)', cursor: 'grab',
                   opacity: dim ? 0.2 : 1, transition: 'opacity 200ms, box-shadow 150ms', ...drag.style,

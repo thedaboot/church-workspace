@@ -416,6 +416,9 @@
 .dg-edges g { transition: opacity .2s; }
 .dg-edges path { transition: stroke-width .2s; }
 .dg-edge-new { stroke-dasharray: 1; animation: dc-draw .6s var(--ease-out-quint) both; }
+/* 알약의 누를 자리(G21 · PITFALLS 80-b) — 폰(.dg-hit)만 위아래 7px · 좌우 3px 넓힌다. 줄 사이 틈이 12px이라 이웃 자리와 2px만 겹친다. */
+.dg-pill::before { content: ''; position: absolute; inset: -1px; border-radius: 999px; }
+.dg-hit .dg-pill::before { inset: -7px -3px; }
 @media (prefers-reduced-motion: reduce) {
   .dg-edges g, .dg-edges path { transition: none !important; }
   .dg-edge-new { animation: none !important; stroke-dasharray: none; }
