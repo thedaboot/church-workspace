@@ -82,9 +82,30 @@ await sleep(1300);
   await sleep(800);
   check('M1: 업무 창이 줄에서 자랄 때 뒤 화면이 비치는 순간이 없다(창은 0 아니면 1 · 숨은 동안 유령은 불투명 · 창 등장 꺼짐)',
     Array.isArray(sweep.bad) && sweep.bad.length === 0 && sweep.both > 0 && sweep.winAnim === 'none', JSON.stringify(sweep));
-  await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
-  await sleep(700);
-  if (await isOpen()) { await ev(`[...document.querySelectorAll('[data-task-window] button')].find(b => b.textContent.trim() === '닫기')?.click()`); await sleep(700); }
+  // 닫을 때도 같다(사용자 지적 2026-10-28 — 뒤판의 걷힘이 창까지 흐려 대시보드가 비쳤고, 폰은 줄어드는 유령 둘레에 창이 남았다).
+  // 누르고 같은 일 안에서(창을 걷는 타이머 전에) 시간을 옮긴다: 유령이 덮기 전에는 창·뒤판이 불투명하고, 덮은 뒤에는 창이 숨는다.
+  // **되돌리기**: morph.js의 창·뒤판 붙들기(win.animate · scrim?.animate)를 지우면 깨진다.
+  await send('Animation.setPlaybackRate', { playbackRate: 0 });
+  const back = await ev(`(() => {
+    const win = document.querySelector('[data-task-window]');
+    [...win.querySelectorAll('button')].find(b => b.textContent.trim() === '닫기').click();
+    const gh = document.querySelector('[data-morph-ghost]'), sc = win.parentElement;
+    if (!gh) return { gh: false };
+    const anims = [...win.getAnimations(), ...gh.getAnimations(), ...sc.getAnimations()];
+    const bad = []; let hidden = 0;
+    for (let t = 0; t <= 300; t += 6) {
+      anims.forEach(a => { a.currentTime = t; });
+      const wo = +getComputedStyle(win).opacity, go = +getComputedStyle(gh).opacity, so = +getComputedStyle(sc).opacity;
+      if (go < 0.99 && t < 200 && (wo < 0.99 || so < 0.99)) bad.push(t + ':w' + wo.toFixed(2) + ' s' + so.toFixed(2) + ' g' + go.toFixed(2));
+      if (wo > 0.01 && go > 0.99 && gh.getBoundingClientRect().width < win.getBoundingClientRect().width * 0.95) bad.push(t + ':창이 남음');
+      if (wo < 0.01) hidden++;
+    }
+    return { bad: bad.slice(0, 6), hidden };
+  })()`);
+  await send('Animation.setPlaybackRate', { playbackRate: 1 });
+  await sleep(900);
+  check('M1: 업무 창이 줄로 돌아갈 때도 뒤 화면이 비치거나 창이 남는 순간이 없다(덮기 전 창·뒤판 불투명 · 덮은 뒤 창 숨김)',
+    Array.isArray(back.bad) && back.bad.length === 0 && back.hidden > 0 && !(await isOpen()), JSON.stringify(back));
 }
 
 // 1) 바깥(딤) 클릭 → 닫힘
