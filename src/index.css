@@ -408,6 +408,19 @@
   .dc-draw-ring { animation: none !important; }
 }
 
+/* ── 프로젝트 그래프 뷰의 선(UI 다듬기 2차 G · PITFALLS 80-a) ── depgraph.jsx
+   아직 안 끝난 선행의 회색 선은 다크에서 한 단 밝게(muted) · 진하게(.8) — 다크 바탕 위 faint .5는 거의 안 보였다(G24). 라이트는 그대로.
+   새로 생긴 선만 .6s에 그려진다(G19 · 같은 pathLength=1 방식의 dc-draw). */
+.dg-edges { --dg-edge: var(--app-ink-faint); --dg-edge-op: .5; }
+:root[data-theme='dark'] .dg-edges { --dg-edge: var(--app-ink-muted); --dg-edge-op: .8; }
+.dg-edges g { transition: opacity .2s; }
+.dg-edges path { transition: stroke-width .2s; }
+.dg-edge-new { stroke-dasharray: 1; animation: dc-draw .6s var(--ease-out-quint) both; }
+@media (prefers-reduced-motion: reduce) {
+  .dg-edges g, .dg-edges path { transition: none !important; }
+  .dg-edge-new { animation: none !important; stroke-dasharray: none; }
+}
+
 /* ── 작은 완료의 손맛 (사용자 결정 2026-09-25 · 목업 mockup-grace 4) ─────────────
    **두 자리만** — 업무 창의 하위 업무 체크와 마감 목록(대시보드·내 업무·팀 보드 공용 DueGroupList)의 완료 원.
    **방금 누른 것에만** 클래스를 붙인다(실시간으로 남이 끝낸 줄·다시 연 화면에는 안 붙는다 — 부르는 쪽이

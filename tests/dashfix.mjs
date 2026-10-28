@@ -724,6 +724,80 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
     JSON.stringify({ b800, end: b800end?.fade }));
 }
 
+// ── 그래프 뷰 다듬기(UI 다듬기 2차 G · 2026-10-28 · PITFALLS 80) ──
+// 시안의 수련회 프로젝트 하나(업무 10 · 선 7 · 참가 신청 받기 11/5 → 조 편성 11/3이 일정 충돌)로 잰다.
+{
+  const G = [
+    { id: 'a', title: '수련회 장소 답사', status: '완료', dueDate: '2026-10-18' },
+    { id: 'b', title: '찬양 콘티 정리', status: '진행 중', dueDate: '2026-10-30' },
+    { id: 'e', title: '수련회 포스터', status: '완료', dueDate: '2026-10-24', dependsOn: ['a'] },
+    { id: 'c', title: '숙소 예약', status: '진행 중', dueDate: '2026-10-29', dependsOn: ['a'] },
+    { id: 'd', title: '버스 대절', status: '시작 전', dueDate: '2026-11-01', dependsOn: ['a'] },
+    { id: 'f', title: '주보 PPT 만들기', status: '시작 전', dueDate: '2026-11-01', dependsOn: ['b'] },
+    { id: 'g', title: '참가 신청 받기', status: '진행 중', dueDate: '2026-11-05', dependsOn: ['c', 'e'],
+      subtasks: [{ title: '1', done: true }, { title: '2', done: true }, { title: '3' }, { title: '4' }, { title: '5' }] },
+    { id: 'h', title: '조 편성', status: '시작 전', dueDate: '2026-11-03', dependsOn: ['g'] },
+    { id: 'i', title: '새가족 환영 카드', status: '시작 전', dueDate: '2026-11-02' },
+    { id: 'j', title: '10월 순모임 가이드', status: '완료', dueDate: '2026-10-12' },
+  ];
+  const byId = {}, allIds = [];
+  G.forEach((t, n) => { byId[t.id] = { projectId: 'p1', content: '', assignees: ['노준석'], teams: ['찬양팀'], startDate: '', position: n, author: '노준석',
+    createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', comments: [], attachments: [], activityLog: [], dependsOn: [], subtasks: [], ...t }; allIds.push(t.id); });
+  const camp = { currentUser: { name: '노준석', team: '찬양팀', teams: ['찬양팀'] },
+    members: [{ id: 'u1', name: '노준석', avatarUrl: '', team: '찬양팀', teams: ['찬양팀'], birthday: '', lastSeenAt: '', joinedAt: '2026-01-01T00:00:00Z' }],
+    projects: { byId: { p1: { id: 'p1', title: '수련회', pinnedLinks: [], year: 2026, createdAt: '2026-01-01T00:00:00Z' } }, allIds: ['p1'] }, tasks: { byId, allIds } };
+  const openCamp = async (w, theme = 'light') => {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: w < 768 ? 860 : 1000, deviceScaleFactor: 1, mobile: w < 1024 });
+    await send('Emulation.setTouchEmulationEnabled', { enabled: w < 768, maxTouchPoints: w < 768 ? 5 : 1 });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(camp))}); localStorage.setItem('theme','${theme}')`);
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
+    await ev(`[...document.querySelectorAll('main button')].find(b => b.textContent.trim() === '그래프')?.click()`);
+    await sleep(2200);
+  };
+  const hexRgb = (h) => `rgb(${parseInt(h.slice(1, 3), 16)}, ${parseInt(h.slice(3, 5), 16)}, ${parseInt(h.slice(5, 7), 16)})`;
+  const pill = (title) => `[...document.querySelectorAll('[data-graph-root] button')].find(b => b.textContent.trim() === '${title}')`;
+
+  // G1·G2 — 선은 알약 가장자리에서 나가 가장자리 앞 화살촉으로 들어가는 S곡선(C) · 끝 점(circle) 없음
+  // **되돌리기**: edgeGeom을 중심끼리의 Q 곡선으로 되돌리면(끝점 = 알약 중심) 깨진다.
+  await openCamp(1280);
+  const geo = await ev(`(() => {
+    const g = document.querySelector('[data-edge="a>e"]'); if (!g) return null;
+    const [line, head] = g.querySelectorAll('path');
+    const box = document.querySelector('[data-graph-root] .relative').getBoundingClientRect();
+    const A = ${pill('수련회 장소 답사')}.getBoundingClientRect(), B = ${pill('수련회 포스터')}.getBoundingClientRect();
+    const n = line.getAttribute('d').match(/-?[\\d.]+/g).map(Number);
+    const sx = n[0] + box.left, ex = n[n.length - 2] + box.left;
+    return { cubic: /C/.test(line.getAttribute('d')), head: !!head && /Z$/.test(head.getAttribute('d')),
+      out: Math.round((sx - A.right) * 10) / 10, gap: Math.round((B.left - ex) * 10) / 10,
+      circles: document.querySelectorAll('.dg-edges circle').length, cap: line.getAttribute('stroke-linecap') };
+  })()`);
+  check('그래프 G1·G2: 선이 알약 가장자리에서 나가(1px) 화살촉 뒤에서 멈추는(1.5 + 4px) S곡선 · 끝 점 없음',
+    !!geo && geo.cubic && geo.head && Math.abs(geo.out - 1) <= 1 && Math.abs(geo.gap - 5.5) <= 1 && geo.circles === 0 && geo.cap === 'round', JSON.stringify(geo));
+  // G6 — 선행 마감이 후행보다 늦은 안 끝난 선 하나만 빨강(참가 신청 받기 11/5 → 조 편성 11/3)
+  // **되돌리기**: late 조건을 false로 두면 빨간 선이 0개라 깨진다.
+  const late = await ev(`(() => { const L = [...document.querySelectorAll('[data-edge][data-late]')];
+    return { keys: L.map(g => g.dataset.edge), stroke: L[0]?.querySelector('path').getAttribute('stroke'), op: L[0] && getComputedStyle(L[0]).opacity }; })()`);
+  check('그래프 G6: 일정이 어긋난 선만 빨강(.9)', late.keys.join() === 'g>h' && late.stroke === 'var(--app-tag-red-fg)' && late.op === '0.9', JSON.stringify(late));
+  // G19 — 선행을 정해 새로 생긴 선만 .6s에 그려진다(이미 있던 선은 그대로)
+  // **되돌리기**: freshEdges를 늘 빈 Set으로 두면 깨진다.
+  await ev(`window.__store.dispatch({ type: 'UPSERT_TASK', payload: { ...window.__store.getState().tasks.byId.h, dependsOn: ['g', 'd'] } })`);
+  await sleep(120);
+  const fresh = await ev(`(() => { const N = [...document.querySelectorAll('.dg-edges path.dg-edge-new')];
+    return { keys: N.map(p => p.parentElement.dataset.edge), anim: N[0] && getComputedStyle(N[0]).animationName, dur: N[0] && getComputedStyle(N[0]).animationDuration }; })()`);
+  check('그래프 G19: 새로 생긴 선(버스 대절 → 조 편성)만 그려진다(dc-draw .6s)', fresh.keys.join() === 'd>h' && fresh.anim === 'dc-draw' && fresh.dur === '0.6s', JSON.stringify(fresh));
+  // G24 — 다크에서 안 끝난 선은 muted · .8(라이트는 faint · .5 그대로)
+  // **되돌리기**: index.css의 다크 .dg-edges 줄을 지우면 깨진다.
+  const edgeOf = `(() => { const g = document.querySelector('[data-edge="b>f"]'); const s = getComputedStyle(g.querySelector('path'));
+    return { op: getComputedStyle(g).opacity, stroke: s.stroke, muted: getComputedStyle(document.documentElement).getPropertyValue('--app-ink-muted').trim(),
+      faint: getComputedStyle(document.documentElement).getPropertyValue('--app-ink-faint').trim() }; })()`;
+  const lightEdge = await ev(edgeOf);
+  await openCamp(1280, 'dark');
+  const darkEdge = await ev(edgeOf);
+  check('그래프 G24: 안 끝난 선 — 라이트 faint .5 · 다크 muted .8',
+    lightEdge.op === '0.5' && lightEdge.stroke === hexRgb(lightEdge.faint) && darkEdge.op === '0.8' && darkEdge.stroke === hexRgb(darkEdge.muted), JSON.stringify({ lightEdge, darkEdge }));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

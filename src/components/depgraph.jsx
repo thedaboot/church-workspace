@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CONFIG, teamPaint } from '../config.js';
 import { depGraphLayout } from '../utils.js';
 import { useForceGraph, hoverProps, textPx, appFont } from '../hooks/useForceGraph.js';
@@ -21,6 +21,36 @@ import { STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 const DG = { H_DESK: 440, H_MOBILE: 360, PH: 28 };
 // 알약에서 글자 밖 폭 — pl 6 · 레일 3 · 틈 6 · 점 8 · 틈 6 · pr 10 · 테두리 2 · 반올림 여유 2
 const PILL_CHROME = 43;
+
+// ── 선 모양(UI 다듬기 2차 G1·G2 · 시안 값 그대로 · PITFALLS 80-a) ──
+// 흐름 방향 S곡선: 두 알약이 옆으로 떨어져 있으면(틈 10px 넘게) 가로로 나가 가로로 들어가고, 아니면 세로로.
+// 끝점은 알약 **가장자리**(나가는 쪽 1px · 들어가는 쪽 1.5px 밖)이고, 들어가는 끝에 작은 화살촉(길이 5 · 반폭 3)을 단다 —
+// 선은 화살촉 뒤 4px에서 멈춘다. 예전에는 알약 중심끼리 이은 위로 휜 2차 곡선 + 끝 점(r 2.6)이라 선이 알약 밑으로 깔리고 방향이 안 보였다.
+const r1 = (n) => Math.round(n * 10) / 10;
+function edgeGeom(A, B, PH) {
+  const horiz = Math.abs(B.x - A.x) - (A.w + B.w) / 2 > 10;
+  let x1, y1, x2, y2, dir;
+  if (horiz) {
+    const sx = Math.sign(B.x - A.x) || 1;
+    x1 = A.x + sx * (A.w / 2 + 1); x2 = B.x - sx * (B.w / 2 + 1.5); y1 = A.y; y2 = B.y; dir = [sx, 0];
+  } else {
+    const sy = Math.sign(B.y - A.y) || 1;
+    y1 = A.y + sy * (PH / 2 + 1); y2 = B.y - sy * (PH / 2 + 1.5); x1 = A.x; x2 = B.x; dir = [0, sy];
+  }
+  const tip = [x2, y2];
+  x2 -= dir[0] * 4; y2 -= dir[1] * 4;
+  let d;
+  if (horiz) {
+    const k = Math.max(16, Math.abs(x2 - x1) * 0.5);
+    d = `M${r1(x1)} ${r1(y1)}C${r1(x1 + dir[0] * k)} ${r1(y1)} ${r1(x2 - dir[0] * k)} ${r1(y2)} ${r1(x2)} ${r1(y2)}`;
+  } else {
+    const k = Math.max(12, Math.abs(y2 - y1) * 0.5);
+    d = `M${r1(x1)} ${r1(y1)}C${r1(x1)} ${r1(y1 + dir[1] * k)} ${r1(x2)} ${r1(y2 - dir[1] * k)} ${r1(x2)} ${r1(y2)}`;
+  }
+  const s = 5, h = 3, bx = tip[0] - dir[0] * s, by = tip[1] - dir[1] * s;
+  const head = `M${r1(tip[0])} ${r1(tip[1])}L${r1(bx - dir[1] * h)} ${r1(by + dir[0] * h)}L${r1(bx + dir[1] * h)} ${r1(by - dir[0] * h)}Z`;
+  return { d, head };
+}
 
 // 업무가 하나도 없을 때 — 남는 공간의 **정가운데**에 표식과 함께 선다(사용자 요청
 // 2026-08-31 — "글자만 위에 덩그러니가 아니라 로티 느낌으로 가운데에"). 로티 파일을
@@ -77,9 +107,9 @@ export function DepGraph({ tasks, onTaskClick }) {
   const W = Math.floor(cw / 8) * 8;
   const offX = (cw - W) / 2;
 
-  const { nodes, edges, byId, H } = useMemo(() => {
+  const { nodes, edges, H } = useMemo(() => {
     const minH = compact ? DG.H_MOBILE : DG.H_DESK;
-    if (!W) return { nodes: [], edges: [], byId: new Map(), H: minH };
+    if (!W) return { nodes: [], edges: [], H: minH };
     // 알약 폭 = 글자 폭 + 레일·점·여백(PILL_CHROME). 글자는 168px까지 — 폰은 두 알약이 한 줄에
     // 나란히 들어갈 만큼까지만(최소 88px). 이 폭이 그대로 알약 width가 된다 —
     // 짠 자리와 그려진 크기가 어긋나 겹치는 일이 없다.
@@ -110,7 +140,7 @@ export function DepGraph({ tasks, onTaskClick }) {
       const a = at.get(d), b = at.get(t.id);
       edges.push([idx.get(d), idx.get(t.id), Math.max(24, Math.hypot(b.x - a.x, b.y - a.y))]);
     }));
-    return { nodes, edges, byId: new Map(list.map(t => [t.id, t])), H };
+    return { nodes, edges, H };
     // W가 들어온 이유: 자리를 폭에 맞춰 짠다
   }, [list, compact, W]);
 
@@ -134,6 +164,16 @@ export function DepGraph({ tasks, onTaskClick }) {
     edges.forEach(([a, b]) => { if (a === hi) set.add(b); if (b === hi) set.add(a); });
     return set;
   }, [hi, edges]);
+
+  // 방금 생긴 선(G19 · PITFALLS 80-a) — **이미 그려진 판에** 새로 생긴 선만 .6s에 그려진다.
+  // 처음 그릴 때·폭이 바뀌어 다시 짤 때는 없다(지난번 선 목록과 id로 견준다 — 인덱스는 목록이 바뀌면 딴 선을 가리킨다).
+  const seenRef = useRef(null);
+  const edgeKeys = useMemo(() => edges.map(([a, b]) => `${nodes[a].id}>${nodes[b].id}`), [nodes, edges]);
+  const freshEdges = useMemo(() => {
+    const prev = seenRef.current;
+    return new Set(prev ? edgeKeys.filter(k => !prev.has(k)) : []);
+  }, [edgeKeys]);
+  useEffect(() => { if (nodes.length) seenRef.current = new Set(edgeKeys); }, [edgeKeys, nodes.length]);
 
   if (!list.length) {
     return <GraphEmpty />;
@@ -163,23 +203,26 @@ export function DepGraph({ tasks, onTaskClick }) {
         <div ref={wrapRef} className="relative"
           style={{ height: H, transition: reduce ? 'none' : 'height .42s var(--ease-out-quint)' }}
           onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHiId(null); }}>
-          <svg className="absolute inset-0 pointer-events-none overflow-visible" width={cw} height={H} aria-hidden>
-            {edges.map(([a, b], i) => {
-              // 선행이 끝났으면 초록, 아직이면 회색 — "여기가 막혀 있다"가 색으로 보인다
-              const done = byId.get(nodes[a].id)?.status === '완료';
+          <svg className="dg-edges absolute inset-0 pointer-events-none overflow-visible" width={cw} height={H} aria-hidden>
+            {edges.map(([a, b]) => {
+              const pa = nodes[a].t, pb = nodes[b].t;
+              const key = `${pa.id}>${pb.id}`;
+              // 선행이 끝났으면 초록, 아직이면 회색 — "여기가 막혀 있다"가 색으로 보인다.
+              // 둘 다 안 끝났는데 선행 마감이 후행 마감보다 늦으면 빨강(G6 · 일정 충돌 — 마감이 둘 다 있을 때만)
+              const done = pa.status === '완료';
+              const late = !done && pb.status !== '완료' && !!pa.dueDate && !!pb.dueDate && String(pa.dueDate) > String(pb.dueDate);
               const on = hi != null && (a === hi || b === hi);
               const dim = hi != null && !on;
-              const color = done ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)';
+              const color = done ? 'var(--app-tag-green-fg)' : late ? 'var(--app-tag-red-fg)' : 'var(--dg-edge)';
+              const base = done ? 0.75 : late ? 0.9 : 'var(--dg-edge-op)';
+              const A = { x: offX + (pos[a]?.x || 0), y: pos[a]?.y || 0, w: nodes[a].w };
+              const B = { x: offX + (pos[b]?.x || 0), y: pos[b]?.y || 0, w: nodes[b].w };
+              const g = edgeGeom(A, B, DG.PH);
               return (
-                <g key={i} opacity={dim ? 0.12 : on ? 0.9 : done ? 0.75 : 0.5} style={{ transition: 'opacity 200ms' }}>
-                  {(() => {
-                    const x1 = offX + (pos[a]?.x || 0), y1 = pos[a]?.y || 0;
-                    const x2 = offX + (pos[b]?.x || 0), y2 = pos[b]?.y || 0;
-                    const bend = Math.min(26, Math.hypot(x2 - x1, y2 - y1) * 0.12);
-                    return <path d={`M ${x1} ${y1} Q ${(x1 + x2) / 2} ${(y1 + y2) / 2 - bend} ${x2} ${y2}`}
-                      fill="none" stroke={color} strokeWidth={on ? 1.8 : 1.3} />;
-                  })()}
-                  <circle cx={offX + (pos[b]?.x || 0)} cy={pos[b]?.y} r="2.6" fill={color} />
+                <g key={key} data-edge={key} data-late={late ? '' : undefined} style={{ opacity: dim ? 0.12 : on ? 0.9 : base }}>
+                  <path d={g.d} pathLength="1" className={freshEdges.has(key) ? 'dg-edge-new' : undefined}
+                    fill="none" stroke={color} strokeLinecap="round" style={{ strokeWidth: on ? 1.8 : 1.3 }} />
+                  <path d={g.head} fill={color} />
                 </g>
               );
             })}
