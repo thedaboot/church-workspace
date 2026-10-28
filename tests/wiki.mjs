@@ -407,7 +407,8 @@ try {
     check(`목차 번호 = 마디 머리(${t})`, r.ok, JSON.stringify(r).slice(0, 300));
   }
   // M15 읽은 만큼 차는 막대(UI 다듬기 2차 · 시안 값 · PITFALLS 75-f): 장 맨 위에 붙는 2px 바탕 빛 그라데이션 · 자리를 차지하지 않음 ·
-  // main을 굴리는 만큼 찬다(CSS 스크롤 타임라인). **되돌리기**: index.css .dc-read-bar의 animation-timeline 줄을 지우면 '굴린 만큼'이 깨진다.
+  // main을 굴리는 만큼 찬다(ReadBar가 스크롤을 읽어 scaleX — 폰 관성 스크롤을 멈출 때 확 줄던 CSS 타임라인 대신 · 2026-10-28).
+  // **되돌리기**: ReadBar의 scroll 듣기를 지우면 '굴린 만큼'이 깨진다.
   {
     await openPage('월례회', 'p:wol');
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 420, deviceScaleFactor: 1, mobile: false }); await sleep(400);
