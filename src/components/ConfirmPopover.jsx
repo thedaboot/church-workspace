@@ -154,34 +154,32 @@ const TONE = {
 // ── 꾹 눌러 확정(UI 다듬기 2차 M26 · 사용자 결정 2026-10-28 · PITFALLS 79-b) ─────────────────
 // 되돌릴 수 없는 두 곳(주보 삭제 · 계정 합치기)만 `hold`로 켠다 — 확인 판은 그대로 두고 확정 버튼만
 // 누르는 동안 안쪽 막대가 HOLD_MS에 걸쳐 차고, 다 차면 실행된다. 중간에 떼면 막대가 돌아간다.
-// 키보드는 Space·Enter를 누르고 있는 동안. 막대는 transform만(scaleX) — 진행 표시라 움직임 줄이기에도 차되,
-// 돌아가는 전이만 끈다.
+// 키보드는 Space·Enter를 누르고 있는 동안. 막대는 transform(scaleX)만 — **브라우저 애니메이션(WAAPI)으로 돌린다**:
+// 예전에는 rAF로 프레임마다 칠해서 화면이 바쁠 때(편집기·목록을 그리는 중) 막대가 중간중간 끊겼다(사용자 지적 2026-10-28).
+// 합성 단계에서 돌아 메인 스레드와 상관없이 매끈하고, 다 차는 순간은 애니메이션의 finish가 알린다.
+// 진행 표시라 움직임 줄이기에도 차되, 돌아가는 전이만 끈다.
 const HOLD_MS = 1200;
 function HoldButton({ label, className, onDone }) {
   const fillRef = useRef(null);
-  const st = useRef({ raf: 0, t0: 0, on: false });
-  const paint = (p, back) => {
-    const f = fillRef.current; if (!f) return;
-    const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    f.style.transition = back && !rm ? 'transform 220ms ease-out' : 'none';
-    f.style.transform = `scaleX(${p})`;
-  };
+  const st = useRef({ anim: null, on: false });
   const stop = () => {
     const s = st.current; if (!s.on) return;
-    s.on = false; cancelAnimationFrame(s.raf); paint(0, true);
+    s.on = false;
+    const f = fillRef.current, a = s.anim; if (!f || !a) return;
+    const p = Math.min(1, (a.currentTime || 0) / HOLD_MS);
+    a.cancel();
+    const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    s.anim = rm || p === 0 ? null : f.animate([{ transform: `scaleX(${p})` }, { transform: 'scaleX(0)' }], { duration: 220, easing: 'ease-out' });
   };
   const start = () => {
     const s = st.current; if (s.on) return;
-    s.on = true; s.t0 = performance.now();
-    const loop = (now) => {
-      if (!s.on) return;
-      const p = Math.min(1, (now - s.t0) / HOLD_MS); paint(p, false);
-      if (p >= 1) { s.on = false; onDone(); return; }
-      s.raf = requestAnimationFrame(loop);
-    };
-    s.raf = requestAnimationFrame(loop);
+    const f = fillRef.current; if (!f) return;
+    s.anim?.cancel();
+    s.on = true;
+    s.anim = f.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: HOLD_MS, easing: 'linear', fill: 'forwards' });
+    s.anim.onfinish = () => { if (s.on) { s.on = false; onDone(); } };
   };
-  useEffect(() => () => cancelAnimationFrame(st.current.raf), []);
+  useEffect(() => () => st.current.anim?.cancel(), []);
   return (
     <button type="button" data-hold-confirm=""
       onPointerDown={e => { if (e.button > 0) return; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 잡기 실패는 무시 */ } start(); }}

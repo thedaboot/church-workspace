@@ -1724,7 +1724,8 @@ check('주보 삭제 확인은 두 줄로 묻는다',
   askService.includes('이 주보를 삭제할까요?') ? '두 번째 줄 없음' : '첫 줄 없음');
 // M26 꾹 눌러 확정(사용자 결정 2026-10-28 · PITFALLS 79-b) — 확정 버튼은 누르고 있는 동안 막대가 차고, 일찍 떼면
 // 아무 일도 없이 막대가 돌아간다. 끝까지 누르면 지워지므로(뒤 검사가 이 주보를 쓴다) 반쯤에서 뗀다.
-// **되돌리기**: worshipDetail의 `hold`를 빼면 글이 '삭제'라서, HoldButton의 stop을 비우면 떼도 차 있어서 깨진다.
+// 막대는 브라우저 애니메이션(WAAPI)이다 — rAF로 칠하면 화면이 바쁠 때 끊겼다(사용자 지적 2026-10-28).
+// **되돌리기**: worshipDetail의 `hold`를 빼면 글이 '삭제'라서, HoldButton의 stop을 비우면 떼도 차 있어서, rAF 칠하기로 돌리면 waapi 0이라 깨진다.
 {
   const hb = await ev(`(() => { const b = document.querySelector('[data-hold-confirm]'); if (!b) return null;
     const r = b.getBoundingClientRect(); return { label: b.textContent.trim(), x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
@@ -1732,14 +1733,14 @@ check('주보 삭제 확인은 두 줄로 묻는다',
   if (hb) {
     await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: hb.x, y: hb.y, button: 'left', clickCount: 1 });
     await sleep(600);
-    mid = await ev(`new DOMMatrix(getComputedStyle(document.querySelector('[data-hold-confirm] > span')).transform).a`);
+    mid = await ev(`(() => { const f = document.querySelector('[data-hold-confirm] > span'); return { a: new DOMMatrix(getComputedStyle(f).transform).a, waapi: f.getAnimations().length }; })()`);
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: hb.x, y: hb.y, button: 'left', clickCount: 1 });
     await sleep(500);
     after = await ev(`(() => { const f = document.querySelector('[data-hold-confirm] > span');
       return { fill: f ? new DOMMatrix(getComputedStyle(f).transform).a : null, ask: document.body.innerText.includes('이 주보를 삭제할까요?') }; })()`);
   }
   check('M26: 주보 삭제 확정은 꾹 눌러야 한다 — 누르는 동안 차고, 일찍 떼면 그대로 돌아간다',
-    hb?.label === '꾹 눌러 삭제' && mid > 0.25 && mid < 0.9 && after?.fill === 0 && after?.ask === true,
+    hb?.label === '꾹 눌러 삭제' && mid?.a > 0.25 && mid?.a < 0.9 && mid?.waapi === 1 && after?.fill === 0 && after?.ask === true,
     JSON.stringify({ hb, mid, after }));
 }
 await ev(`(() => {
