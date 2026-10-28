@@ -1636,3 +1636,6 @@ transform으로 주면 먹지 않는다(`.dc-lift`가 translate를 쓰는 것과
 ④ 닫히면 `hidePopover()`로 퇴장 전이(opacity·transform + overlay·display allow-discrete · --dur-exit)를 걸고 EXIT_MS 뒤 걷는다(usePresence 그대로). 값은 `.dc-pop`과 같다(앵커 쪽 4px · .96/.97 · quint · 원점 --pop-origin) — 두 길이 같아 보인다. 시안 D9의 8px·.22s는 가운데 대화창 예시라 옮기지 않았다.
 ⑤ 맨 위 층이라 판은 z-index와 상관없이 업무 창·토스트보다 위다 — 알림 줄을 눌러 업무 창이 열리면 걷히는 180ms 동안 판이 창 위에 있다(시안 D9가 말한 '닫히는 동안에도 맨 위').
 검사 `handoff` D9(맨 위 층 · 등장 전이 · 자리·폭 · 판 안 M16·S7·M8 · Esc 퇴장 · 안/바깥/종 다시 누름 · `showPopover`를 지운 대체 길) · `navsmoke`(폰 좌우 16px · M19 종).
+**79-b.** **꾹 눌러 확정(`ConfirmPopover`의 `hold` · `HoldButton`)은 되돌릴 수 없는 두 곳만 — 주보 삭제·계정 합치기**(UI 다듬기 2차 M26 · 사용자 결정 2026-10-28 · 문구 '꾹 눌러 삭제'·'꾹 눌러 합치기').
+확인 판은 그대로 두고 확정 버튼만 바꿨다(판을 없애면 무엇이 사라지는지 말할 자리가 없어진다). 1.2초 · rAF로 scaleX만 · 떼기·취소·포인터 놓침·초점 잃음이 모두 멈춤이다(`setPointerCapture` — 손가락이 버튼 밖으로 미끄러져도 같은 버튼이 받는다).
+막대는 검정 25% — 다크의 옅은 빨강 바탕에서도 글자 4.84:1(현재색으로 칠하면 라이트가 4.59로 낮다). 폰 길게 누름의 문맥 메뉴·글자 선택은 `contextmenu` 막기·`select-none`·`-webkit-touch-callout:none`으로 끈다.

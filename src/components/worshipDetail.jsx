@@ -800,7 +800,7 @@ export function ServiceDetail({
               <SaveState state={saveState} savedLabel={isDraft ? '임시 저장되었어요' : '저장되었어요'} />
               <button type="button" onClick={saveNow} disabled={busy}
                 className={`worship-save shrink-0 hidden md:inline-flex ${BTN}`}>저장</button>
-              <ConfirmPopover className="shrink-0 hidden md:inline-flex" onConfirm={onDelete}
+              <ConfirmPopover className="shrink-0 hidden md:inline-flex" onConfirm={onDelete} hold confirmLabel="꾹 눌러 삭제"
                 message={<><span className="font-bold text-fg">이 주보를 삭제할까요?</span><br />모든 내용이 같이 사라지니 신중하게 선택해주세요</>}>
                 <button type="button" className="worship-head-delete px-2.5 py-1.5 rounded-md bg-surface text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
               </ConfirmPopover>
@@ -921,7 +921,7 @@ export function ServiceDetail({
           }}>
           <button type="button" onClick={saveNow} disabled={busy} className={`worship-save-mobile ${BTN}`}>저장</button>
           <span className="flex-1" />
-          <ConfirmPopover onConfirm={onDelete}
+          <ConfirmPopover onConfirm={onDelete} hold confirmLabel="꾹 눌러 삭제"
             message={<><span className="font-bold text-fg">이 주보를 삭제할까요?</span><br />모든 내용이 같이 사라지니 신중하게 선택해주세요</>}>
             <button type="button" className="px-2.5 py-1.5 rounded-md text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
           </ConfirmPopover>

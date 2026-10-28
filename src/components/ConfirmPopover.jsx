@@ -151,6 +151,51 @@ const TONE = {
   ok: 'bg-accent hover:opacity-90 text-white',
 };
 
+// ── 꾹 눌러 확정(UI 다듬기 2차 M26 · 사용자 결정 2026-10-28 · PITFALLS 79-b) ─────────────────
+// 되돌릴 수 없는 두 곳(주보 삭제 · 계정 합치기)만 `hold`로 켠다 — 확인 판은 그대로 두고 확정 버튼만
+// 누르는 동안 안쪽 막대가 HOLD_MS에 걸쳐 차고, 다 차면 실행된다. 중간에 떼면 막대가 돌아간다.
+// 키보드는 Space·Enter를 누르고 있는 동안. 막대는 transform만(scaleX) — 진행 표시라 움직임 줄이기에도 차되,
+// 돌아가는 전이만 끈다.
+const HOLD_MS = 1200;
+function HoldButton({ label, className, onDone }) {
+  const fillRef = useRef(null);
+  const st = useRef({ raf: 0, t0: 0, on: false });
+  const paint = (p, back) => {
+    const f = fillRef.current; if (!f) return;
+    const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    f.style.transition = back && !rm ? 'transform 220ms ease-out' : 'none';
+    f.style.transform = `scaleX(${p})`;
+  };
+  const stop = () => {
+    const s = st.current; if (!s.on) return;
+    s.on = false; cancelAnimationFrame(s.raf); paint(0, true);
+  };
+  const start = () => {
+    const s = st.current; if (s.on) return;
+    s.on = true; s.t0 = performance.now();
+    const loop = (now) => {
+      if (!s.on) return;
+      const p = Math.min(1, (now - s.t0) / HOLD_MS); paint(p, false);
+      if (p >= 1) { s.on = false; onDone(); return; }
+      s.raf = requestAnimationFrame(loop);
+    };
+    s.raf = requestAnimationFrame(loop);
+  };
+  useEffect(() => () => cancelAnimationFrame(st.current.raf), []);
+  return (
+    <button type="button" data-hold-confirm=""
+      onPointerDown={e => { if (e.button > 0) return; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 잡기 실패는 무시 */ } start(); }}
+      onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} onBlur={stop}
+      onKeyDown={e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); start(); } }}
+      onKeyUp={e => { if (e.key === ' ' || e.key === 'Enter') stop(); }}
+      onContextMenu={e => e.preventDefault()}
+      className={`relative overflow-hidden select-none touch-none [-webkit-touch-callout:none] ${className}`}>
+      <span ref={fillRef} aria-hidden="true" className="absolute inset-0 bg-black/25 origin-left" style={{ transform: 'scaleX(0)' }} />
+      <span className="relative">{label}</span>
+    </button>
+  );
+}
+
 // `altLabel`·`onAlt`를 주면 **길이 셋**이 된다(2026-09-22 — 업무 창의 '닫기'가 그렇다:
 // 저장하고 닫기 / 무시하고 닫기 / 돌아가기). 셋일 때는 가로로 늘어놓지 않고 **세로로
 // 쌓는다** — 폰에서 가로로 셋을 두면 글자가 줄어들어 어느 것이 무엇인지 안 읽힌다.
@@ -159,7 +204,7 @@ const TONE = {
 // 폰 가입자 줄의 '⋯'는 누르면 메뉴가 뜨고, 그 메뉴의 '환송해주기'가 이 확인을 **같은 '⋯' 자리에서** 연다.
 // 이때 트리거를 눌러도 여기서는 열지 않고(메뉴의 몫), 열리면 첫 버튼(취소)으로 초점을 옮긴다 — 키보드로 메뉴를
 // 고른 사람이 확인 판 안에서 이어 가게. 닫는 모든 길(취소·확정·바깥·Esc)은 onOpenChange(false)로 알린다.
-export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel = '취소', onConfirm, children, title, tone = 'danger', className = 'inline-flex', altLabel = '', onAlt = null, open: openProp, onOpenChange = null }) {
+export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel = '취소', onConfirm, children, title, tone = 'danger', className = 'inline-flex', altLabel = '', onAlt = null, open: openProp, onOpenChange = null, hold = false }) {
   const [openState, setOpenState] = useState(false);
   const controlled = openProp !== undefined;
   const open = controlled ? !!openProp : openState;
@@ -220,7 +265,9 @@ export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel =
       ) : (
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => setOpen(false)} className="text-xs px-2.5 py-1.5 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">{cancelLabel}</button>
-          <button type="button" onClick={() => { setOpen(false); onConfirm?.(); }} className={`text-xs px-2.5 py-1.5 rounded-md transition active:scale-95 font-semibold ${TONE[tone] || TONE.danger}`}>{confirmLabel}</button>
+          {hold
+            ? <HoldButton label={confirmLabel} onDone={() => { setOpen(false); onConfirm?.(); }} className={`text-xs px-2.5 py-1.5 rounded-md font-semibold ${TONE[tone] || TONE.danger}`} />
+            : <button type="button" onClick={() => { setOpen(false); onConfirm?.(); }} className={`text-xs px-2.5 py-1.5 rounded-md transition active:scale-95 font-semibold ${TONE[tone] || TONE.danger}`}>{confirmLabel}</button>}
         </div>
       )}
     </div>,

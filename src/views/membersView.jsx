@@ -684,7 +684,7 @@ export function MembersView({ isAdmin, isMaster, onNavigate }) {
                         을 <span className="font-bold text-fg">{row.display_name || '이 계정'}</span>으로 합칠까요?
                         <br />되돌릴 수 없어요.
                       </>}
-                      confirmLabel="합치기" onConfirm={() => mergeInto(row, m)}>
+                      hold confirmLabel="꾹 눌러 합치기" onConfirm={() => mergeInto(row, m)}>
                       <button type="button" disabled={!!busy[row.id]}
                         className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-surface-hover transition-colors text-left disabled:opacity-40">
                         <Avatar name={m.display_name} url={m.avatar_url} className="flex w-7 h-7 text-xs shrink-0" />
