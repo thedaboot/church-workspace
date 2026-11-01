@@ -1457,7 +1457,8 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.ok(!/export \{ SaveState \};/.test(det) && !/function SaveState\(/.test(det + note) && /export function SaveState\(/.test(rd('components/worshipParts.jsx')) && !/SaveState \} from '\.\.\/components\/worshipDetail\.jsx'/.test(rd('views/wordView.jsx')), '저장 상태 칩은 worshipParts 한 벌 · 상세는 재수출도 하지 않는다');
   // ② 노트 초안은 훅 한 벌(hooks/useNoteDraft.js) — 기다리는 동안 떠나면 그 자리에서 남긴다
   const hook = rd('hooks/useNoteDraft.js');
-  assert.ok(/useNoteDraft\(draftKey, body === base \? null : \{ body \}\);/.test(note) && !/pendingDraft/.test(note), '예배 노트가 초안 훅을 쓴다(지역 사본 없음)');
+  // 2026-10-27~28부터 비교 기준은 bodyOrTemplate(빈 노트는 틀 글) — 같은 뜻
+  assert.ok(/useNoteDraft\(draftKey, body === bodyOrTemplate\(note\?\.body, tpl\) \? null : \{ body \}\);/.test(note) && !/pendingDraft/.test(note), '예배 노트가 초안 훅을 쓴다(지역 사본 없음)');
   assert.ok(/if \(p && p\.key === key\) \{ writeCache\(p\.key, p\.value\); pending\.current = null; \}/.test(hook)
     && /setTimeout\(\(\) => \{ writeCache\(key, value\); pending\.current = null; \}, NOTE_DRAFT_DELAY\)/.test(hook), '훅이 늦은 쓰기와 떠날 때 쓰기를 둘 다 한다');
   // ③ 실패 처리 한 벌 — 콘솔 줄 모양은 그대로(`[worship] … 실패:`). 손으로 적은 실패 토스트는
@@ -1659,7 +1660,8 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     && /const live = roles\.some\(r => r\.year === TO_YEAR\) \? buildHandovers\(/.test(hvUi), '다음 해 직분이 없으면 인계 목록은 비어 있다(스토어 · 화면 두 곳)');
   // 폰에서 '사라질 직분' 칩과 '인계할 사람 선택'이 한 칸에 안 들어가 줄마다 다르게 꺾였다(사용자 지적 2026-10-21) —
   // 고르기는 직분 칩 줄의 오른쪽(폰) · 끝 열 고정 폭(데스크톱 · 고르기가 없는 '새로 맡음' 줄도 열이 같게)
-  assert.ok(/data-pair-pick="" className="row-start-1 col-start-3 md:col-start-5 justify-self-end"/.test(hvUi)
+  // (UI 다듬기 1차 2026-10-26부터 데스크톱은 끝 열을 채운다 — md:justify-self-stretch)
+  assert.ok(/data-pair-pick="" className="row-start-1 col-start-3 md:col-start-5 justify-self-end( md:justify-self-stretch)?"/.test(hvUi)
     && (hvUi.match(/_minmax\(0,1fr\)_7\.5rem\]/g) || []).length >= 3, '인수인계 직분 짝: 고르기는 칩 줄 오른쪽 · 끝 열 고정 폭(머리·줄·스켈레톤)');
   assert.ok(/export function profileAvatar\(id\)[\s\S]{0,200}merged_into/.test(readSrc('src/services/cloudSync.js')), 'profileAvatar는 합친 계정이면 남긴 계정 사진');
   for (const w of ['>유지<', '>인수자<', 'placeholder="인수자 선택"', '인계할 업무<', '인계받은 업무 ', '워크스페이스는 그대로 사용할 수 있어요',
@@ -1842,4 +1844,14 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.strictEqual(summary.avg, 30, '화면 숫자판도 같은 값');
   assert.ok(!/['"`]\$\{[^}]*\}줄/.test(readSrc('src/components/opsDesk.jsx')), "연말 보고 화면에 'N줄' 표현이 없다(사용자 지적 2026-10-21)");
   console.log('PASS  연말 정산(zip 왕복 · 정렬 · 보고서 양식 칸·사진 · 연말 보고 표 다섯 장 · 새신자 = newcomer_at(0119) · 단위)');
+}
+
+// 홈 오늘의 예배 카드의 찬양 인도자 — 호칭 붙은 이름을 캐시에 두고 다시 들어올 때 그 값으로 바로 그린다(사용자 지적 2026-11-01 ·
+// 홈에 들어올 때마다 '조준환' → '조준환 형제'로 바뀌어 보였다 · 게스트는 명단이 없어 화면으로는 못 본다)
+// 되돌리기: useState 첫 값을 ''이나 leaderRaw로 되돌리거나 writeCache 줄을 빼면 깨진다.
+{
+  const hv = readSrc('src/views/homeView.jsx');
+  assert.ok(hv.includes('const [leaderLabel, setLeaderLabel] = useState(() => cachedLeader(leaderRaw));')
+    && hv.includes('writeCache(leaderKey, { raw: leaderRaw, label });') && hv.includes("const leaderKey = `home:leader:${year}`;"), '찬양 인도자 호칭은 캐시에서 바로 그린다');
+  console.log('PASS  홈 찬양 인도자 호칭 — 다시 들어올 때 깜빡이지 않는다(캐시에서 바로)');
 }

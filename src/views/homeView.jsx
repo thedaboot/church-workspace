@@ -18,7 +18,7 @@ import { isCloudEnabled } from '../services/supabaseClient.js';
 import { fetchActivityBetween } from '../services/moments.js';
 import { guestActivityRows } from '../services/tabRank.js';
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotesByService, attendanceSunday } from '../services/groups.js';
-import { useCached, pruneCache, readCache } from '../services/cache.js';
+import { useCached, pruneCache, readCache, writeCache } from '../services/cache.js';
 import { fetchPeople, fetchRoles, honorificsOf } from '../services/people.js';
 import { realNameOf } from '../services/serviceView.js';
 import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
@@ -828,17 +828,24 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   const sunday = sundayMode(svcQ.data ? todayService : todayOf(svcHint), nowK);
   // 오늘의 예배 카드의 찬양 인도자 — 주일 모드일 때만 명단을 읽는다(평소 카드에는 싣지 않는다 · 2026-10-02 사용자 결정으로 다시 뺐다)
   const leaderRaw = sunday ? String(todayService?.praise_leader || '').trim() : '';
-  const [leaderLabel, setLeaderLabel] = useState('');
+  // 호칭 붙은 이름(형제·자매·전도사님)은 캐시에 두고 다시 들어올 때 그 값으로 바로 그린다 — 예전에는 홈에 들어올 때마다
+  // 빈 칸 → 적힌 이름 → 호칭 붙은 이름으로 한 번씩 바뀌어 보였다(사용자 지적 2026-11-01). 명단은 뒤에서 다시 읽어 바뀌었을 때만 고친다.
+  const leaderKey = `home:leader:${year}`;
+  const cachedLeader = (raw) => { const c = readCache(leaderKey); return c?.raw === raw ? c.label : raw; };
+  const [leaderLabel, setLeaderLabel] = useState(() => cachedLeader(leaderRaw));
   useEffect(() => {
     let off = false;
-    setLeaderLabel(leaderRaw);
+    setLeaderLabel(cachedLeader(leaderRaw));
     if (!leaderRaw) return undefined;
     Promise.all([fetchPeople(), fetchRoles(year)]).then(([people, roles]) => {
       if (off) return;
       const r = realNameOf(people)(leaderRaw);
-      setLeaderLabel(honorificsOf(people, roles)(r.found ? r.name : leaderRaw));
+      const label = honorificsOf(people, roles)(r.found ? r.name : leaderRaw);
+      writeCache(leaderKey, { raw: leaderRaw, label });
+      setLeaderLabel(label);
     }).catch(() => {});
     return () => { off = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leaderRaw, year]);
   // 못 읽음 = 에러가 났고 **보여 줄 지난 값도 없다**(캐시가 있으면 그 값을 둔 채 조용히 넘어간다 — 홈은 토스트가 없다)
   const failedOf = (q) => !!q.error && q.data === undefined;
