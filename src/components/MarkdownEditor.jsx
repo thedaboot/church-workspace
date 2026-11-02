@@ -17,6 +17,9 @@ import { isMobileViewport, keepVisible, imeComposing } from '../utils.js';
 import { downscaleImage, BODY_MAX_DIM } from '../services/image.js';
 import { Extension } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { createRoot } from 'react-dom/client';
+import { LineCards } from './RichText.jsx';
 import { Slice, Fragment } from '@tiptap/pm/model';
 import { BTN } from './buttons.js';
 
@@ -150,6 +153,54 @@ const LockedHeadings = Extension.create({
         for (const pos of at.reverse()) tr.insert(pos, state.schema.nodes.paragraph.create());
         return tr;
       },
+    })];
+  },
+});
+
+// 수정 화면에도 보기 화면과 같은 줄 아래 카드(업무 · 유튜브 · 링크 — RichText LineCards)를 세운다(사용자 요청 2026-11-02).
+// 주소가 든 글줄마다 그 블록 **뒤**에 위젯 하나 — 글 안이 아니라서 커서·저장(docToMd)에 끼지 않는다.
+// 줄 글자는 저장 모양처럼 링크를 `[글](주소)`로 적는다 — 보기가 받는 줄과 같아야 같은 카드가 선다.
+const lineMd = (node) => {
+  let s = '';
+  node.forEach((c) => {
+    if (!c.isText) return;
+    const link = c.marks.find(m => m.type.name === 'link');
+    s += link ? `[${c.text}](${link.attrs.href})` : c.text;
+  });
+  return s.trim();
+};
+const cardWidget = (text) => () => {
+  const dom = document.createElement('div');
+  dom.className = 'editor-line-cards';
+  dom.contentEditable = 'false';
+  const root = createRoot(dom);
+  // 편집기는 MarkdownEditor가 그리는 도중에 서므로 그 자리에서 다른 뿌리를 그리면 React가 막는다 — 한 박자 뒤에
+  queueMicrotask(() => root.render(<LineCards text={text} />));
+  dom.cardRoot = root;
+  return dom;
+};
+const LineCardWidgets = Extension.create({
+  name: 'lineCardWidgets',
+  addProseMirrorPlugins() {
+    const build = (doc) => {
+      const out = [];
+      doc.descendants((node, pos) => {
+        if (!node.isTextblock) return true;
+        const text = lineMd(node);
+        if (/https?:\/\//.test(text)) {
+          out.push(Decoration.widget(pos + node.nodeSize, cardWidget(text), {
+            key: `cards:${text}`, side: 1, ignoreSelection: true, stopEvent: () => true,
+            // 그리는 도중 unmount하면 React가 경고한다 — 한 박자 뒤에
+            destroy: (dom) => { const r = dom.cardRoot; if (r) setTimeout(() => r.unmount()); },
+          }));
+        }
+        return false;
+      });
+      return DecorationSet.create(doc, out);
+    };
+    return [new Plugin({
+      state: { init: (_c, state) => build(state.doc), apply: (tr, old) => (tr.docChanged ? build(tr.doc) : old) },
+      props: { decorations(state) { return this.getState(state); } },
     })];
   },
 });
@@ -297,7 +348,7 @@ function useStickyTop(ref) {
 // 서식 바는 틀 **밖·위**에 그대로 남는다 — sticky로 따라 내려오는 것이 그 자리다.
 export function MarkdownEditor({
   value, onChange, members = [], cloudMode = false, placeholder, className = '',
-  lockedHeadings = [], tools = 'all', frame = null, collab = null,
+  lockedHeadings = [], tools = 'all', frame = null, collab = null, cards = false,
 }) {
   const lastEmitted = useRef(value ?? '');
   // 문서를 통째로 교체하는 중인가 — 그때는 중제목 고정을 통과시킨다(LockedHeadings 머리말)
@@ -402,6 +453,8 @@ export function MarkdownEditor({
       BlockBreaks,
       // 문서를 통째로 교체하는 중에는 통과시킨다(위 머리말의 함정)
       LockedHeadings.configure({ titles: lockedHeadings, bypass: () => replacingRef.current }),
+      // 업무 본문만(보기가 ytCards로 카드를 그리는 자리) — 위 LineCardWidgets
+      ...(cards ? [LineCardWidgets] : []),
     ],
     // 같이 쓰기면 문서는 Yjs가 채운다 — 여기서 또 넣으면 두 벌이 된다
     content: collab ? undefined : mdToDoc(value),

@@ -1135,7 +1135,7 @@ function TaskLive({ task, commit, register, hold, onSession, co, coPending, memb
     // 같이 쓰기 — value는 보지 않는다(원본은 Yjs 문서 · MarkdownEditor collab 머리말)
     editor = (
       <Suspense fallback={<EditorSkeleton />}>
-        <MarkdownEditor key="coedit" collab={co.collab} value="" onChange={NOOP}
+        <MarkdownEditor key="coedit" collab={co.collab} value="" onChange={NOOP} cards
           members={members} cloudMode={cloudMode} placeholder={placeholder} className={editorClass} />
       </Suspense>
     );
@@ -1145,7 +1145,7 @@ function TaskLive({ task, commit, register, hold, onSession, co, coPending, memb
     editor = (
       <Suspense fallback={<EditorSkeleton />}>
         {/* **편집기는 그 도막을 감춘 글만 본다**(2026-09-22) — 도막은 아래 부품이 소유한다 */}
-        <MarkdownEditor key="plain" value={stripActionSection(body)}
+        <MarkdownEditor key="plain" cards value={stripActionSection(body)}
           onChange={(val) => setBodyNow(writeActionSection(val, parseActionItems(b.current.md)))}
           members={members} cloudMode={cloudMode} placeholder={placeholder} className={editorClass} />
       </Suspense>

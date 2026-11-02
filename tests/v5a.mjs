@@ -53,7 +53,9 @@ const st = { currentUser: { name: '노준석', team: '임원진' },
     w3: T('w3', '닫힌 잠긴 일', { position: 2, author: '조해리', locked: true, lockedOpen: false, content: '', lockPw: { view_pw: 'x', view_pw_salt: 'y' } }),
     w4: T('w4', '연 잠긴 일', { position: 3, author: '조해리', locked: true, lockedOpen: true, content: '연 사람만 보는 본문', subtasks: [{ id: 'ws', title: '비밀 단계', done: false }], lockPw: { view_pw: 'x', view_pw_salt: 'y' } }),
     x1: T('x1', '초청 문자', { projectId: 'p2', position: 0 }),
-  }, allIds: ['w1', 'w2', 'w3', 'w4', 'x1'] } };
+    x2: T('x2', '수정 카드', { projectId: 'p2', position: 1, content: `- 관련 내용: [개요](${U('w2')})
+- ==@노준석 회장님이 구매==` }),
+  }, allIds: ['w1', 'w2', 'w3', 'w4', 'x1', 'x2'] } };
 
 await send('Page.enable'); await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -82,6 +84,22 @@ const cp = await ev(`(() => { const out = [];
   if (u) { const r3 = document.createRange(); r3.selectNodeContents(u); sel.removeAllRanges(); sel.addRange(r3); copy(); }
   sel.removeAllRanges(); return out; })()`);
 check('멘션·중립 칩을 골라 복사하면 주소가 나온다', cp[0] === U('w2') && cp[1] === U('zz9'), JSON.stringify(cp));
+
+// ── 형광펜 안 멘션 · 수정 화면 줄 아래 카드(사용자 요청 2026-11-02) ─────────────────────────────
+await go('/?p=p2&t=x2');
+const hl = await ev(`(() => { const m = document.querySelector('.fixed.z-50 [data-view-body] mark.app-hl .app-mention'); return m ? getComputedStyle(m).backgroundColor : null; })()`);
+check('형광펜 안의 @멘션은 칩 바탕을 걷어 형광펜이 이어진다', hl === 'rgba(0, 0, 0, 0)', hl);
+const editBtn = await ev(`!!${byText('.fixed.z-50 button', '수정')}`);
+await ev(`${byText('.fixed.z-50 button', '수정')}?.click()`);
+for (let i = 0; i < 40 && !(await ev(`!!document.querySelector('.fixed.z-50 .tiptap .editor-line-cards [data-task-card]')`)); i++) await sleep(200);
+const ec = await ev(`(() => { const t = document.querySelector('.fixed.z-50 .tiptap'); if (!t) return null;
+  const c = t.querySelector('.editor-line-cards [data-task-card="w2"]');
+  return { card: !!c, under: !!c && getComputedStyle(c).textDecorationLine, li: !!c?.closest('li') }; })()`);
+check('수정 화면에도 업무 링크 카드가 그 줄 아래에 선다(본문 링크 밑줄 규칙은 받지 않는다)', !!ec?.card && ec.under === 'none' && ec.li, JSON.stringify({ ec, editBtn }));
+const kept = (await saved()).tasks?.byId?.x2?.content || '';
+check('카드는 저장 글에 끼지 않는다', kept === `- 관련 내용: [개요](${U('w2')})
+- ==@노준석 회장님이 구매==`, JSON.stringify(kept));
+await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(500);
 
 // ── 휴지통: 업무 지우기 → 더보기 맨 아래 입구 → 복원 ─────────────────────────────────
 await go('/?p=p1&t=w2');
@@ -114,7 +132,7 @@ await go('/?p=p1');
 await ev(`${byText('button', '더보기')}?.click()`); await sleep(500);
 await ev(`document.querySelector('[data-trash-entry]')?.click()`); await sleep(600);
 const prow = await ev(`document.querySelector('[data-trash-dialog] [data-trash-row="project"]')?.textContent || ''`);
-check('휴지통 창에 프로젝트 줄(업무 N건)', prow.includes('2026 새신자 초청') && prow.includes('업무 1건'), prow);
+check('휴지통 창에 프로젝트 줄(업무 N건)', prow.includes('2026 새신자 초청') && prow.includes('업무 2건'), prow);
 await ev(`${byText('[data-trash-dialog] button', '복원')}?.click()`); await sleep(700);
 const pb = await saved();
 check('프로젝트를 복원하면 안의 업무도 돌아온다', !!pb.projects?.byId?.p2 && pb.tasks?.byId?.x1?.projectId === 'p2');

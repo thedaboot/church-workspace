@@ -790,8 +790,11 @@ svg.lucide { stroke-width: 1.4px; }
 .tiptap mark, mark.app-hl { background: linear-gradient(transparent 54%, var(--app-hl-yellow) 54%, var(--app-hl-yellow) 94%, transparent 94%); color: inherit; border-radius: 2px; padding: 0 .125rem; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 /* 링크 줄바꿈은 넘칠 때만(anywhere) — break-all은 한글 라벨까지 글자마다 끊었다(RichText의 LINK_CLS와 같다).
    종이(paper.jsx)는 그림으로 굽는 길이라 break-all을 그대로 둔다. */
-.tiptap a { color: var(--app-accent-text); text-decoration: underline; overflow-wrap: anywhere; }
-.tiptap img { max-width: 100%; max-height: 16rem; object-fit: contain; border: 1px solid var(--app-line); border-radius: .75rem; margin: .5rem 0; }
+/* 형광펜 안의 @멘션은 칩 바탕을 걷어 형광펜이 이어진다(사용자 요청 2026-11-02) */
+mark.app-hl .app-mention { background: transparent; }
+/* 수정 화면의 줄 아래 카드(MarkdownEditor cards)는 본문 링크·그림 규칙을 받지 않는다 — 보기 화면 카드 모양 그대로 */
+.tiptap a:not(.editor-line-cards *) { color: var(--app-accent-text); text-decoration: underline; overflow-wrap: anywhere; }
+.tiptap img:not(.editor-line-cards *) { max-width: 100%; max-height: 16rem; object-fit: contain; border: 1px solid var(--app-line); border-radius: .75rem; margin: .5rem 0; }
 .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--app-accent); }
 /* Placeholder (빈 첫 문단에만) */
 .tiptap p.is-editor-empty:first-child::before {

@@ -408,6 +408,9 @@ const LinkCards = ({ text }) => {
   return file ? <FileLinkCard url={url} file={file} /> : <LinkCard url={url} />;
 };
 
+// 한 줄 아래에 서는 카드 묶음(업무 · 유튜브 · 링크) — 보기(ytCards)와 수정 화면(MarkdownEditor cards)이 같은 것을 쓴다
+export const LineCards = ({ text }) => <><TaskLinkCards text={text} /><YtCards text={text} /><LinkCards text={text} /></>;
+
 // 마크 → 태그·클래스 (에디터 .tiptap 스타일과 같은 톤)
 const MARK_TAG = { bold: 'strong', italic: 'em', underline: 'u', strike: 's', highlight: 'mark' };
 const MARK_CLS = {
@@ -427,7 +430,7 @@ const renderPlain = (text, key) => text.split(PLAIN_RE).filter(Boolean).map((p, 
     if (!name) return <React.Fragment key={k}>{p}</React.Fragment>;
     return (
       <React.Fragment key={k}>
-        <span className="text-accent-text font-semibold bg-accent-weak px-1 rounded-xs mx-0.5">@{name}</span>
+        <span className="app-mention text-accent-text font-semibold bg-accent-weak px-1 rounded-xs mx-0.5">@{name}</span>
         {tail}
       </React.Fragment>
     );
@@ -535,7 +538,7 @@ function ContentImage({ src }) {
 export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false, ytCards = false }) => {
   const blocks = useMemo(() => parseBlocks(content), [content]);
   const ln = (k) => (lineAttrs ? { 'data-line': k } : null);
-  const yt = (value) => (ytCards ? <><TaskLinkCards text={value} /><YtCards text={value} /><LinkCards text={value} /></> : null);
+  const yt = (value) => (ytCards ? <LineCards text={value} /> : null);
   // 링크 카드가 그 줄을 대신하면(주소만 있는 줄 · 목업 ⑦ '그 자리에 카드') 주소 글자는 다시 쓰지 않는다 — 폰에서 긴 주소가 두 줄로 카드 위에 겹쳐 섰다
   const inl = (value, key) => (ytCards && linkCardTakesLine(value) ? null : renderInline(value, key));
   return (
