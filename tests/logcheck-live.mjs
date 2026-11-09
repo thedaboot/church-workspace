@@ -845,7 +845,8 @@ import { loadSource, readSplit } from './_load.mjs';
   const mobSrc = readFileSync(new URL('../src/components/mobileNav.jsx', import.meta.url), 'utf8');
   assert.ok(/\.subscribe\(\(status\) => onStatus\?\.\(status\)\);/.test(cloudSrc), '업무 채널 subscribe가 상태를 넘긴다');
   assert.ok(/\}, reconnectWatcher\(onReconnect\)\);/.test(syncSrc), 'subscribeWorkspace가 재접속 판정을 붙인다');
-  assert.ok(/onReconnect: \(\) => refetchAll\(\),/.test(appSrc) && /function refetchAll\(\) \{\s*clearTimeout\(timer\);[\s\S]{0,200}reloadCloud\(\)/.test(appSrc),
+  assert.ok(/onReconnect: \(\) => refetchAll\(\),/.test(appSrc) && /function refetchAll\(\) \{ reload\.schedule\(/.test(appSrc)
+    && /createReloadGate\(\(\) => reloadCloud\(\)/.test(appSrc),
     'App이 재접속에 재조회(업무 창이 열려 있어도 — 2026-09-28)');
   // 기기가 다시 연결되면(online) 같은 길로 한 번(2026-10-15 · PITFALLS 55-c) — 되돌리기: online 줄을 지우면 깨진다
   assert.ok(/window\.addEventListener\('online', refetchAll\);/.test(appSrc) && /window\.removeEventListener\('online', refetchAll\)/.test(appSrc), 'online도 재접속과 같은 재조회');
@@ -881,7 +882,8 @@ import { loadSource, readSplit } from './_load.mjs';
     'const cloud = { subscribeAll: (fn) => { globalThis.__route = fn; } };',
     'const reconnectWatcher = () => () => {};',
     'const profileListeners = new Set(); const profileRows = new Map();',
-    'const seenOnlyChange = () => false; const isoTime = (v) => v; const activityFeedToApp = (r) => r;',
+    'const seenOnlyChange = () => false; const personalOnlyChange = () => false; const myRowIds = new Set(); const sameSeen = () => true;',
+    'const isoTime = (v) => v; const activityFeedToApp = (r) => r;',
     fn,
   ].join('\n') });
   const seen = [];
@@ -1112,4 +1114,87 @@ import { loadSource, readSplit } from './_load.mjs';
     "직분을 '찬양팀장'으로 변경했어요", "직분을 '총무'로 변경했어요", "직분을 '비전 메이커'로 변경했어요"], '⑭ 관리 기록 글');
   assert.deepStrictEqual(['서울', '팀장', '모두', 'abc'].map(O.roParticle), ['로', '으로', '로', '로'], '⑭ 으로/로(ㄹ 받침은 로)');
   console.log('PASS  알림 종류별 설정 · 앱 내 오류 묶기(count) · 다붓이 답변 속도 · 관리 기록 글(v5 2묶음 · 0113)');
+}
+
+
+// ── 2026-11-08 주일 모임 장애 보완 (2026-11-09) ─────────────────────────────────────
+// 원인: profiles의 배열 칸(tab_order · notif_off)을 `===`로 견줘 심장박동이 전부 '다른 칸도 바뀜'이 됐다 → 접속자 전원이
+// 심장박동마다 워크스페이스 전체를 다시 읽어 DB 연결 풀이 바닥났다(PGRST003 · 504 약 2,760건 · 16:14~17:15 KST).
+// 되돌리기 검사(실제로 해 봤다): sameValue의 객체 비교 줄을 빼면 ①이, reloadGate의 `lastAt + gapMs`를 빼면 ③이,
+// cloudSync의 personalOnlyChange 갈래를 빼면 ②가, presence sendMeta의 대기 줄을 빼면 ④가 깨진다.
+{
+  const { seenOnlyChange, personalOnlyChange } = await loadSource('src/utils.js');
+  const row = { id: 'u1', display_name: '노준석', tab_order: ['p1', 'p2'], notif_off: ['task.mention'],
+    updated_at: '2026-11-08T07:00:00.000+00:00', last_seen_at: '2026-11-08T07:00:00.000+00:00' };
+  // 실시간 payload의 배열은 늘 새 객체다 — 같은 내용의 다른 배열로 온다
+  const beat = { ...row, tab_order: [...row.tab_order], notif_off: [...row.notif_off], last_seen_at: '2026-11-08 07:05:00+00', updated_at: '2026-11-08 07:05:00+00' };
+  assert.strictEqual(seenOnlyChange(row, beat), true, '① 배열 칸이 있어도 다녀간 시각만 바뀌면 심장박동');
+  assert.strictEqual(seenOnlyChange(row, { ...beat, tab_order: ['p2', 'p1'] }), false, '① 탭 차례가 실제로 바뀌면 심장박동이 아니다');
+  assert.strictEqual(personalOnlyChange(row, { ...row, tab_order: ['p2', 'p1'], updated_at: beat.updated_at }), true, '② 탭 차례만 바뀜 = 그 사람만 쓰는 칸');
+  assert.strictEqual(personalOnlyChange(row, { ...row, notif_off: [], updated_at: beat.updated_at }), true, '② 끈 알림만');
+  assert.strictEqual(personalOnlyChange(row, { ...row, tab_order: ['p2'], display_name: '노준석1' }), false, '② 이름이 같이 바뀌면 아니다');
+  assert.strictEqual(personalOnlyChange(row, { ...row, updated_at: beat.updated_at }), false, '② updated_at만이면 아니다(얹을 것이 없다)');
+  assert.strictEqual(personalOnlyChange(row, { ...row, phone: '010' }), false, '② 모르는 칸이 생기면 아니다(느린 쪽으로 실패)');
+
+  // ② 라우팅 — 남의 행의 개인 칸은 재조회 안 함 · 내 행은 재조회(다른 기기에서 바꾼 내 탭 차례)
+  const syncSrc = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  const fn = /^export function subscribeWorkspace\([\s\S]*?\n\}/m.exec(syncSrc)?.[0];
+  const utilsUrl = (await import('node:url')).pathToFileURL(join(import.meta.dirname, '..', 'src', 'utils.js')).href;
+  const { subscribeWorkspace } = await loadSource('src/services/cloudSync.js', { as: 'route-profiles.mjs', src: [
+    `import { seenOnlyChange, personalOnlyChange, isoTime } from '${utilsUrl}';`,
+    'const cloud = { subscribeAll: (fn) => { globalThis.__routeP = fn; } };',
+    'const reconnectWatcher = () => () => {};',
+    'const profileListeners = new Set(); const profileRows = globalThis.__rows = new Map();',
+    "const myRowIds = new Set(['me']); const sameSeen = (a, b) => isoTime(a?.last_seen_at) === isoTime(b?.last_seen_at);",
+    'const activityFeedToApp = (r) => r;',
+    fn,
+  ].join('\n') });
+  const seen = [];
+  subscribeWorkspace({ onCard() {}, onCardDelete() {}, onCardDetail() {}, onActivityFeed() {},
+    onMemberSeen: (p) => seen.push(`seen:${p.id}`), onFullReload: () => seen.push('full'), onReconnect() {} });
+  const up = (prev, next) => { seen.length = 0; globalThis.__rows.set(prev.id, prev); globalThis.__routeP({ table: 'profiles', eventType: 'UPDATE', new: next, old: {} }); return [...seen]; };
+  assert.deepStrictEqual(up(row, beat), ['seen:u1'], '② 심장박동은 그 사람 한 칸(배열 칸이 있어도)');
+  assert.deepStrictEqual(up(row, { ...row, tab_order: ['p2', 'p1'] }), [], '② 남이 탭 차례만 바꾸면 아무것도 안 읽는다');
+  const mine = { ...row, id: 'me' };
+  assert.deepStrictEqual(up(mine, { ...mine, tab_order: ['p2', 'p1'] }), ['full'], '② 내 행이면 재조회(다른 기기에서 바꾼 차례가 따라온다)');
+  assert.deepStrictEqual(up(row, { ...row, display_name: '새 이름' }), ['full'], '② 이름이 바뀌면 그대로 재조회');
+
+  // ③ 재조회 문 — 겹치지 않고 간격 안의 요청은 미뤄 한 번으로
+  const { createReloadGate } = await loadSource('src/services/reloadGate.js');
+  let t = 0; const timers = [];
+  const clock = { now: () => t, setTimer: (f, ms) => { const h = { f, at: t + ms }; timers.push(h); return h; }, clearTimer: (h) => { const i = timers.indexOf(h); if (i >= 0) timers.splice(i, 1); } };
+  const advance = async (ms) => { const end = t + ms; for (;;) { timers.sort((a, b) => a.at - b.at); const h = timers[0]; if (!h || h.at > end) break; timers.shift(); t = h.at; h.f(); await new Promise(r => setImmediate(r)); } t = end; await new Promise(r => setImmediate(r)); };
+  let runs = 0; const gate = createReloadGate(async () => { runs++; }, { gapMs: 10000, ...clock });
+  gate.schedule(300); await advance(400);
+  assert.strictEqual(runs, 1, '③ 첫 요청은 300ms 뒤 바로');
+  for (let i = 0; i < 30; i++) { gate.schedule(300); await advance(200); }   // 6초 동안 30번 — 예전이면 300ms마다 한 번씩 읽었다
+  assert.strictEqual(runs, 1, '③ 간격(10초) 안에서는 더 읽지 않는다');
+  await advance(5000);
+  assert.strictEqual(runs, 2, '③ 간격이 차면 미뤄 둔 요청이 한 번 — 마지막 변경은 반영된다');
+  await advance(60000);
+  assert.strictEqual(runs, 2, '③ 새 요청이 없으면 더 읽지 않는다');
+  gate.schedule(5000); gate.schedule(300); await advance(400);
+  assert.strictEqual(runs, 3, '③ 더 이른 요청이 늦은 타이머를 당긴다');
+  gate.schedule(300); gate.cancel(); await advance(20000);
+  assert.strictEqual(runs, 3, '③ 떼면 남은 타이머가 안 돈다');
+  let slow = 0, release = null;
+  const gate2 = createReloadGate(() => { slow++; return new Promise(r => { release = r; }); }, { gapMs: 0, ...clock });
+  gate2.schedule(0);
+  await advance(0);                       // 첫 재조회가 돌기 시작한다(끝나지 않은 채)
+  gate2.schedule(0); gate2.schedule(0);
+  await advance(1);
+  assert.strictEqual(slow, 1, '③ 도는 중에는 겹쳐 시작하지 않는다');
+  release(); await advance(1); await advance(1);
+  assert.strictEqual(slow, 2, '③ 도는 중에 온 요청은 끝난 뒤 한 번으로 묶인다');
+  release(); await advance(1);
+
+  const appSrc = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/onFullReload: \(\) => reload\.schedule\(300\)/.test(appSrc) && /reload\.schedule\(300 \+ Math\.random\(\) \* RECONNECT_JITTER_MS\)/.test(appSrc)
+    && /return \(\) => \{ reload\.cancel\(\);/.test(appSrc), '③ App — 실시간 재조회와 재접속(0~5초 흩음)이 한 문을 지난다 · 떼면 닫는다');
+
+  // ④ presence track은 1초에 한 번까지 — 모든 track이 sendMeta 하나를 지난다
+  const prSrc = readFileSync(new URL('../src/services/presence.js', import.meta.url), 'utf8');
+  assert.strictEqual((prSrc.match(/\.track\(/g) || []).length, 1, '④ track을 부르는 자리는 sendMeta 하나');
+  assert.ok(/const wait = lastTrackAt \+ TRACK_GAP_MS - Date\.now\(\);/.test(prSrc) && /if \(!trackTimer\) trackTimer = setTimeout/.test(prSrc), '④ 1초 안의 두 번째는 끝에 한 번');
+  console.log('PASS  2026-11-08 장애 보완(배열 칸 심장박동 · 남의 개인 칸은 재조회 안 함 · 재조회 문 10초 · 재접속 흩음 · presence 1초)');
 }

@@ -410,6 +410,13 @@
 21-b. **업무 채널이 끊겼다 다시 붙으면 그 사이 변경은 오지 않는다**(2026-09-25) — `subscribeAll`이 상태를 받아 `realtimeStatus.reconnectWatcher`가 '끊겼다 → SUBSCRIBED'일 때만
     `onReconnect`를 부르고 App이 `reloadCloud`(편집 중이면 미룸)를 한다. **처음 SUBSCRIBED에서 부르지 마세요** — 첫 로드 직후 워크스페이스를 한 번 더 읽는다. v2 채널(`liveV2.js`)도 같은 규칙이다.
     탭 줄 앞 칸 숫자(`tabFront.js`)는 이 길을 **타지 않는다** — 열 때·보일 때만 잰다(보는 동안 탭이 튀지 않게).
+21-c. **전체 재조회로 떨어지는 갈래는 접속자 수만큼 곱해진다**(2026-11-08 주일 모임 장애) — profiles에 배열 칸(`tab_order`·`notif_off`)이
+    생긴 뒤 `seenOnlyChange`가 `===`로 견줘 심장박동이 전부 전체 재조회가 됐고, 20명 안팎이 한 사람 심장박동마다 쿼리 16개씩 읽어
+    Supabase 연결 풀이 바닥났다(PGRST003 · 504 약 2,760건 · Realtime도 DB 시간 초과). **profiles에 칸을 더하면 `utils/peopleSeen`의 두 판정
+    (`seenOnlyChange` · 남의 개인 칸 `personalOnlyChange`)을 같이 보세요.** 그 사람 화면만 읽는 칸이면 `PERSONAL_ONLY`에 넣는다.
+    전체 재조회는 `services/reloadGate.js` 문을 지난다(겹치지 않음 · 10초에 한 번까지 · 재접속은 0~5초 흩음). presence `track`은 `sendMeta` 하나로(1초에 한 번).
+    장애를 다시 볼 때: Supabase 로그는 `/v1/projects/{ref}/analytics/endpoints/logs`(옛 `logs.all`은 없어졌다 · 표는 `logs` 하나 · `source`로 가른다 ·
+    하루까지만 남는다), Vercel Hobby는 함수 로그 30분 · 요청 로그 12시간만 남는다.
 
 22. **스토어 히스토리는 최근 20개까지** — `LOAD_STATE`는 기록을 초기화하고 `SYNC_TASK`는 기록하지 않는다. `SYNC_TASK`는 카드 1건을 **병합**한다(`UPSERT_TASK`로 바꾸면 댓글·활동·첨부가 날아간다).
 23. **`store.canUndo()`를 렌더 중에 그냥 부르면 갱신되지 않는다** — `useCanUndo()`/`useCanRedo()`로 구독한다.

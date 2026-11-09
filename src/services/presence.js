@@ -154,6 +154,22 @@ function nudgeConnection() {
   }, WAKE_GRACE_MS);
 }
 
+// **track은 1초에 한 번까지**(2026-11-09 장애 보완) — 2026-11-08 주일 모임에서 Realtime이 presence 속도 제한
+// (ClientPresenceRateLimitReached)을 다섯 번 냈다. 첫 번은 바로 보내고, 1초 안에 또 바뀌면 끝에 한 번 — 마지막 meta가 나간다.
+const TRACK_GAP_MS = 1000;
+let lastTrackAt = 0;
+let trackTimer = null;
+function sendMeta() {
+  if (!joined || !channel || document.hidden) return;
+  const wait = lastTrackAt + TRACK_GAP_MS - Date.now();
+  if (wait > 0) {
+    if (!trackTimer) trackTimer = setTimeout(() => { trackTimer = null; sendMeta(); }, wait);
+    return;
+  }
+  lastTrackAt = Date.now();
+  channel.track(meta);
+}
+
 // 게스트 모드에서는 클라이언트가 없어 아무 일도 하지 않는다(집합은 계속 비어 있다).
 export function subscribePresence() {
   const c = supabase;
@@ -167,7 +183,7 @@ export function subscribePresence() {
     if (document.hidden) { if (joined && channel) channel.untrack(); return; }
     hushLeaves();
     meta = { ...meta, at: Date.now(), seq: (Number(meta.seq) || 0) + 1 };
-    if (joined && channel) channel.track(meta);
+    sendMeta();
     nudgeConnection();
   };
   document.addEventListener('visibilitychange', onVisible);
@@ -199,7 +215,7 @@ export function subscribePresence() {
       // 붙기 전에 정해진 자리도 여기서 한 번에 나간다. `at`을 같이 실어야
       // viewersOf가 "이 사람의 지금 자리"를 고를 수 있다(기기·탭이 여럿일 때).
       // **여기서 at을 새로 찍지 않는다** — 위 meta 주석의 그 버그다.
-      ch.track(meta);
+      sendMeta();
     });
   })();
   return () => {
@@ -211,6 +227,7 @@ export function subscribePresence() {
     // 사라진다.** 자리는 화면이 소유하고 이 함수는 연결만 소유한다.
     document.removeEventListener('visibilitychange', onVisible);
     clearTimeout(wakeTimer);
+    clearTimeout(trackTimer); trackTimer = null;
     if (channel) { c.removeChannel(channel); channel = null; }
     setPresence([], null);
   };
@@ -227,7 +244,7 @@ export function trackWhere(next) {
   const m = nextWhereMeta(meta, next);
   if (!m) return;                      // 같은 자리다 — 아무것도 안 보낸다
   meta = m;
-  if (joined && channel && !document.hidden) channel.track(meta);
+  sendMeta();
 }
 
 // 업무 창이 수정 화면인가(2026-09-30 · 사용자 요청 — 보드 카드 얼굴도 업무 창 안처럼 '수정 중'을 가른다).
@@ -237,5 +254,5 @@ export function trackEditing(on) {
   const v = !!on;
   if (!!meta.editing === v) return;
   meta = { ...meta, editing: v };
-  if (joined && channel && !document.hidden) channel.track(meta);
+  sendMeta();
 }

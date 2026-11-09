@@ -179,17 +179,32 @@ export const isoTime = (raw) => {
 // **볼 키를 열거하지 않는다**: 열거하면 나중에 컬럼이 늘 때 그 변경을 놓친다(§6-21-a의
 // '알 수 없음'과 같은 길이다). 모르는 키가 하나라도 다르면 false이고, 그러면 부르는 쪽이
 // 전체 재조회로 떨어진다 — 틀리는 쪽이 아니라 느린 쪽으로 실패한다.
+// **배열·객체 칸은 내용으로 견준다**(2026-11-09 장애) — `tab_order`·`notif_off`(text[] · 0108·0113)가 생긴 뒤
+// `===`는 같은 배열도 늘 다르다고 해서 심장박동이 전부 전체 재조회로 떨어졌다. 주일 모임(접속 20명 안팎)에
+// 심장박동 하나가 접속자 전원의 재조회(쿼리 16개씩)가 되어 DB 연결 풀이 바닥났다(2026-11-08 16:14~17:15 KST · §6-21-c).
+const sameValue = (a, b) => {
+  if ((a ?? '') === (b ?? '')) return true;
+  if (a && b && typeof a === 'object' && typeof b === 'object') return JSON.stringify(a) === JSON.stringify(b);
+  // 같은 시각이 다른 글자 모양으로 올 수 있다(위 isoTime) — 시각으로 한 번 더 본다
+  const ta = Date.parse(a), tb = Date.parse(b);
+  return !Number.isNaN(ta) && ta === tb;
+};
+// 두 행에서 값이 달라진 칸 이름들
+const changedKeys = (prev, next) => [...new Set([...Object.keys(prev), ...Object.keys(next)])].filter(k => !sameValue(prev[k], next[k]));
 const SEEN_ONLY_IGNORE = new Set(['last_seen_at', 'updated_at']);
 export function seenOnlyChange(prev, next) {
   if (!prev || !next) return false;
   if (!next.last_seen_at || String(next.last_seen_at) === String(prev.last_seen_at)) return false;
-  for (const k of new Set([...Object.keys(prev), ...Object.keys(next)])) {
-    if (SEEN_ONLY_IGNORE.has(k)) continue;
-    const a = prev[k], b = next[k];
-    if ((a ?? '') === (b ?? '')) continue;
-    // 같은 시각이 다른 글자 모양으로 올 수 있다(위 isoTime) — 시각으로 한 번 더 본다
-    const ta = Date.parse(a), tb = Date.parse(b);
-    if (Number.isNaN(ta) || ta !== tb) return false;
-  }
-  return true;
+  return changedKeys(prev, next).every(k => SEEN_ONLY_IGNORE.has(k));
+}
+
+// **남의 행에서 그 사람만 쓰는 칸만 바뀌었나** — 탭 차례(tab_order)·끈 알림(notif_off)은 본인 화면만 읽는다
+// (cloudSync가 내 행에서만 primeTabOrder·primeNotifOff). 남이 그 칸을 바꿨다고 내 화면이 워크스페이스를
+// 다시 읽을 까닭이 없다. 내 행이면 부르는 쪽이 이 판정을 쓰지 않는다(다른 기기에서 바꾼 내 탭 차례는 따라와야 한다).
+// 열거한 칸 밖의 키가 하나라도 다르면 false — 위와 같이 느린 쪽으로 실패한다.
+const PERSONAL_ONLY = new Set(['last_seen_at', 'updated_at', 'tab_order', 'notif_off']);
+export function personalOnlyChange(prev, next) {
+  if (!prev || !next) return false;
+  const keys = changedKeys(prev, next);
+  return keys.some(k => k !== 'updated_at') && keys.every(k => PERSONAL_ONLY.has(k));
 }

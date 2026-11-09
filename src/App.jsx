@@ -114,6 +114,10 @@ import { setCacheScope } from './services/cache.js';
 // 폴백은 화면 공용 뼈대 한 장(ScreenWait)이다 — 예전에는 null이라 처음 여는 탭이 조각을 받는 0.3초쯤 텅 비었다(사용자 지적 2026-10-21 ·
 // 배포 빌드 실측: 첫 방문마다 300ms 빈 칸 · 두 번째부터 0). 각 화면의 스켈레톤은 '캐시가 없는 첫 진입'이라는 뜻이라 빌려 오지 않는다 —
 // 이 뼈대는 조각을 기다리는 동안만 서고, .12s 안에 오면 투명한 채로 지나간다(index.css .dc-screen-wait).
+// 실시간이 부르는 전체 재조회의 최소 간격 · 다시 붙을 때 흩는 폭(services/reloadGate.js · 2026-11-09 장애 보완)
+const RELOAD_GAP_MS = 10000;
+const RECONNECT_JITTER_MS = 5000;
+
 const ScreenWait = () => (
   <div className="dc-screen-wait space-y-3" aria-hidden="true" data-screen-wait="">
     <div className="dc-skeleton border border-line rounded-md h-9 w-56" />
@@ -142,6 +146,7 @@ import { setEntryQuery, isAppLink } from './services/entryQuery.js';
 import * as cloudSync from './services/cloudSync.js';
 import { setTrashReload, refreshTrash } from './services/trash.js';
 import { createIdBatcher } from './services/realtimeBatch.js';
+import { createReloadGate } from './services/reloadGate.js';
 import { pendingCardFields } from './services/optimistic.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
 import { refreshTabFront } from './services/tabFront.js';
@@ -415,7 +420,8 @@ function WorkspaceShell() {
 
   useEffect(() => {
     if (!cloudMode) return;
-    let timer = null;
+    // **전체 재조회는 겹치지 않고 RELOAD_GAP_MS에 한 번까지**(services/reloadGate.js · 2026-11-09 장애 보완)
+    const reload = createReloadGate(() => reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)), { gapMs: RELOAD_GAP_MS });
     let feedTimer = null;
     // 카드 이벤트는 **200ms 모아 id마다 한 번** 읽는다(2026-09-24). 저장 한 번이 cards UPDATE를
     // 여러 건 만들어(내 저장의 에코 포함) 같은 카드를 서너 번 읽었고, 늦게 온 옛 응답이 새 값을
@@ -444,10 +450,7 @@ function WorkspaceShell() {
       // 전체 재조회로 흘리면 접속자 전원이 5분마다 워크스페이스를 통째로 다시 읽는다.
       // 편집 중에도 막지 않는다: 폼을 건드리지 않는 갱신이다(활동 피드와 같은 판단).
       onMemberSeen: (patch) => store.dispatch({ type: 'SYNC_MEMBER_SEEN', payload: patch }),
-      onFullReload: () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)); }, 300);
-      },
+      onFullReload: () => reload.schedule(300),
       // **끊겼다가 다시 붙으면 전체를 한 번 읽는다**(2026-09-25) — 폰이 잠든 사이의 카드·활동 변경은
       // 이벤트로 오지 않는다. reloadCloud가 카드·프로젝트·활동 피드를 다 읽고 열린 창의 상세도 채운다.
       // 처음 붙을 때는 오지 않는다(realtimeStatus.js).
@@ -456,12 +459,10 @@ function WorkspaceShell() {
     // **기기가 다시 연결되면(online) 같은 길로 한 번 읽는다**(2026-10-15) — 실시간 소켓은 다시 붙기까지 몇 초~몇십 초가
     // 걸리고, 그 사이에 화면은 끊기기 전 값이다. 둘이 300ms 안에 겹치면 타이머 하나로 묶인다. 더 늦게 붙은 소켓의
     // onReconnect는 건너뛰지 않는다 — 그 사이(읽은 뒤 ~ 소켓이 붙기 전)의 변경은 이벤트로 오지 않는다.
-    function refetchAll() {
-      clearTimeout(timer);
-      timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재접속 뒤 재조회 실패:', e)); }, 300);
-    }
+    // 다시 붙는 것은 모두가 거의 같은 순간이다(서버가 흔들렸다 돌아올 때) — 0~5초 흩어서 한꺼번에 몰리지 않게
+    function refetchAll() { reload.schedule(300 + Math.random() * RECONNECT_JITTER_MS); }
     window.addEventListener('online', refetchAll);
-    return () => { clearTimeout(timer); clearTimeout(feedTimer); cards.cancel(); unsub(); window.removeEventListener('online', refetchAll); };
+    return () => { reload.cancel(); clearTimeout(feedTimer); cards.cancel(); unsub(); window.removeEventListener('online', refetchAll); };
   }, [cloudMode, reloadCloud, syncCard, syncCardDetail]);
 
   // 첫 로드가 끊긴 연결로 실패했으면(오류 화면 '다시 시도') 연결이 돌아오는 순간 그 버튼을 대신 누른다 — 문구는 그대로다.

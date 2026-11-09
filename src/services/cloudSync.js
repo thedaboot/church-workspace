@@ -10,7 +10,7 @@ import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly, visibilityOf, visibleRecip
 import { withSecret } from './cardLock.js';
 import { itemsFromRows } from './trashItems.js';
 import {
-  normalize, httpsImage, extractMentions, isoTime, seenOnlyChange,
+  normalize, httpsImage, extractMentions, isoTime, seenOnlyChange, personalOnlyChange,
   dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS, subtasksForDb, mergeSubtasks,
 } from '../utils.js';
 
@@ -33,6 +33,9 @@ let memberNames = [];
 // 바뀐 것(심장박동)'인지 가리는 데만 쓴다 — 그 판정에는 **직전 행**이 필요하고,
 // payload.old에는 id밖에 없다(replica identity가 PK뿐 · §6-21). 화면은 이 표를 안 본다.
 let profileRows = new Map();
+// 내 행 id(로그인한 행 · 합쳤으면 남긴 행) — 남의 행만 personalOnlyChange로 거른다(subscribeWorkspace)
+let myRowIds = new Set();
+const sameSeen = (a, b) => isoTime(a?.last_seen_at) === isoTime(b?.last_seen_at);
 // 리더만 보는 프로젝트(0092 · services/visibility.js). 알림 받는 사람·멘션 후보를 거르는 데 쓴다 —
 // 화면에서 프로젝트를 감추는 일은 DB(RLS)가 한다(리더가 아니면 그 행이 아예 안 온다).
 //   leaderIds      리더 계정 id(남긴 계정) — 못 읽으면 빈 Set이고, 그러면 리더 프로젝트 알림은 **아무에게도** 안 간다
@@ -568,6 +571,7 @@ export async function loadCloudState() {
   // 로그인했나"이고 승인 판정·자가 복구가 그것을 본다.
   // 함정: 이 화면으로 '내 정보'를 고치면 글은 **자기(합쳐진) 행**에 써져 안 보인다(§6-34-g).
   const shownProfile = (myProfile?.merged_into && profiles.find(p => p.id === myProfile.merged_into)) || myProfile;
+  myRowIds = new Set([myProfile?.id, shownProfile?.id].filter(Boolean));
   // 내 탭 차례(0108 · 남긴 계정 행) — 칸이 없으면 브라우저 값 그대로
   primeTabOrder(shownProfile?.tab_order);
   // 끈 알림(0113 · 남긴 계정 행) — 칸이 없으면 브라우저 값 그대로
@@ -1132,6 +1136,12 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActiv
       if (prev && seenOnlyChange(prev, row)) {
         profileRows.set(row.id, row);
         onMemberSeen({ id: row.id, lastSeenAt: isoTime(row.last_seen_at) });
+        return;
+      }
+      // 남이 자기 탭 차례·끈 알림만 바꿨다(그 사람 화면만 읽는 칸) — 재조회하지 않는다(2026-11-09 장애 보완)
+      if (prev && !myRowIds.has(row.id) && personalOnlyChange(prev, row)) {
+        profileRows.set(row.id, row);
+        if (!sameSeen(prev, row)) onMemberSeen({ id: row.id, lastSeenAt: isoTime(row.last_seen_at) });
         return;
       }
     }

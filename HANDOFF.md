@@ -50,6 +50,12 @@
   PC마다 따로 맞출 것(git 밖 · §1-10): `.env` · psql 경로 · `.claude/settings.local.json`의 `Bash(psql:*)` ·
   **pstack 스킬**(2026-10-23 전체 감사에 썼다 · 이 PC에만 설치됨 — 그 PC에서 다시 쓰려면 `npx skills add backnotprop/pstack -g -y -a claude-code`) ·
   그 PC 다운로드 폴더에 검사 파일(`*.ics`·`순모임 가이드*.png`)이 쌓여 있으면 목록을 보여 주고 지운다(2026-10-22 사용자 요청 · 새로 쌓이지는 않는다).
+- **[2026-11-09 · main 반영 · 마이그레이션 없음]** 2026-11-08 주일 16:14~17:15 KST 접속·Realtime 오류(사용자 문의) — 원인은 심장박동 판정 버그:
+  profiles 배열 칸(`tab_order`·`notif_off`)을 `===`로 견줘 심장박동마다 접속자 전원이 워크스페이스 전체를 다시 읽었고(분당 최대 87번) Supabase
+  연결 풀이 바닥났다(PGRST003 · 504 약 2,760 · 522 약 580). 보완 다섯: ① 배열·객체는 내용으로 견준다 ② 남의 탭 차례·끈 알림만 바뀌면 재조회 안 함
+  ③ 전체 재조회 문 `services/reloadGate.js`(겹치지 않음 · 10초에 한 번까지) ④ 재접속 재조회 0~5초 흩음 ⑤ presence track 1초에 한 번.
+  검사 logcheck-live(넷 다 되돌려 실패 확인) · logcheck-dash · 빌드. 함정 PITFALLS 21-c(로그 보는 법도). **클라우드에서 볼 것**: 다음 주일 모임 시간에 오류가 없는지,
+  남이 프로젝트 이름을 바꾸면 10초 안에 따라오는지. Vercel Hobby는 함수 로그 30분·요청 로그 12시간만 남아 이번에는 Supabase 로그만으로 봤다.
 - **[2026-11-02 · main 반영 · 마이그레이션 없음]** 사용자 요청 둘: ① 업무 **수정 화면**에도 보기와 같은 줄 아래 카드(업무 · 유튜브 · 링크)를 세운다 —
   `MarkdownEditor cards`(업무 본문 두 편집기만 · 블록 뒤 ProseMirror 위젯이라 커서·저장 글에 안 낀다 · 카드는 `RichText LineCards` 한 벌) ·
   편집기의 `.tiptap a`·`.tiptap img` 규칙은 `.editor-line-cards` 안을 빼고 건다. ② **형광펜 안 @멘션**도 형광펜이 이어진다(`mark.app-hl .app-mention` 바탕 투명).
