@@ -417,6 +417,10 @@
     전체 재조회는 `services/reloadGate.js` 문을 지난다(겹치지 않음 · 10초에 한 번까지 · 재접속은 0~5초 흩음). presence `track`은 `sendMeta` 하나로(1초에 한 번).
     장애를 다시 볼 때: Supabase 로그는 `/v1/projects/{ref}/analytics/endpoints/logs`(옛 `logs.all`은 없어졌다 · 표는 `logs` 하나 · `source`로 가른다 ·
     하루까지만 남는다), Vercel Hobby는 함수 로그 30분 · 요청 로그 12시간만 남는다.
+    **토큰 만료**(같은 날 17:14 · 16:14에 한꺼번에 들어온 토큰이 1시간 뒤 만료 · DB가 느려 갱신이 끊김): 쓰기가 만료 토큰(401)·익명(0행 406)으로
+    거절되면 `cloud/core.withClockSkewRetry`가 세션을 **한 번** 갱신해 다시 보낸다(0행은 세션이 낡았을 때만 — 평소 0행은 '이미 지워진 것') ·
+    갱신도 안 되면 '로그인이 풀렸어요'. 업무 쓰기는 연달아 실패하면 `services/backoff.js`로 1→30초 물러난다(cloudSync `paced`).
+    세션 없이 읽은 `loadCloudState`는 던진다(익명으로 받은 빈 목록이 화면을 비우지 않게). 그날 로그 한 장: `node scripts/incident-logs.mjs <KST 시작> [끝]`.
 
 22. **스토어 히스토리는 최근 20개까지** — `LOAD_STATE`는 기록을 초기화하고 `SYNC_TASK`는 기록하지 않는다. `SYNC_TASK`는 카드 1건을 **병합**한다(`UPSERT_TASK`로 바꾸면 댓글·활동·첨부가 날아간다).
 23. **`store.canUndo()`를 렌더 중에 그냥 부르면 갱신되지 않는다** — `useCanUndo()`/`useCanRedo()`로 구독한다.

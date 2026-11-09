@@ -32,13 +32,44 @@ const isClockSkewError = (err) => {
 };
 export const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// 클라우드 호출을 감싸 시계 오차 오류에 한해 재시도 (최대 2회 추가 시도)
+// ── 토큰이 만료된 채 나간 쓰기 (2026-11-09 장애 보완 · §6-21-c) ─────────────────────────────
+// 2026-11-08 16:14에 한꺼번에 들어온 사람들의 토큰이 1시간 뒤 17:14에 만료됐는데, 그때 DB가 느려 갱신(/token)이 10초씩 걸리거나
+// 끊겼다. 그 사이 쓰기는 만료 토큰(401 · PGRST301 'JWT expired')이나 토큰 없이(익명 — RLS가 0행을 줘서 .single()이 PGRST116 · 406)
+// 나가 거절됐다. **한 번만** 세션을 갱신하고 다시 보낸다. 갱신해도 세션이 없으면 '로그인이 풀렸어요'(errorText의 PGRST301 문구)로 끝낸다.
+// 0행(PGRST116)은 지워진 행에도 나오므로 **세션이 낡았을 때만** 이 길로 본다 — 평소의 '이미 지워진 것 같아요'는 그대로다.
+const isAuthExpiredError = (err) => {
+  const msg = `${err?.message || ''} ${err?.details || ''}`.toLowerCase();
+  return err?.code === 'PGRST301' || Number(err?.status) === 401 || (msg.includes('jwt') && msg.includes('expired'));
+};
+const SESSION_MARGIN_MS = 5000;
+const sessionStale = async () => {
+  try {
+    const s = (await supabase?.auth.getSession())?.data?.session;
+    return !s || (s.expires_at ? s.expires_at * 1000 < Date.now() + SESSION_MARGIN_MS : false);
+  } catch { return true; }
+};
+// 여럿이 동시에 걸려도 갱신은 한 번(같은 약속을 나눠 기다린다)
+let refreshing = null;
+const refreshOnce = () => (refreshing ||= Promise.resolve(supabase?.auth.refreshSession())
+  .then(r => r?.data?.session || null, () => null)
+  .finally(() => { refreshing = null; }));
+const loginLost = (err) => Object.assign(err, { human: '로그인이 풀렸어요\n새로고침하고 다시 로그인해주세요' });
+
+// 클라우드 호출을 감싸 시계 오차 오류에 한해 재시도 (최대 2회 추가 시도) · 토큰 만료는 갱신 후 한 번
 export async function withClockSkewRetry(fn, { retries = 2, delay = 1500 } = {}) {
   let refreshed = false;
+  let authRetried = false;
   for (let attempt = 0; ; attempt++) {
     try {
       return await fn();
     } catch (err) {
+      if (!isClockSkewError(err) && !authRetried && supabase
+          && (isAuthExpiredError(err) || (err?.code === 'PGRST116' && await sessionStale()))) {
+        authRetried = true;
+        console.warn('[cloud] 토큰이 만료된 채 나간 요청 — 세션을 갱신하고 한 번 더 보낸다');
+        if (!(await refreshOnce())) throw loginLost(err);
+        continue;
+      }
       if (!isClockSkewError(err) || attempt >= retries) throw err;
       console.warn(`[cloud] JWT 시각 오차 감지 — ${delay}ms 후 재시도 (${attempt + 1}/${retries})`);
       if (!refreshed) {

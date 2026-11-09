@@ -35,6 +35,7 @@ const patched = readFileSync(SRC, 'utf8')
   // 휴지통 규칙(0104)도 순수 모듈 — 진짜 파일을 절대 경로로
   .replace(/from '\.\/trashItems\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'trashItems.js')).href}';`)
   .replace(/from '\.\/realtimeStatus\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'realtimeStatus.js')).href}';`)
+  .replace(/from '\.\/backoff\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'backoff.js')).href}';`)
   .replace(/import (\{[^}]*\}) from '\.\.\/utils\.js';/,
     (m, names) => `import ${names} from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'utils.js')).href}';`);
 

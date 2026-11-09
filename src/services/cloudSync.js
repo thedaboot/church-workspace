@@ -6,6 +6,7 @@ import { primeNotifOff } from './notifOff.js';
 import { withTeamLead } from './aiPeople.js';
 import { CONFIG } from '../config.js';
 import { reconnectWatcher } from './realtimeStatus.js';
+import { createFailBackoff } from './backoff.js';
 import { LEADERS, CUSTOM, isLeaderOnly, isCustomOnly, visibilityOf, visibleRecipients, leaderAudience } from './visibility.js';
 import { withSecret } from './cardLock.js';
 import { itemsFromRows } from './trashItems.js';
@@ -515,6 +516,9 @@ export async function loadCloudState() {
 
   // 가입 트리거가 프로필 행을 못 만든 경우 클라이언트가 직접 자기 행을 생성(자가 복구)
   let myProfile = initialProfile;
+  // **세션 없이 읽은 결과로 화면을 갈지 않는다**(2026-11-09 장애 보완 · §6-21-c) — 토큰 갱신이 끊기면 같은 순간의 조회는 익명으로 나가
+  // RLS가 빈 목록을 준다. 그걸 LOAD_STATE에 넣으면 워크스페이스가 통째로 빈다. 던지면 재조회는 옛 화면을 두고, 첫 로드는 오류 화면(다시 시도)이다.
+  if (!sessionRes?.session) throw Object.assign(new Error('세션 없이 읽었다'), { code: 'PGRST301', human: '로그인이 풀렸어요\n새로고침하고 다시 로그인해주세요' });
   const sessionUser = sessionRes?.user;
   if (!myProfile && sessionUser) {
     try {
@@ -770,6 +774,13 @@ const assigneeIdsOf = (names = []) => {
 // 새 업무의 첨부는 files.card_id가 cards를 참조하므로 **카드 행이 먼저 있어야** 한다.
 // 기다리지 않고 올리면 외래키 위반으로 첨부가 통째로 실패한다.
 const cardWrites = new Map();
+// 같은 업무의 쓰기가 연달아 실패하면 다음 쓰기는 물러나며 보낸다(services/backoff.js · 2026-11-09 장애 보완 · §6-21-c)
+const cardBackoff = createFailBackoff();
+const paced = async (id, run) => {
+  const ms = cardBackoff.wait(id);
+  if (ms) await cloud.sleep(ms);
+  try { const r = await run(); cardBackoff.ok(id); return r; } catch (e) { cardBackoff.fail(id); throw e; }
+};
 // 성공이면 true, 실패면 false로 끝난다 — 기다리는 쪽이 "카드가 저장되지 않았다"를
 // 자기 문구로 말할 수 있어야 한다(예전에는 첨부가 files_card_id_fkey 원문을 그대로 띄웠다).
 export function cardWritePromise(id) { return cardWrites.get(id) || Promise.resolve(true); }
@@ -795,7 +806,7 @@ export async function cardUpsertCloud(task, isNew, { changed = null, base = null
       }
       const teamIds = changed.includes('teams') ? (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean) : undefined;
       const assigneeIds = changed.includes('assignees') && profileIdToName.size ? assigneeIdsOf(task.assignees) : undefined;
-      return write(() => cloud.updateCard(task.id, patch, teamIds, assigneeIds));
+      return paced(task.id, () => write(() => cloud.updateCard(task.id, patch, teamIds, assigneeIds)));
     })();
     cardWrites.set(task.id, p.then(() => true, () => false));
     return p;
@@ -808,7 +819,7 @@ export async function cardUpsertCloud(task, isNew, { changed = null, base = null
   const assigneeIds = profileIdToName.size ? assigneeIdsOf(task.assignees) : undefined;
   const p = isNew
     ? write(() => cloud.createCard({ id: task.id, ...cardPatch(task) }, teamIds, assigneeIds))
-    : write(() => cloud.updateCard(task.id, cardPatch(task), teamIds, assigneeIds));
+    : paced(task.id, () => write(() => cloud.updateCard(task.id, cardPatch(task), teamIds, assigneeIds)));
   // 실패도 '끝남'으로 본다 — 기다리는 쪽(첨부 업로드)이 영영 매달리면 안 된다.
   // 카드가 없으면 업로드가 자기 오류로 실패하고 그 문구가 화면에 뜬다.
   cardWrites.set(task.id, p.then(() => true, () => false));

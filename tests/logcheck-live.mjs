@@ -1198,3 +1198,59 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.ok(/const wait = lastTrackAt \+ TRACK_GAP_MS - Date\.now\(\);/.test(prSrc) && /if \(!trackTimer\) trackTimer = setTimeout/.test(prSrc), '④ 1초 안의 두 번째는 끝에 한 번');
   console.log('PASS  2026-11-08 장애 보완(배열 칸 심장박동 · 남의 개인 칸은 재조회 안 함 · 재조회 문 10초 · 재접속 흩음 · presence 1초)');
 }
+
+
+// ── 2026-11-08 17:14 토큰 만료 뒤 거절된 쓰기 112번/분 보완 (2026-11-09) ─────────────────────────────
+// 16:14에 들어온 사람들의 토큰이 17:14에 만료됐는데 DB가 느려 갱신이 끊겼다 → 한 기기가 거절된 PATCH(406)를 1초에 23번까지 보냈다.
+// 되돌리기 검사(실제로 해 봤다): core의 PGRST116+세션 낡음 갈래를 빼면 ⑤가, backoff의 until을 0으로 두면 ⑥이,
+// loadCloudState의 세션 없음 던지기를 빼면 ⑦이 깨진다.
+{
+  // ⑤ 토큰 만료로 거절되면 세션을 한 번 갱신하고 한 번 더 보낸다 · 갱신도 안 되면 '로그인이 풀렸어요'
+  const coreSrc = readFileSync(new URL('../src/services/cloud/core.js', import.meta.url), 'utf8');
+  const from = coreSrc.indexOf('const isClockSkewError');
+  const to = coreSrc.indexOf('\n}\n', coreSrc.indexOf('export async function withClockSkewRetry')) + 3;
+  globalThis.__sb = {};
+  const { withClockSkewRetry } = await loadSource('src/services/cloud/core.js', { as: 'core-retry.mjs', src: [
+    'const supabase = globalThis.__sb;',
+    coreSrc.slice(from, to),
+  ].join('\n') });
+  let session = { expires_at: Math.floor(Date.now() / 1000) - 10 };   // 만료된 세션
+  let refreshes = 0, refreshTo = { expires_at: Math.floor(Date.now() / 1000) + 3600 };
+  globalThis.__sb.auth = {
+    getSession: async () => ({ data: { session } }),
+    refreshSession: async () => { refreshes++; session = refreshTo; return { data: { session: refreshTo } }; },
+  };
+  let calls = 0;
+  const noRows = Object.assign(new Error('0 rows'), { code: 'PGRST116' });
+  const r1 = await withClockSkewRetry(async () => { calls++; if (calls === 1) throw noRows; return 'ok'; });
+  assert.deepStrictEqual([r1, calls, refreshes], ['ok', 2, 1], '⑤ 세션이 낡은 채 0행이면 갱신하고 한 번 더 — 두 번째는 간다');
+  calls = 0;
+  const gone = await withClockSkewRetry(async () => { calls++; throw noRows; }).catch(e => e);
+  assert.deepStrictEqual([gone.code, calls, refreshes], ['PGRST116', 1, 1], '⑤ 세션이 멀쩡하면 0행은 그대로(이미 지워진 것) — 갱신하지 않는다');
+  calls = 0; session = null; refreshTo = null;
+  const lost = await withClockSkewRetry(async () => { calls++; throw Object.assign(new Error('JWT expired'), { code: 'PGRST301' }); }).catch(e => e);
+  assert.ok(calls === 1 && refreshes === 2 && /로그인이 풀렸어요/.test(lost.human || ''), '⑤ 갱신도 안 되면 다시 보내지 않고 로그인이 풀렸다고 끝낸다');
+  calls = 0; session = { expires_at: Math.floor(Date.now() / 1000) + 3600 }; refreshTo = session;
+  const twice = await withClockSkewRetry(async () => { calls++; throw Object.assign(new Error('x'), { status: 401 }); }).catch(e => e);
+  assert.strictEqual(calls, 2, '⑤ 갱신 뒤에도 거절되면 한 번에서 그친다(되풀이하지 않는다)');
+  void twice;
+
+  // ⑥ 같은 업무의 쓰기가 연달아 실패하면 물러나며 보낸다 · 성공하면 바로 푼다
+  const { createFailBackoff } = await loadSource('src/services/backoff.js');
+  let t = 0; const bo = createFailBackoff({ now: () => t });
+  assert.strictEqual(bo.wait('c'), 0, '⑥ 처음은 바로');
+  bo.fail('c'); assert.strictEqual(bo.wait('c'), 1000, '⑥ 한 번 실패하면 1초');
+  bo.fail('c'); bo.fail('c'); assert.strictEqual(bo.wait('c'), 4000, '⑥ 세 번이면 4초');
+  for (let i = 0; i < 10; i++) bo.fail('c');
+  assert.strictEqual(bo.wait('c'), 30000, '⑥ 최대 30초');
+  assert.strictEqual(bo.wait('other'), 0, '⑥ 다른 업무는 영향이 없다');
+  t += 30000; assert.strictEqual(bo.wait('c'), 0, '⑥ 시간이 지나면 바로');
+  bo.ok('c'); bo.fail('c'); assert.strictEqual(bo.wait('c'), 1000, '⑥ 성공하면 셈이 처음부터');
+  const syncSrc2 = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  assert.strictEqual((syncSrc2.match(/paced\(task\.id, \(\) => write\(\(\) => cloud\.updateCard\(/g) || []).length, 2, '⑥ 업무 쓰기 두 길(바뀐 칸 · 전부)이 다 물러나기를 지난다');
+
+  // ⑦ 세션 없이 읽은 결과로 화면을 갈지 않는다
+  assert.ok(/if \(!sessionRes\?\.session\) throw Object\.assign\(new Error\('세션 없이 읽었다'\), \{ code: 'PGRST301'/.test(syncSrc2)
+    && syncSrc2.indexOf("if (!sessionRes?.session) throw") < syncSrc2.indexOf('primeMaps(teams, profiles);'), '⑦ 세션이 없으면 맵·스토어를 고치기 전에 던진다');
+  console.log('PASS  토큰 만료 뒤 쓰기(한 번 갱신 후 다시 · 세션 멀쩡한 0행은 그대로 · 업무 쓰기 물러나기 1→30초 · 세션 없이 읽은 결과는 버림)');
+}
